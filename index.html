@@ -72,7 +72,12 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 .abtn{position:absolute;border-radius:50%;pointer-events:auto;touch-action:none;display:flex;
   align-items:center;justify-content:center;flex-direction:column;font-weight:bold;letter-spacing:.10em;
   color:#fff;text-shadow:0 2px 5px rgba(0,0,0,.7);border:calc(2px*var(--u)) solid rgba(255,255,255,.5);
-  box-shadow:0 5px 18px rgba(0,0,0,.55),inset 0 0 22px rgba(255,255,255,.12);cursor:pointer}
+  box-shadow:0 5px 18px rgba(0,0,0,.55),inset 0 0 22px rgba(255,255,255,.12);cursor:pointer;z-index:6;
+  -webkit-touch-callout:none}
+/* invisible hit pad: thumbs miss the visible disc far more often than they
+   miss the circle + 10px of padding */
+.abtn::after{content:'';position:absolute;inset:calc(-10px*var(--u)) calc(-6px*var(--u));
+  border-radius:50%}
 .abtn small{font-size:calc(8px*var(--u));letter-spacing:.04em;opacity:.8;font-weight:normal;margin-top:calc(2px*var(--u))}
 #btnAttack{right:calc(16px*var(--u) + var(--sa-r));bottom:calc(24px*var(--u) + var(--sa-b));width:calc(96px*var(--u));height:calc(96px*var(--u));
   font-size:calc(15px*var(--u));background:radial-gradient(circle at 38% 30%,#ff9a63,#b32624 75%);
@@ -54777,9 +54782,32 @@ const CFG = {
     brute:{hp:76, speed:2.35, dmg:18, radius:0.62, score:120},
     runner:{hp:42, speed:4.65, dmg:10, radius:0.40, score:100},
     ranger:{hp:38, speed:3.25, dmg:13, radius:0.42, score:160,
-            minRange:7, maxRange:11, volley:2.3, projSpeed:10.5, projR:0.38}
+            minRange:7, maxRange:11, volley:2.3, projSpeed:10.5, projR:0.38},
+    /* ---- wave additions: numbers below are the spec, not tuning knobs ----
+       soldier  : spear reach 2.2 m (brute needs 1.8), two sword hits to kill
+       archer   : fast, weak arrows; holds further back than the ranger
+       sorcerer : slow fragile caster, 0.95 s charge, 10 dmg + 1.5 m splash
+       knight   : armoured mini-boss, 5 sword hits, uninterruptible wind-up */
+    soldier:{hp:52,  speed:2.15, dmg:14, radius:0.46, score:110,
+             reach:2.2, arcDeg:110, tele:0.50, recovery:0.42, cd:0.55},
+    archer: {hp:34,  speed:3.55, dmg:8,  radius:0.40, score:150,
+             minRange:9, maxRange:13, volley:1.5, projSpeed:14.0, projR:0.30,
+             tele:0.42, recovery:0.38},
+    sorcerer:{hp:60, speed:2.10, dmg:10, radius:0.50, score:240,
+             minRange:8.5, maxRange:13.5, volley:3.6, projSpeed:7.5, projR:0.52,
+             splash:1.5, tele:0.95, recovery:0.55},
+    knight: {hp:168, speed:2.60, dmg:20, radius:0.66, score:320,
+             reach:2.0, arcDeg:120, tele:0.95, recovery:0.60, cd:0.70, poise:true}
   },
-  caps:{ enemies:8, rangers:3 },
+  caps:{ enemies:8, rangers:3, archers:2, sorcerers:1, knights:1 },
+  /* Wave director schedule: `from` gates first appearance, `cap` is the
+     per-type alive limit, `w` the fill weight once unlocked. The 8-alive
+     cap is global and applies to all seven kinds together. */
+  wave:{ soldier:{from:0,  cap:4, w:34},
+         archer: {from:30, cap:2, w:18},
+         sorcerer:{from:100,cap:1, w:0,  every:45},
+         knight: {from:130,cap:1, w:0,  every:35} },
+
   heal:{ chance:0.30, amount:20 },
   boss:{ hp:300, spawnMin:26, spawnMax:30, speed:7.4, chargeSpeed:16.0,
          chargeTele:0.7, chargeDur:0.55, chargeCd:3.0, chargeRange:6.5,
@@ -54980,7 +55008,8 @@ function newSim(seed){
     nextId:1, score:0, kills:0, level:1, xp:0, xpNeed:8,
     up:{edge:0,tempo:0,reach:0,boots:0,reflex:0,magnet:0,crit:0,siphon:0},
     choices:[], hitStop:0, spawnTimer:1.2, chapterClearTimer:0,
-    events:[], bossFirstHitTick:-1, bossSpawnTick:-1
+    events:[], bossFirstHitTick:-1, bossSpawnTick:-1,
+    knightNextAt:0, sorcererNextAt:0
   };
   s.map=buildMapData(1);
   return s;
@@ -55069,8 +55098,10 @@ function killEnemy(s,e){
 
 function damageEnemy(s,e,dmg,crit){
   if(e.dead)return;
-  // My hit CANCELS an enemy attack during its wind-up.
-  if(e.state==='telegraph'||e.state==='strike'){
+  // My hit CANCELS an enemy attack during its wind-up — except a knight, whose
+  // wind-up is unstoppable (the trade: it is longer and fully telegraphed).
+  const poise=CFG.enemy[e.type]&&CFG.enemy[e.type].poise;
+  if(!poise && (e.state==='telegraph'||e.state==='strike')){
     e.state='chase'; e.timer=0; e.cd=0.55; e.cancelFlash=1;
     emit('cancel',{x:e.x,z:e.z});
   }
@@ -55186,27 +55217,39 @@ function updateHero(s,inp,dt){
 
 function startTelegraph(e,kind){
   e.lockYaw=e.yaw;                    // FACING LOCKS at wind-up start
-  e.state='telegraph'; e.timer=CFG.enemy.telegraph; e.attackKind=kind;
+  const cfg=CFG.enemy[e.type];
+  e.state='telegraph'; e.timer=(cfg&&cfg.tele)||CFG.enemy.telegraph; e.attackKind=kind;
 }
 
 function strikeEnemy(s,e){
-  const C=CFG.enemy, h=s.hero;
+  const C=CFG.enemy, cfg=C[e.type], h=s.hero;
   if(e.attackKind==='cast'){
     const fx=Math.sin(e.lockYaw), fz=Math.cos(e.lockYaw);
-    s.projectiles.push({id:s.nextId++,x:e.x+fx*0.8,z:e.z+fz*0.8,
-      vx:fx*C.ranger.projSpeed,vz:fz*C.ranger.projSpeed,
-      life:2.6,dmg:C.ranger.dmg,r:C.ranger.projR});
-    emit('shot',{x:e.x,z:e.z});
+    if(cfg.splash){
+      /* SORCERER: the bolt is aimed at where the hero STOOD at cast time and
+         detonates there, so sidestepping beats it; standing near the landing
+         point still hurts (splash), and a roll still eats it. */
+      const dx=h.x-e.x, dz=h.z-e.z, m=Math.sqrt(dx*dx+dz*dz)||1;
+      s.projectiles.push({id:s.nextId++,unit:e.type,x:e.x+fx*0.8,z:e.z+fz*0.8,
+        vx:dx/m*cfg.projSpeed,vz:dz/m*cfg.projSpeed,tx:h.x,tz:h.z,lob:1,
+        life:3.2,dmg:cfg.dmg,r:cfg.projR,splash:cfg.splash});
+    }else{
+      s.projectiles.push({id:s.nextId++,unit:e.type,x:e.x+fx*0.8,z:e.z+fz*0.8,
+        vx:fx*cfg.projSpeed,vz:fz*cfg.projSpeed,
+        life:2.6,dmg:cfg.dmg,r:cfg.projR});
+    }
+    emit('shot',{x:e.x,z:e.z,unit:e.type});
     return;
   }
-  // melee: only lands within 1.8 m AND a 120-degree frontal arc AT STRIKE MOMENT
+  // melee: only lands within REACH and the frontal arc AT STRIKE MOMENT
+  const reach=cfg.reach||C.strikeRange, arcDeg=cfg.arcDeg||C.strikeArcDeg;
   const dx=h.x-e.x, dz=h.z-e.z, d=Math.sqrt(dx*dx+dz*dz);
   let landed=false;
-  if(d<=C.strikeRange){
+  if(d<=reach){
     const fx=Math.sin(e.lockYaw), fz=Math.cos(e.lockYaw);
-    if(d<0.001 || (dx*fx+dz*fz)/d>=Math.cos(C.strikeArcDeg*0.5*DEG))landed=true;
+    if(d<0.001 || (dx*fx+dz*fz)/d>=Math.cos(arcDeg*0.5*DEG))landed=true;
   }
-  if(landed)hurtHero(s,C[e.type].dmg,e.type);
+  if(landed)hurtHero(s,cfg.dmg,e.type);
   emit('enemyStrike',{x:e.x,z:e.z,landed,type:e.type});
 }
 
@@ -55214,6 +55257,7 @@ function updateEnemies(s,dt){
   const C=CFG.enemy, h=s.hero;
   for(let i=0;i<s.enemies.length;i++){
     const e=s.enemies[i]; if(e.dead)continue;
+    const cfg=C[e.type];
     e.hitFlash=Math.max(0,(e.hitFlash||0)-dt*4);
     e.cancelFlash=Math.max(0,(e.cancelFlash||0)-dt*3);
     e.cd=Math.max(0,(e.cd||0)-dt);
@@ -55221,28 +55265,29 @@ function updateEnemies(s,dt){
     let vx=0,vz=0;
     if(e.state==='chase'){
       e.yaw=Math.atan2(dx,dz);
-      if(e.type==='ranger'){
-        const R=C.ranger;
-        if(d<R.minRange){ vx=-dx/d*R.speed; vz=-dz/d*R.speed; }
-        else if(d>R.maxRange){ vx=dx/d*R.speed*0.85; vz=dz/d*R.speed*0.85; }
-        else { vx=-dz/d*R.speed*0.36; vz=dx/d*R.speed*0.36; }
-        if(e.cd<=0 && d<=R.maxRange+1.5)startTelegraph(e,'cast');
-      }else{
-        if(d>1.45){ vx=dx/d*C[e.type].speed; vz=dz/d*C[e.type].speed; }
-        if(d<=1.7 && e.cd<=0)startTelegraph(e,'melee');
+      if(cfg.minRange){                                   // archer / sorcerer / ranger
+        if(d<cfg.minRange){ vx=-dx/d*cfg.speed; vz=-dz/d*cfg.speed; }
+        else if(d>cfg.maxRange){ vx=dx/d*cfg.speed*0.85; vz=dz/d*cfg.speed*0.85; }
+        else { vx=-dz/d*cfg.speed*0.36; vz=dx/d*cfg.speed*0.36; }
+        if(e.cd<=0 && d<=cfg.maxRange+1.5)startTelegraph(e,'cast');
+      }else{                                              // melee, per-type reach
+        const reach=cfg.reach||C.strikeRange;
+        const stand=Math.max(1.45,reach-0.35);
+        if(d>stand){ vx=dx/d*cfg.speed; vz=dz/d*cfg.speed; }
+        if(d<=reach-0.1 && e.cd<=0)startTelegraph(e,'melee');
       }
     }else if(e.state==='telegraph'){
       e.timer-=dt;                                  // yaw stays locked
       if(e.timer<=0){ e.state='strike'; e.timer=0; }
     }else if(e.state==='strike'){
       strikeEnemy(s,e);
-      e.state='recovery'; e.timer=C.recovery;
+      e.state='recovery'; e.timer=cfg.recovery||C.recovery;
     }else if(e.state==='recovery'){
       e.timer-=dt;
-      if(e.timer<=0){ e.state='chase'; e.cd=e.type==='ranger'?C.ranger.volley*0.45:0.35; }
+      if(e.timer<=0){ e.state='chase'; e.cd=cfg.minRange?cfg.volley*0.45:0.35; }
     }
     e.vx=vx; e.vz=vz;
-    moveWithCollision(s,e,vx*dt,vz*dt,C[e.type].radius);
+    moveWithCollision(s,e,vx*dt,vz*dt,cfg.radius);
   }
   // compact dead bodies (views are driven by cosmetic events)
   if(s.enemies.some(e=>e.dead))s.enemies=s.enemies.filter(e=>!e.dead);
@@ -55254,9 +55299,24 @@ function updateProjectiles(s,dt){
     const p=s.projectiles[i];
     p.x+=p.vx*dt; p.z+=p.vz*dt; p.life-=dt;
     const dx=h.x-p.x, dz=h.z-p.z, rr=p.r+HERO_R;
-    if(dx*dx+dz*dz<=rr*rr){
-      if(h.invuln<=0){ hurtHero(s,p.dmg,'ranger'); emit('projHit',{x:p.x,z:p.z}); }
-      else emit('projDodged',{x:p.x,z:p.z});
+    let land=(dx*dx+dz*dz<=rr*rr);
+    if(!land && p.lob){
+      const gx=p.x-p.tx, gz=p.z-p.tz;
+      const step=Math.sqrt(p.vx*p.vx+p.vz*p.vz)*dt;
+      if(gx*gx+gz*gz<=step*step || p.life<=0){ p.x=p.tx; p.z=p.tz; land=true; }
+    }
+    if(land){
+      if(p.splash){
+        emit('projBlast',{x:p.x,z:p.z,r:p.splash});
+        const hd=Math.sqrt((h.x-p.x)*(h.x-p.x)+(h.z-p.z)*(h.z-p.z));
+        if(hd<=p.splash){
+          if(h.invuln<=0){ hurtHero(s,p.dmg,p.unit); emit('projHit',{x:h.x,z:h.z}); }
+          else emit('projDodged',{x:h.x,z:h.z});
+        }
+      }else{
+        if(h.invuln<=0){ hurtHero(s,p.dmg,p.unit); emit('projHit',{x:p.x,z:p.z}); }
+        else emit('projDodged',{x:p.x,z:p.z});
+      }
       continue;
     }
     if(p.life>0 && p.x*p.x+p.z*p.z<(ARENA_R+3)*(ARENA_R+3))out.push(p);
@@ -55376,16 +55436,48 @@ function collectPickups(s){
   s.heals=heals;
 }
 
+function aliveByType(s){
+  const m={};
+  for(let i=0;i<s.enemies.length;i++){ const e=s.enemies[i]; if(!e.dead)m[e.type]=(m[e.type]||0)+1; }
+  return m;
+}
 function spawnEnemy(s){
   const alive=s.enemies.filter(e=>!e.dead);
-  if(alive.length>=CFG.caps.enemies)return;
-  const rangers=alive.filter(e=>e.type==='ranger').length;
+  if(alive.length>=CFG.caps.enemies)return;          // ONE global 8-alive cap
+  const by=aliveByType(s);
   const elapsed=CFG.waveSeconds-s.waveLeft;
-  let type;
-  const roll=rnd(s);
-  if(rangers<CFG.caps.rangers && roll<0.24+elapsed*0.0006)type='ranger';
-  else if(roll<0.58)type='brute';
-  else type='runner';
+  const W=CFG.wave, CAP=CFG.caps;
+  const capOf=t=>{
+    if(t==='ranger')return CAP.rangers;
+    if(t==='archer')return CAP.archers;
+    if(t==='sorcerer')return CAP.sorcerers;
+    if(t==='knight')return CAP.knights;
+    return W[t]?W[t].cap:99;
+  };
+  let type=null;
+  /* ---- 1. scheduled elites: one at a time, on their own clock ---- */
+  if(elapsed>=W.knight.from && !(by.knight||0) && elapsed>=(s.knightNextAt||0)){
+    type='knight'; s.knightNextAt=elapsed+W.knight.every;
+  }else if(elapsed>=W.sorcerer.from && !(by.sorcerer||0) && elapsed>=(s.sorcererNextAt||0)){
+    type='sorcerer'; s.sorcererNextAt=elapsed+W.sorcerer.every;
+  }
+  /* ---- 2. weighted fill: only unlocked types, never over their cap ---- */
+  if(!type){
+    const pool=[];
+    const addT=(t,w)=>{ if((by[t]||0)>=capOf(t))return; pool.push({t,w}); };
+    addT('soldier', W.soldier.w);
+    addT('brute',   26);
+    addT('runner',  22);
+    addT('ranger',  18+elapsed*0.05);
+    if(elapsed>=W.archer.from)addT('archer', W.archer.w);
+    if(!pool.length)return;                        // every kind at its cap
+    let total=0; for(const p of pool)total+=p.w;
+    let roll=rnd(s)*total;
+    type=pool[pool.length-1].t;
+    for(const p of pool){ roll-=p.w; if(roll<0){ type=p.t; break; } }
+    /* The soldier opens the fight: the very first spawn is always one. */
+    if(s.kills===0 && elapsed<3 && !(by.soldier||0))type='soldier';
+  }
   const a=rnd(s)*TAU, rr=rndR(s,17,29);
   let x=s.hero.x+Math.sin(a)*rr, z=s.hero.z+Math.cos(a)*rr;
   const d=Math.sqrt(x*x+z*z);
@@ -55749,6 +55841,19 @@ const TINTS={
            skin:[0.72,0.86,0.40],blade:[0.52,0.58,0.50],dark:[0.09,0.13,0.11],glow:[0.55,0.82,0.42]},
   ranger: {armor:[0.30,0.15,0.47],trim:[0.18,0.09,0.30],cloth:[0.22,0.10,0.36],
            skin:[0.82,0.70,0.98],blade:[0.62,0.40,0.82],dark:[0.11,0.06,0.18],glow:[0.78,0.36,1.00]},
+  /* --- wave additions: kettle-helm soldier, hooded archer, robed caster, plate knight --- */
+  soldier:{armor:[0.200,0.205,0.215],trim:[0.330,0.345,0.365],cloth:[0.420,0.030,0.030],
+           skin:[0.960,0.780,0.160],blade:[0.520,0.560,0.600],dark:[0.080,0.080,0.090],
+           glow:[1.000,0.450,0.180]},
+  archer: {armor:[0.200,0.110,0.050],trim:[0.440,0.290,0.120],cloth:[0.090,0.215,0.110],
+           skin:[0.950,0.760,0.140],blade:[0.310,0.200,0.075],dark:[0.070,0.055,0.035],
+           glow:[0.300,0.900,0.350]},
+  sorcerer:{armor:[0.045,0.035,0.060],trim:[0.300,0.280,0.360],cloth:[0.120,0.060,0.220],
+           skin:[0.720,0.680,0.620],blade:[0.180,0.120,0.070],dark:[0.020,0.020,0.030],
+           glow:[0.650,0.300,1.000]},
+  knight: {armor:[0.300,0.320,0.350],trim:[0.620,0.420,0.100],cloth:[0.320,0.030,0.040],
+           skin:[0.920,0.750,0.150],blade:[0.700,0.740,0.800],dark:[0.090,0.090,0.100],
+           glow:[0.950,0.800,0.400]},
   /* boss = blackened plate with silver scrollwork, maroon cape, ember glow */
   boss:   {armor:[0.035,0.033,0.032],trim:[0.240,0.245,0.260],metal:[0.300,0.310,0.330],
            cloth:[0.170,0.015,0.020],skin:[0.900,0.680,0.100],blade:[0.025,0.025,0.030],
@@ -55958,6 +56063,127 @@ function rigParts(kind){
     return P;
   }
 
+  /* ---- shared brick body for every remaining kind ---- */
+  bodyParts(add,c,INK);
+
+  /* ---- classic loadout: round shield + short sword (brute/runner/ranger) ---- */
+  if(kind==='brute'||kind==='runner'||kind==='ranger'){
+    add(5,'box',[0.02,-0.10,0.14],[0.52,0.60,0.09],c.armor,[0.10,0,0]);
+    add(5,'box',[0.02,-0.10,0.20],[0.13,0.38,0.04],c.trim);
+    add(8,'cyl',[0,-0.02,0],[0.10,0.22,0.10],c.dark);
+    add(8,'box',[0,-0.16,0],[0.40,0.075,0.12],c.trim);
+    add(8,'box',[0,-0.44,0],[0.15,0.52,0.05],c.blade);
+    add(8,'cone',[0,-0.74,0],[0.15,0.12,0.05],c.blade,[Math.PI,0,0]);
+    add(8,'box',[0,-0.44,0.03],[0.04,0.50,0.012],c.glow);
+    return P;
+  }
+
+  /* ---- SOLDIER: kettle helm, chainmail, red scarf, spear + small shield ---- */
+  if(kind==='soldier'){
+    add(1,'box',[0, 0.300,0.232],[0.34,0.26,0.02],c.trim);      // chainmail print
+    add(1,'box',[0, 0.380,0.246],[0.34,0.03,0.02],c.dark);      // mail rows
+    add(1,'box',[0, 0.320,0.246],[0.34,0.03,0.02],c.dark);
+    add(1,'box',[0, 0.260,0.246],[0.34,0.03,0.02],c.dark);
+    add(1,'box',[0, 0.545,0],[0.88,0.10,0.50],c.cloth);         // red scarf
+    add(1,'box',[0, 0.30,-0.245],[0.24,0.42,0.05],c.cloth,[0.12,0,0]); // scarf tail
+    /* kettle helm: wide brim + low dome */
+    add(2,'cyl12',[0, 0.300,0],[0.70,0.17,0.70],c.trim);
+    add(2,'sph',[0, 0.395,0],[0.66,0.20,0.66],c.trim);
+    add(2,'cyl12',[0, 0.215,0],[0.84,0.045,0.84],c.trim);       // brim
+    add(2,'box',[0, 0.215,0.345],[0.55,0.04,0.05],c.trim);      // brim lip
+    /* spear in the right hand: butt near the floor, head above the shoulder */
+    add(8,'cyl',[0, 0.100,0],[0.055,1.70,0.055],c.blade);
+    add(8,'box',[0, 0.980,0],[0.14,0.06,0.06],c.dark);
+    add(8,'cone',[0, 1.090,0],[0.10,0.26,0.10],c.trim);
+    /* small round shield on the left hand */
+    add(5,'cyl12',[0.02,-0.115,0.150],[0.58,0.085,0.58],c.trim,[Math.PI/2,0,0]);
+    add(5,'cyl12',[0.02,-0.115,0.185],[0.50,0.085,0.50],c.armor,[Math.PI/2,0,0]);
+    add(5,'cyl12',[0.02,-0.115,0.230],[0.10,0.04,0.10],c.dark,[Math.PI/2,0,0]);
+    return P;
+  }
+
+  /* ---- ARCHER: hood, quiver, bow ---- */
+  if(kind==='archer'){
+    add(1,'box',[0, 0.300,0.232],[0.30,0.24,0.02],c.trim);      // leather chest
+    add(1,'box',[0, 0.360,0.246],[0.30,0.03,0.02],c.dark);
+    /* hood: shell over the skull, face left open */
+    add(2,'cyl12',[0, 0.330,0],[0.72,0.34,0.72],c.cloth);
+    add(2,'box',[0, 0.240,0.300],[0.64,0.06,0.12],c.cloth,[0.18,0,0]);  // brow
+    add(2,'box',[0, 0.180,-0.300],[0.62,0.42,0.20],c.cloth);            // cowl back
+    add(2,'cyl12',[ 0.335,0.110,0.030],[0.10,0.30,0.10],c.cloth);       // hood sides
+    add(2,'cyl12',[-0.335,0.110,0.030],[0.10,0.30,0.10],c.cloth);
+    /* quiver + arrows on the back */
+    add(1,'cyl12',[-0.18,0.360,-0.320],[0.16,0.62,0.16],c.blade,[0.22,0,0.18]);
+    add(1,'cyl',[-0.23,0.700,-0.400],[0.035,0.22,0.035],c.dark);
+    add(1,'cyl',[-0.18,0.700,-0.390],[0.035,0.22,0.035],c.dark);
+    add(1,'cyl',[-0.13,0.700,-0.380],[0.035,0.22,0.035],c.dark);
+    /* bow held out in the left hand */
+    add(5,'box',[0.02,-0.100,0.230],[0.05,0.66,0.05],c.blade);
+    add(5,'box',[0.02,0.245,0.265],[0.05,0.20,0.05],c.blade,[0.55,0,0]);
+    add(5,'box',[0.02,-0.445,0.265],[0.05,0.20,0.05],c.blade,[-0.55,0,0]);
+    add(5,'box',[0.02,-0.100,0.205],[0.02,0.70,0.012],c.trim);  // string
+    add(8,'cyl',[0,-0.030,0],[0.07,0.20,0.07],c.cloth);         // gloved grip hand
+    return P;
+  }
+
+  /* ---- SORCERER: pointed hat, robe, orb staff ---- */
+  if(kind==='sorcerer'){
+    add(1,'box',[0, 0.300,0.232],[0.30,0.24,0.02],c.trim);      // rune plate
+    add(1,'box',[0, 0.300,0.246],[0.10,0.16,0.02],c.glow);
+    /* robe: skirt over the hips and legs */
+    add(0,'box',[0, 0.010,0],[0.64,0.42,0.42],c.armor);
+    add(0,'box',[0,-0.300,0],[0.72,0.34,0.48],c.armor);
+    add(0,'box',[0,-0.470,0],[0.78,0.10,0.52],c.trim);          // hem
+    add(1,'box',[0, 0.300,-0.240],[0.30,0.50,0.05],c.armor,[0.10,0,0]); // cape
+    /* pointed hat */
+    add(2,'cyl12',[0, 0.245,0],[0.90,0.05,0.90],c.armor);       // brim
+    add(2,'cone',[0, 0.470,0],[0.62,0.52,0.62],c.armor,[0,0.25,0]);
+    add(2,'cyl12',[0, 0.285,0],[0.66,0.07,0.66],c.trim);        // hat band
+    /* orb staff in the right hand */
+    add(8,'cyl',[0, 0.050,0],[0.055,1.55,0.055],c.blade);
+    add(8,'cyl12',[0, 0.860,0],[0.12,0.10,0.12],c.trim);        // claw
+    add(8,'sph',[0, 1.010,0],[0.44,0.44,0.44],c.glow);          // orb
+    add(8,'box',[0, 1.010,0],[0.14,0.50,0.14],c.glow);          // glow core
+    return P;
+  }
+
+  /* ---- KNIGHT: great helm, plate, red crest, sword + heater shield ---- */
+  if(kind==='knight'){
+    add(1,'box',[0, 0.300,0.233],[0.34,0.30,0.02],c.cloth);     // tabard
+    add(1,'box',[0, 0.320,0.246],[0.14,0.14,0.02],c.trim);      // emblem
+    add(1,'box',[0, 0.545,0],[0.90,0.07,0.48],c.trim);          // gorget
+    /* great helm: box shell, visor slit, red crest */
+    add(2,'box',[0, 0.320,0.000],[0.74,0.44,0.74],c.armor);
+    add(2,'box',[0, 0.165,0.330],[0.56,0.055,0.06],c.dark);     // visor slit
+    add(2,'box',[0, 0.030,0.330],[0.30,0.035,0.04],c.dark);     // breath holes
+    add(2,'box',[0, 0.560,0.000],[0.10,0.34,0.52],c.cloth,[0.16,0,0]); // crest
+    add(2,'box',[0, 0.470,0.330],[0.12,0.10,0.05],c.trim);
+    /* pauldrons */
+    add(3,'cyl12',[0, 0.055,0],[0.42,0.16,0.42],c.armor);
+    add(6,'cyl12',[0, 0.055,0],[0.42,0.16,0.42],c.armor);
+    /* heater-ish shield on the left: steel rim + red face + emblem */
+    add(5,'cyl12',[0.03,-0.140,0.150],[0.78,0.10,0.78],c.trim,[Math.PI/2,0,0]);
+    add(5,'cyl12',[0.03,-0.140,0.195],[0.66,0.10,0.66],c.cloth,[Math.PI/2,0,0]);
+    add(5,'box',[0.03,-0.140,0.248],[0.16,0.16,0.02],c.trim,[0,0,0.79]);
+    add(5,'cyl12',[0.03,-0.140,0.252],[0.12,0.04,0.12],c.trim,[Math.PI/2,0,0]);
+    /* longsword in the right hand */
+    add(8,'cyl',[0,-0.030,0],[0.10,0.24,0.10],c.dark);
+    add(8,'cyl12',[0,-0.175,0],[0.11,0.05,0.11],c.trim);
+    add(8,'box',[0,-0.195,0],[0.46,0.070,0.13],c.trim);
+    add(8,'box',[0,-0.490,0],[0.17,0.56,0.05],c.blade);
+    add(8,'cone',[0,-0.810,0],[0.17,0.13,0.05],c.blade,[Math.PI,0,0]);
+    add(8,'box',[0,-0.490,0.028],[0.03,0.52,0.012],c.trim);
+    /* greaves */
+    add(10,'box',[0,-0.300,0.170],[0.26,0.14,0.03],c.trim);
+    add(12,'box',[0,-0.300,0.170],[0.26,0.14,0.03],c.trim);
+    return P;
+  }
+
+  return P;
+}
+
+/* The shared moulded body: pelvis, torso, head, C-clamp arms, brick legs. */
+function bodyParts(add,c,INK){
   /* ---- hips: moulded pelvis brick with two leg sockets ---- */
   add(0,'box',[0, 0.01,0],[0.58,0.22,0.34],c.armor);
   add(0,'box',[0,-0.12,0],[0.50,0.09,0.29],c.dark);
@@ -55980,26 +56206,19 @@ function rigParts(kind){
   add(2,'box',[-0.115,0.16,0.305],[0.075,0.075,0.03],INK);
   add(2,'box',[0, 0.035,0.305],[0.19,0.032,0.02],INK);        // mouth
 
-  /* ---- left arm: shoulder brick, C-clamp hand, round shield ---- */
+  /* ---- left arm: shoulder brick, C-clamp hand ---- */
   add(3,'cyl12',[0, 0.03,0],[0.34,0.20,0.34],c.armor);
   add(3,'box',[0,-0.20,0],[0.22,0.44,0.24],c.armor);
   add(4,'box',[0,-0.17,0],[0.20,0.34,0.22],c.armor);
   add(5,'cyl12',[0,-0.04,0],[0.26,0.12,0.26],c.skin,[Math.PI/2,0,0]);
   add(5,'box',[0,-0.12,0.05],[0.10,0.11,0.14],c.skin);        // fingers
-  add(5,'box',[0.02,-0.10,0.14],[0.52,0.60,0.09],c.armor,[0.10,0,0]);
-  add(5,'box',[0.02,-0.10,0.20],[0.13,0.38,0.04],c.trim);
 
-  /* ---- right arm: C-clamp hand holding a short sword ---- */
+  /* ---- right arm: shoulder brick, C-clamp hand ---- */
   add(6,'cyl12',[0, 0.03,0],[0.34,0.20,0.34],c.armor);
   add(6,'box',[0,-0.20,0],[0.22,0.44,0.24],c.armor);
   add(7,'box',[0,-0.17,0],[0.20,0.34,0.22],c.armor);
   add(8,'cyl12',[0,-0.04,0],[0.26,0.12,0.26],c.skin,[Math.PI/2,0,0]);
   add(8,'box',[0,-0.12,0.05],[0.10,0.11,0.14],c.skin);
-  add(8,'cyl',[0,-0.02,0],[0.10,0.22,0.10],c.dark);           // grip
-  add(8,'box',[0,-0.16,0],[0.40,0.075,0.12],c.trim);          // crossguard
-  add(8,'box',[0,-0.44,0],[0.15,0.52,0.05],c.blade);          // blade
-  add(8,'cone',[0,-0.74,0],[0.15,0.12,0.05],c.blade,[Math.PI,0,0]);
-  add(8,'box',[0,-0.44,0.03],[0.04,0.50,0.012],c.glow);
 
   /* ---- legs: brick thigh, shin and a flat moulded foot ---- */
   add(9, 'box',[0,-0.23,0],[0.30,0.50,0.34],c.armor);
@@ -56008,8 +56227,6 @@ function rigParts(kind){
   add(11,'box',[0,-0.23,0],[0.30,0.50,0.34],c.armor);
   add(12,'box',[0,-0.20,0],[0.27,0.42,0.31],c.dark);
   add(12,'box',[0,-0.42,0.09],[0.31,0.15,0.46],c.armor);
-
-  return P;
 }
 const RIG_GEO={};
 function rigGeometry(kind){
@@ -56140,6 +56357,10 @@ function makeView(kind,id){
   if(kind==='boss')mesh.scale.setScalar(1.65);
   else if(kind==='brute')mesh.scale.setScalar(1.18);
   else if(kind==='runner')mesh.scale.setScalar(0.90);
+  else if(kind==='knight')mesh.scale.setScalar(1.28);
+  else if(kind==='soldier')mesh.scale.setScalar(1.00);
+  else if(kind==='archer')mesh.scale.setScalar(0.95);
+  else if(kind==='sorcerer')mesh.scale.setScalar(1.02);
   scene.add(mesh);
   const v={kind,id,mesh,bones,baseScale:mesh.scale.x,
     anim:{cur:'idle',prev:null,t:0,prevT:0,blend:1,weightSum:1},lastClip:'idle'};
@@ -56172,7 +56393,7 @@ function clipFor(kind,st,speed){
   if(st==='attack'||st==='strike'||st==='slam')return 'attack';
   if(st==='hurt')return 'hurt';
   if(st==='dead')return 'death';
-  if(st==='telegraph')return kind==='ranger'?'cast':'telegraph';
+  if(st==='telegraph')return (kind==='ranger'||kind==='archer'||kind==='sorcerer')?'cast':'telegraph';
   if(st==='chargeTele')return 'charge';
   if(st==='charge')return 'run';
   if(st==='recovery'||st==='recover'||st==='slamTele')return 'telegraph';
@@ -56358,6 +56579,10 @@ function consumeEvents(){
       case 'gem': Audio.gem();break;
       case 'roll': Audio.whoosh(0.7); burst(e.x,0.30,e.z,[0.80,0.74,0.60],7,1.7); break;
       case 'shot': Audio.shot();burst(e.x,1.4,e.z,[.8,.4,1],8,2.0);break;
+      case 'projBlast': {
+        const r=e.r||1.5;
+        burst(e.x,0.9,e.z,[.75,.45,1],Math.round(10+r*6),2.4+r*1.6);
+        splatAt(e.x,e.z,'sorcerer');break; }
       case 'bossSpawn': Audio.boss();break;
       case 'bossCharge': Audio.whoosh(1.3);break;
       case 'bossSlam': burst(e.x,0.6,e.z,[1,.4,.15],22,5.5);break;
@@ -56506,35 +56731,79 @@ stickZone.addEventListener('pointercancel',stickEnd);
 stickZone.addEventListener('lostpointercapture',()=>{ if(UI.stickActive)resetTilt(); });
 
 /* ---------- ONE big ATTACK, ONE big ROLL ---------- */
-/* No setPointerCapture on the action buttons: on a phone two fingers press
-   ATTACK + ROLL at once, and capture retargets the second pointer to the
-   first element. A window-level pointerup releases everything instead. */
+/* Mobile hardening. Pointer events are the primary path, but some WebViews
+   only deliver touch/mouse events, a pointerup can be lost when the app
+   switcher steals the finger, and a very short tap can vanish between two
+   frames. Every path funnels into pressAction() with a duplicate guard, and
+   every release path clears the held state, so a button can neither double-
+   fire nor stay dead. */
 const BTN_PTR={btnAttack:new Set(),btnRoll:new Set()};
-function bindButton(id,isRoll){
-  const el=$(id),set=BTN_PTR[id];
-  el.addEventListener('pointerdown',e=>{
-    e.preventDefault();
-    // Register the press FIRST, before any cosmetic work, so a dropped audio
-    // context or a slow frame can never swallow the input.
-    set.add(e.pointerId);el.classList.add('press');
-    if(isRoll){UI.rollLatch=true;INPUT_LOG.rollPress++;}
-    else{UI.attack=true;UI.atkBuf=ATK_BUFFER;INPUT_LOG.attackPress++;}
-    if(e.pointerType==='touch')INPUT_LOG.touch++;
-    INPUT_LOG.pointerdown++;
-    Audio.init();
-  });
-  const up=e=>{e.preventDefault();INPUT_LOG.pointerup++;buttonRelease(id,e.pointerId);};
-  el.addEventListener('pointerup',up);
-  el.addEventListener('pointercancel',up);
+const BTN_LAST={btnAttack:-1e9,btnRoll:-1e9};
+const PTR_AT={btnAttack:-1e9,btnRoll:-1e9};   // last pointerdown per button
+let LAST_TOUCH=-1e9;
+function pressAction(id){
+  const now=performance.now();
+  if(now-BTN_LAST[id]<45)return;           // same physical tap seen twice
+  BTN_LAST[id]=now;
+  $(id).classList.add('press');
+  if(id==='btnRoll'){UI.rollLatch=true;INPUT_LOG.rollPress++;}
+  else{UI.attack=true;UI.atkBuf=ATK_BUFFER;INPUT_LOG.attackPress++;}
+  INPUT_LOG.pointerdown++;
+  Audio.init();
 }
-function buttonRelease(id,pid){
+function releaseAction(id,pid){
   const set=BTN_PTR[id];if(!set)return;
-  set.delete(pid);
+  if(pid!==undefined){ if(set.delete(pid))INPUT_LOG.pointerup++; }
   if(!set.size){$(id).classList.remove('press');if(id==='btnAttack')UI.attack=false;}
 }
-addEventListener('pointerup',e=>{buttonRelease('btnAttack',e.pointerId);buttonRelease('btnRoll',e.pointerId);});
-addEventListener('pointercancel',e=>{buttonRelease('btnAttack',e.pointerId);buttonRelease('btnRoll',e.pointerId);});
-bindButton('btnAttack',false); bindButton('btnRoll',true);
+function forceRelease(id){
+  BTN_PTR[id].clear();
+  $(id).classList.remove('press');
+  if(id==='btnAttack')UI.attack=false;
+}
+function bindButton(id){
+  const el=$(id),set=BTN_PTR[id];
+  const down=e=>{
+    if(e.type==='pointerdown'){
+      PTR_AT[id]=performance.now();
+    }else{
+      /* Browsers fire pointerdown BEFORE touchstart/mousedown for the same
+         finger; if the pointer path already took this gesture, every compat
+         event for it must be ignored or one tap becomes two swings. */
+      if(performance.now()-PTR_AT[id]<700)return;
+      if(e.type==='touchstart')LAST_TOUCH=performance.now();
+      if(e.type==='mousedown' && performance.now()-LAST_TOUCH<800)return;
+    }
+    if(e.cancelable)e.preventDefault();
+    if(e.pointerId!==undefined)set.add(e.pointerId);
+    if(e.pointerType==='touch')INPUT_LOG.touch++;
+    pressAction(id);
+  };
+  el.addEventListener('pointerdown',down);
+  el.addEventListener('touchstart',down,{passive:false});
+  el.addEventListener('mousedown',down);
+  // last-resort path for engines that only surface a click
+  el.addEventListener('click',e=>{
+    e.preventDefault();
+    if(performance.now()-PTR_AT[id]<700)return;
+    if(performance.now()-BTN_LAST[id]<700)return;
+    pressAction(id); releaseAction(id,'click');
+  });
+  const up=e=>{ if(e.cancelable)e.preventDefault(); releaseAction(id,e.pointerId); };
+  el.addEventListener('pointerup',up);
+  el.addEventListener('pointercancel',up);
+  el.addEventListener('touchend',up);
+  el.addEventListener('touchcancel',up);
+  el.addEventListener('mouseup',up);
+  el.addEventListener('mouseleave',up);
+}
+addEventListener('pointerup',e=>{releaseAction('btnAttack',e.pointerId);releaseAction('btnRoll',e.pointerId);});
+addEventListener('pointercancel',e=>{releaseAction('btnAttack',e.pointerId);releaseAction('btnRoll',e.pointerId);});
+/* All fingers up: no pointer can still be holding a button. */
+addEventListener('touchend',()=>{forceRelease('btnAttack');forceRelease('btnRoll');});
+addEventListener('touchcancel',()=>{forceRelease('btnAttack');forceRelease('btnRoll');});
+addEventListener('mouseup',()=>{forceRelease('btnAttack');forceRelease('btnRoll');});
+bindButton('btnAttack'); bindButton('btnRoll');
 
 /* ---------- fullscreen / mute ---------- */
 $('btnFs').addEventListener('pointerdown',e=>{
