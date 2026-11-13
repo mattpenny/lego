@@ -87,7 +87,7 @@ const CFG = {
   maxEntities:16,
   net:{ delay:6, checkpoint:600, stallMs:250,
         relay:'wss://dragon-alley-relay.ccac-church.workers.dev/ws',
-        build:'AB-NET-1', graceMs:60000 }
+        build:'AB-NET-2', graceMs:60000 }
 };
 
 /* ---- deterministic integer RNG (xorshift32). Sim owns ONE state. ---- */
@@ -111,15 +111,15 @@ function angDiff(a,b){ let d=(a-b)%TAU; if(d>Math.PI)d-=TAU; if(d<-Math.PI)d+=TA
    SIM state because colliders affect movement; render only READS it.
    ===================================================================== */
 const PALETTES = [
-  { name:'GRASSLAND', sky:0x7fa6c8, fog:0x86a488, ground:'#40672f', ground2:'#4d7436',
-    path:'#a8925f', pond:0x3f86a6, tree:0x2f6a32, trunk:0x5a432c, rock:0x77796e,
-    hill:0x5b6152, accent:0xffd98a, light:0xfff0d0, hemi:0xbcd8ff, amb:0.85 },
-  { name:'GRAVEYARD FOREST', sky:0x394a62, fog:0x3b4a4a, ground:'#28382f', ground2:'#314035',
-    path:'#6a6a61', pond:0x2f5f5c, tree:0x2b3a30, trunk:0x3b332c, rock:0x636b66,
-    hill:0x454c4a, accent:0xa8d8c8, light:0xbcd0ff, hemi:0x7f9bc0, amb:0.70 },
-  { name:'VOLCANO CASTLE', sky:0x542a2c, fog:0x5a3029, ground:'#2b2228', ground2:'#37282a',
-    path:'#4c3a34', pond:0xff5a1e, tree:0x3a2622, trunk:0x2c2020, rock:0x4a3a3a,
-    hill:0x3b2b2b, accent:0xff8a3c, light:0xffb070, hemi:0xa05a50, amb:0.72 }
+  { name:'GRASSLAND', sky:0x8ec7f0, fog:0xa4cda6, ground:'#4da337', ground2:'#66bb47',
+    path:'#c7ab6d', pond:0x2fa3dd, tree:0x35a047, trunk:0x7d5c39, rock:0x9aa294,
+    hill:0x86a374, accent:0xffd98a, light:0xfff0d0, hemi:0xbcd8ff, amb:1.02 },
+  { name:'GRAVEYARD FOREST', sky:0x5a7396, fog:0x64807a, ground:'#40604b', ground2:'#4f7358',
+    path:'#92927f', pond:0x43a89e, tree:0x406652, trunk:0x615244, rock:0x939e97,
+    hill:0x6d7d78, accent:0xc2ecdc, light:0xbcd0ff, hemi:0x9db9e2, amb:0.95 },
+  { name:'VOLCANO CASTLE', sky:0x7a3a30, fog:0x84452f, ground:'#4d3638', ground2:'#63453a',
+    path:'#7d5a44', pond:0xff7030, tree:0x5c3d2d, trunk:0x4d3630, rock:0x745854,
+    hill:0x654a3e, accent:0xffa657, light:0xffb070, hemi:0xc97f66, amb:0.92 }
 ];
 
 function buildMapData(chapter){
@@ -454,30 +454,42 @@ function castMagic(s,h){
   for(let i=0;i<s.enemies.length;i++){
     const e=s.enemies[i]; if(e.dead)continue;
     const rr=R+CFG.enemy[e.type].radius;
-    if(dist2(e.x,e.z,h.x,h.z)<=rr*rr)damageEnemy(s,e,CFG.magic.dmg,false);
+    if(dist2(e.x,e.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:e.x,z:e.z}); damageEnemy(s,e,CFG.magic.dmg,false); }
   }
   const b=s.boss;
   if(b&&b.hp>0){ const rr=R+CFG.boss.radius;
-    if(dist2(b.x,b.z,h.x,h.z)<=rr*rr)damageBoss(s,b,CFG.magic.dmg,false); }
+    if(dist2(b.x,b.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:b.x,z:b.z,boss:1}); damageBoss(s,b,CFG.magic.dmg,false); } }
   emit('magic',{x:h.x,z:h.z,r:R});
   addHitStop(s,CFG.magic.stopMs);
 }
 
 function doHeroHit(s,h,st){
   const fx=Math.sin(h.yaw), fz=Math.cos(h.yaw);
-  const cosHalf=Math.cos(st.arc*0.5);
+  const arcHalf=st.arc*0.5;
+  /* The arc test uses the enemy's BODY, not just its centre: a target is
+     hit when its body circle reaches into the swing sector. The centre
+     cone widens by the half-angle the body subtends, asin(r/d), and a
+     body in contact with the hero (d <= r + HERO_R) is point-blank and
+     always counts. There is no hero/enemy body collision, so enemies
+     routinely end up beside or inside the hero, where the old centre-only
+     test left a dead zone and very close enemies could not be hurt. */
+  const inArc=(dx,dz,d,r)=>{
+    if(d<=r+HERO_R)return true;
+    if(d<=0.001)return true;
+    return (dx*fx+dz*fz)/d >= Math.cos(arcHalf+Math.asin(Math.min(1,r/d)));
+  };
   for(let i=0;i<s.enemies.length;i++){
     const e=s.enemies[i]; if(e.dead)continue;
     const dx=e.x-h.x, dz=e.z-h.z, d=Math.sqrt(dx*dx+dz*dz);
     if(d>st.range+CFG.enemy[e.type].radius)continue;
-    if(d>0.001 && (dx*fx+dz*fz)/d < cosHalf)continue;
+    if(!inArc(dx,dz,d,CFG.enemy[e.type].radius))continue;
     const crit=rnd(s)<st.crit;
     damageEnemy(s,e,st.dmg*(crit?1.7:1),crit);
   }
   const b=s.boss;
   if(b && b.hp>0){
     const dx=b.x-h.x, dz=b.z-h.z, d=Math.sqrt(dx*dx+dz*dz);
-    if(d<=st.range+CFG.boss.radius && (d<0.001||(dx*fx+dz*fz)/d>=cosHalf)){
+    if(d<=st.range+CFG.boss.radius && inArc(dx,dz,d,CFG.boss.radius)){
       const crit=rnd(s)<st.crit;
       damageBoss(s,b,st.dmg*(crit?1.7:1),crit);
     }
@@ -994,7 +1006,7 @@ const scene = new T.Scene();
 const camera = new T.PerspectiveCamera(58,innerWidth/innerHeight,0.1,260);
 const hemi = new T.HemisphereLight(0xbcd8ff,0x30251f,1.0);
 const sun  = new T.DirectionalLight(0xfff0d0,1.25); sun.position.set(28,46,18);
-const amb  = new T.AmbientLight(0xffffff,0.22);
+const amb  = new T.AmbientLight(0xffffff,0.30);
 scene.add(hemi,sun,amb);
 
 const dummy = new T.Object3D();
@@ -1050,7 +1062,7 @@ function setSky(ch){
   scene.background=new T.Color(P.sky);
   scene.fog=new T.Fog(P.fog,48,150);
   hemi.color.setHex(P.hemi); hemi.intensity=P.amb;
-  sun.color.setHex(P.light); sun.intensity=ch===3?1.05:1.25;
+  sun.color.setHex(P.light); sun.intensity=ch===3?1.30:1.45;
   if(!skyMesh){
     const g=new T.SphereGeometry(190,16,12);
     const cols=[]; const pos=g.getAttribute('position');
@@ -1068,7 +1080,7 @@ function setSky(ch){
   for(let i=0;i<col.count;i++){
     const y=skyMesh.geometry.getAttribute('position').getY(i)/190;
     const t=clamp((y+0.25)/1.1,0,1);
-    col.setXYZ(i,lerp(low.r*0.55,top.r*0.42,t),lerp(low.g*0.55,top.g*0.42,t),lerp(low.b*0.55,top.b*0.42,t));
+    col.setXYZ(i,lerp(low.r*0.80,top.r*0.68,t),lerp(low.g*0.80,top.g*0.68,t),lerp(low.b*0.80,top.b*0.68,t));
   }
   col.needsUpdate=true;
 }
@@ -1111,7 +1123,7 @@ function buildMapMeshes(sim){
   pond.rotation.x=-Math.PI/2; pond.position.set(d.pond.x,0.015,d.pond.z);
   mapGroup.add(pond);
   const rim=new T.Mesh(new T.RingGeometry(d.pond.r,d.pond.r+0.35,28),
-    new T.MeshLambertMaterial({color:ch===3?0x3a2420:0x4a5140,side:T.DoubleSide}));
+    new T.MeshLambertMaterial({color:ch===3?0x57382f:0x68735c,side:T.DoubleSide}));
   rim.rotation.x=-Math.PI/2;rim.position.set(d.pond.x,0.02,d.pond.z);mapGroup.add(rim);
 
   const cTree=new T.Color(P.tree),cTrunk=new T.Color(P.trunk),
@@ -1127,7 +1139,7 @@ function buildMapMeshes(sim){
     // Canopy lifted so the hero can walk UNDER the leaves up to the trunk.
     o.position.set(p.x,(dead?3.4:4.4)*p.s,p.z);o.rotation.set(0,p.rot,0);
     o.scale.set((dead?1.5:2.5)*p.s,(dead?1.6:3.2)*p.s,(dead?1.5:2.5)*p.s);
-  },p=>p.kind===2?new T.Color(0x30201e):(p.kind===1?new T.Color(0x354034):cTree));
+  },p=>p.kind===2?new T.Color(0x4a322b):(p.kind===1?new T.Color(0x51654e):cTree));
   // rocks
   inst(new T.DodecahedronGeometry(0.5,0),MAT(0xffffff),d.rock,(o,p)=>{
     o.position.set(p.x,0.46*p.s,p.z);o.rotation.set(p.rot*0.2,p.rot,p.rot*0.3);
@@ -1139,16 +1151,16 @@ function buildMapMeshes(sim){
     o.scale.set(1.05*p.s,3.4*p.s,1.05*p.s);
   },()=>cRock);
   // fence posts + rails
-  inst(new T.BoxGeometry(1,1,1),MAT(ch===2?0x30363a:0x6a5236),d.post,(o,p)=>{
+  inst(new T.BoxGeometry(1,1,1),MAT(ch===2?0x49525a:0x8a6a44),d.post,(o,p)=>{
     o.position.set(p.x,0.55*p.s,p.z);o.rotation.set(0,p.rot,0);
     o.scale.set(0.18,1.1*p.s,0.18);
   });
-  inst(new T.BoxGeometry(1,1,1),MAT(ch===2?0x343a3e:0x70583a),d.post,(o,p)=>{
+  inst(new T.BoxGeometry(1,1,1),MAT(ch===2?0x4e585e:0x96754c),d.post,(o,p)=>{
     o.position.set(p.x,0.80*p.s,p.z);o.rotation.set(0,p.rot,0);
     o.scale.set(0.09,0.09,1.5);
   });
   // gravestones
-  inst(new T.BoxGeometry(1,1,1),MAT(0x737a74),d.stone,(o,p)=>{
+  inst(new T.BoxGeometry(1,1,1),MAT(0x99a29a),d.stone,(o,p)=>{
     o.position.set(p.x,0.42*p.s,p.z);o.rotation.set(0,p.rot,0);
     o.scale.set(0.62*p.s,0.85*p.s,0.17*p.s);
   });
@@ -1158,7 +1170,7 @@ function buildMapMeshes(sim){
     o.scale.set(p.s,p.s*1.35,p.s*0.85);
   },()=>cHill);
   // landmark blocks
-  inst(new T.BoxGeometry(1,1,1),MAT(ch===3?0x3a2b2c:0x6d6a5c),d.block,(o,p)=>{
+  inst(new T.BoxGeometry(1,1,1),MAT(ch===3?0x59423f:0x8f8a76),d.block,(o,p)=>{
     let sx=3,sy=7,sz=3,y=3.5;
     if(p.kind===1){sx=2.2;sy=2.0;sz=2.2;y=1.0;}
     if(p.kind===2){sx=5;sy=3.2;sz=4;y=1.6;}
@@ -1168,7 +1180,7 @@ function buildMapMeshes(sim){
     o.position.set(p.x,y,p.z);o.rotation.set(0,p.rot,0);o.scale.set(sx,sy,sz);
   });
   // torches / braziers
-  inst(new T.CylinderGeometry(0.5,0.5,1,6),MAT(0x3a2c26),d.torch,(o,p)=>{
+  inst(new T.CylinderGeometry(0.5,0.5,1,6),MAT(0x54443a),d.torch,(o,p)=>{
     o.position.set(p.x,0.8*p.s,p.z);o.rotation.set(0,0,0);o.scale.set(0.18,1.6*p.s,0.18);
   });
   inst(new T.SphereGeometry(0.5,7,5),
@@ -1181,7 +1193,7 @@ function buildMapMeshes(sim){
     o.position.set(p.x,0.03,p.z);o.rotation.set(-Math.PI/2,0,p.rot);o.scale.setScalar(p.s);
   });
   // pond reeds
-  inst(new T.ConeGeometry(0.5,1,5),MAT(ch===1?0x4b7a3c:0x4a5a48),d.reeds,(o,p)=>{
+  inst(new T.ConeGeometry(0.5,1,5),MAT(ch===1?0x5f9c4a:0x64766b),d.reeds,(o,p)=>{
     o.position.set(p.x,0.42*p.s,p.z);o.rotation.set(0,p.rot,0);o.scale.set(0.25,0.9*p.s,0.25);
   });
 }
@@ -1212,30 +1224,30 @@ const ORIG=[]; JOINTS.forEach((j,i)=>{const b=j.p>=0?ORIG[j.p]:[0,0,0];
    (classic ABS yellow for the hero) plus its own torso/leg plastic colour. */
 const TINTS={
   /* hero = classic blue lion knight */
-  hero:   {armor:[0.035,0.115,0.440],trim:[0.780,0.470,0.060],metal:[0.520,0.560,0.610],
+  hero:   {armor:[0.055,0.165,0.575],trim:[0.780,0.470,0.060],metal:[0.520,0.560,0.610],
            cloth:[0.440,0.030,0.030],skin:[0.960,0.760,0.180],blade:[0.720,0.760,0.840],
            dark:[0.090,0.100,0.130],glow:[0.380,0.750,1.000]},
   /* elite knight — plate + crest */
-  knight: {armor:[0.330,0.350,0.380],trim:[0.700,0.480,0.090],cloth:[0.360,0.035,0.040],
+  knight: {armor:[0.460,0.480,0.520],trim:[0.700,0.480,0.090],cloth:[0.360,0.035,0.040],
            skin:[0.940,0.750,0.160],blade:[0.760,0.800,0.860],dark:[0.090,0.090,0.100],
            glow:[0.960,0.820,0.420]},
   /* soldier — kettle helm + chainmail */
-  soldier:{armor:[0.180,0.190,0.200],trim:[0.380,0.400,0.420],cloth:[0.480,0.030,0.030],
+  soldier:{armor:[0.315,0.330,0.345],trim:[0.550,0.575,0.600],cloth:[0.480,0.030,0.030],
            skin:[0.960,0.780,0.160],blade:[0.540,0.580,0.620],dark:[0.070,0.070,0.080],
            glow:[1.000,0.460,0.180]},
-  brute:  {armor:[0.380,0.140,0.100],trim:[0.230,0.090,0.070],cloth:[0.290,0.110,0.080],
+  brute:  {armor:[0.520,0.210,0.140],trim:[0.340,0.140,0.100],cloth:[0.420,0.170,0.120],
            skin:[0.930,0.580,0.170],blade:[0.500,0.280,0.220],dark:[0.140,0.070,0.060],glow:[0.880,0.260,0.130]},
-  runner: {armor:[0.230,0.330,0.270],trim:[0.160,0.220,0.180],cloth:[0.180,0.250,0.210],
+  runner: {armor:[0.330,0.460,0.370],trim:[0.160,0.220,0.180],cloth:[0.270,0.360,0.300],
            skin:[0.740,0.880,0.420],blade:[0.540,0.600,0.520],dark:[0.090,0.130,0.110],glow:[0.580,0.850,0.440]},
-  ranger: {armor:[0.310,0.160,0.490],trim:[0.190,0.100,0.310],cloth:[0.230,0.110,0.370],
+  ranger: {armor:[0.440,0.240,0.650],trim:[0.190,0.100,0.310],cloth:[0.340,0.180,0.520],
            skin:[0.840,0.720,1.000],blade:[0.640,0.420,0.840],dark:[0.110,0.060,0.180],glow:[0.820,0.380,1.000]},
-  archer: {armor:[0.210,0.120,0.060],trim:[0.460,0.310,0.130],cloth:[0.100,0.230,0.120],
+  archer: {armor:[0.340,0.200,0.100],trim:[0.460,0.310,0.130],cloth:[0.170,0.360,0.190],
            skin:[0.960,0.770,0.150],blade:[0.330,0.210,0.080],dark:[0.070,0.055,0.035],glow:[0.320,0.920,0.370]},
-  sorcerer:{armor:[0.050,0.040,0.070],trim:[0.320,0.300,0.390],cloth:[0.140,0.070,0.250],
+  sorcerer:{armor:[0.140,0.110,0.210],trim:[0.440,0.420,0.550],cloth:[0.240,0.130,0.420],
            skin:[0.740,0.700,0.640],blade:[0.200,0.140,0.080],dark:[0.020,0.020,0.030],glow:[0.680,0.320,1.000]},
   /* boss = blackened plate + ember glow */
-  boss:   {armor:[0.040,0.038,0.036],trim:[0.260,0.265,0.280],metal:[0.320,0.330,0.350],
-           cloth:[0.190,0.020,0.025],skin:[0.920,0.700,0.120],blade:[0.030,0.030,0.035],
+  boss:   {armor:[0.095,0.090,0.086],trim:[0.380,0.385,0.400],metal:[0.440,0.455,0.480],
+           cloth:[0.280,0.035,0.040],skin:[0.920,0.700,0.120],blade:[0.110,0.110,0.120],
            dark:[0.010,0.010,0.015],glow:[0.980,0.220,0.060]}
 };
 const GEO_CACHE={};
@@ -1824,17 +1836,61 @@ function syncViews(s,dt){
 
 /* ---------- gems / heal orbs / projectiles (cosmetic instancing) ---------- */
 let gemMesh=null,healMesh=null,projMesh=null,shadowMesh=null,potionMesh=null;
+/* LEGO-brick pickups: merged box/cylinder parts with per-vertex colours,
+   so each pickup type stays ONE instanced draw call. Rectangular body,
+   four raised studs, and an emblem on the top face — white cross for
+   health, pale 4-point star for magic — readable at gameplay distance. */
+function mergeParts(parts){
+  const pos=[],nor=[],col=[],idx=[];
+  const m4=new T.Matrix4(), r4=new T.Matrix4(), v=new T.Vector3();
+  for(const p of parts){
+    const g=p.geo, base=pos.length/3;
+    r4.makeRotationY(p.ry||0);
+    m4.copy(r4); m4.setPosition(p.x||0,p.y||0,p.z||0);
+    const pa=g.getAttribute('position'), na=g.getAttribute('normal');
+    for(let i=0;i<pa.count;i++){
+      v.fromBufferAttribute(pa,i).applyMatrix4(m4); pos.push(v.x,v.y,v.z);
+      v.fromBufferAttribute(na,i).applyMatrix4(r4).normalize(); nor.push(v.x,v.y,v.z);
+      col.push(p.c[0],p.c[1],p.c[2]);
+    }
+    const ia=g.getIndex();
+    for(let i=0;i<ia.count;i++)idx.push(base+ia.getX(i));
+  }
+  const out=new T.BufferGeometry();
+  out.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  out.setAttribute('normal',new T.Float32BufferAttribute(nor,3));
+  out.setAttribute('color',new T.Float32BufferAttribute(col,3));
+  out.setIndex(idx);
+  return out;
+}
+function brickGeo(kind){
+  const heal=kind==='heal';
+  const body=heal?[0.80,0.07,0.08]:[0.40,0.17,0.88];
+  const stud=heal?[0.88,0.13,0.14]:[0.54,0.32,0.98];
+  const emb =heal?[0.96,0.96,0.96]:[0.88,0.94,1.00];
+  const parts=[{geo:new T.BoxGeometry(0.68,0.30,0.52),x:0,y:0,z:0,c:body}];
+  for(const sx of [-0.19,0.19])for(const sz of [-0.15,0.15])
+    parts.push({geo:new T.CylinderGeometry(0.08,0.08,0.09,10),x:sx,y:0.195,z:sz,c:stud});
+  if(heal){
+    parts.push({geo:new T.BoxGeometry(0.14,0.03,0.40),x:0,y:0.165,z:0,c:emb});
+    parts.push({geo:new T.BoxGeometry(0.52,0.03,0.14),x:0,y:0.165,z:0,c:emb});
+  }else{
+    parts.push({geo:new T.BoxGeometry(0.42,0.03,0.13),x:0,y:0.165,z:0,ry: Math.PI/4,c:emb});
+    parts.push({geo:new T.BoxGeometry(0.42,0.03,0.13),x:0,y:0.165,z:0,ry:-Math.PI/4,c:emb});
+  }
+  return mergeParts(parts);
+}
 function setupPickupMeshes(){
   gemMesh=new T.InstancedMesh(new T.DodecahedronGeometry(0.24,0),
     new T.MeshLambertMaterial({color:0x49c8ff,emissive:0x0d4c78}),64);
-  healMesh=new T.InstancedMesh(new T.SphereGeometry(0.26,8,6),
-    new T.MeshLambertMaterial({color:0x55e08a,emissive:0x0f5c2a}),32);
+  healMesh=new T.InstancedMesh(brickGeo('heal'),
+    new T.MeshLambertMaterial({vertexColors:true,emissive:0x2a0508}),32);
   projMesh=new T.InstancedMesh(new T.SphereGeometry(0.34,8,6),
     new T.MeshBasicMaterial({color:0xc46bff}),24);
   shadowMesh=new T.InstancedMesh(new T.CircleGeometry(1,14),
     new T.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.28,depthWrite:false}),CFG.maxEntities);
-  potionMesh=new T.InstancedMesh(new T.DodecahedronGeometry(0.30),
-    new T.MeshLambertMaterial({color:0xc46bff,emissive:0x3d1160}),16);
+  potionMesh=new T.InstancedMesh(brickGeo('magic'),
+    new T.MeshLambertMaterial({vertexColors:true,emissive:0x120a2e}),16);
   for(const m of [gemMesh,healMesh,projMesh,shadowMesh,potionMesh]){m.frustumCulled=false;m.count=0;scene.add(m);}
 }
 function updatePickupMeshes(s,time){
@@ -1903,6 +1959,7 @@ function setupVFX(){
   splatMesh.frustumCulled=false;splatMesh.count=0;scene.add(splatMesh);
   for(let i=0;i<48;i++)splatMesh.setColorAt(i,_splatCol.setRGB(1,1,1));
   setupSlashFX();
+  setupBolts();
 }
 function burst(x,y,z,color,n,power){
   for(let i=0;i<n;i++){
@@ -2010,18 +2067,20 @@ function splatAtlasTex(){
   }
   return new T.CanvasTexture(cv);
 }
-/* Crescent swoosh: tapered arc band built in the XZ plane, facing +Z.
-   3 rows (white core -> pale cyan rim) so one additive InstancedMesh with
-   per-instance brightness does the whole effect in a single draw call. */
+/* Slash edge: a SLIM luminous arc line (no filled crescent surface)
+   built in the XZ plane, facing +Z. 3 rows (dim rim -> bright core ->
+   dim rim) so one additive InstancedMesh with per-instance brightness
+   does the whole effect in a single draw call. Visual only — the sim's
+   hit test never reads this geometry. */
 function crescentGeo(){
-  const SEG=26, SPAN=100*DEG, RC=2.18, HW=0.40;
+  const SEG=26, SPAN=96*DEG, RC=2.02, HW=0.055;
   const pos=[], col=[], idx=[];
   for(let i=0;i<=SEG;i++){
     const u=i/SEG, a=(u-0.5)*SPAN, w=Math.pow(Math.sin(Math.PI*u),0.6);
     const sa=Math.sin(a), ca=Math.cos(a);
     const rI=RC-HW*w, rM=RC, rO=RC+HW*w;
     pos.push(sa*rI,0,ca*rI, sa*rM,0,ca*rM, sa*rO,0,ca*rO);
-    col.push(0.80,0.88,1.0, 0.55,0.70,1.0, 0.22,0.42,0.85);
+    col.push(0.30,0.42,0.66, 0.92,0.97,1.0, 0.30,0.42,0.66);
   }
   for(let i=0;i<SEG;i++){ const b=i*3;
     idx.push(b,b+3,b+1, b+1,b+3,b+4, b+1,b+4,b+2, b+2,b+4,b+5); }
@@ -2102,11 +2161,11 @@ function updateSlashFX(s,dt){
       const t=sl.age, q=clamp(t/0.30,0,1), qe=1-(1-q)*(1-q);
       const sweep=sl.dir*(0.92-1.84*qe);              // +53 deg -> -53 deg
       sl.b=0;
-      if(t>0.03)sl.b=0.42*Math.min(1,(t-0.03)/0.10);  // peak covers hitAt 0.25 s
-      if(t>0.27)sl.b=0.42*Math.max(0,1-(t-0.27)/0.20);
+      if(t>0.03)sl.b=0.50*Math.min(1,(t-0.03)/0.10);  // peak covers hitAt 0.25 s
+      if(t>0.27)sl.b=0.50*Math.max(0,1-(t-0.27)/0.20);
       slashDummy.position.set(h.x,1.06,h.z);
       slashDummy.rotation.set(0,sl.yaw+sweep,sl.dir*0.30);
-      const sc=0.88+0.20*qe; slashDummy.scale.set(sc,1,sc);
+      const sc=0.92+0.14*qe; slashDummy.scale.set(sc,1,sc);
     }
     slashDummy.updateMatrix();
     slashMesh.setMatrixAt(i,slashDummy.matrix);
@@ -2125,7 +2184,7 @@ function updateSlashFX(s,dt){
     bone.getWorldPosition(_baseV);
     _dirV.copy(_tipV).sub(_baseV);
     const L=_dirV.length()||1; _dirV.divideScalar(L);
-    _innV.copy(_tipV).addScaledVector(_dirV,-Math.min(0.55,L*0.6));
+    _innV.copy(_tipV).addScaledVector(_dirV,-Math.min(0.40,L*0.45));
     const last=trailPts[trailPts.length-1];
     if(last){
       for(let j=1;j<=3;j++){
@@ -2146,12 +2205,78 @@ function updateSlashFX(s,dt){
     trailPos[i*6+3]=p?p.inn.x:0; trailPos[i*6+4]=p?p.inn.y:-50; trailPos[i*6+5]=p?p.inn.z:0;
     let b=0;
     if(n>1)b=Math.pow(Math.min(i,n-1)/(n-1),1.5)*trailFade;
-    trailCol[i*6]=b*0.90; trailCol[i*6+1]=b*0.97; trailCol[i*6+2]=b;
-    trailCol[i*6+3]=b*0.22; trailCol[i*6+4]=b*0.30; trailCol[i*6+5]=b*0.45;
+    trailCol[i*6]=b*0.50; trailCol[i*6+1]=b*0.58; trailCol[i*6+2]=b*0.66;
+    trailCol[i*6+3]=b*0.13; trailCol[i*6+4]=b*0.18; trailCol[i*6+5]=b*0.28;
   }
   trailMesh.geometry.getAttribute('position').needsUpdate=true;
   trailMesh.geometry.getAttribute('color').needsUpdate=true;
   trailMesh.visible=trailPts.length>0;
+}
+
+/* ---------- magic lightning (cosmetic only) ----------
+   Pooled jagged bolts that drop out of the sky onto every target a magic
+   cast actually hit. Driven by the sim's 'bolt' events, which both co-op
+   clients emit identically because they run the same deterministic sim —
+   so a guest's cast strikes the same targets on the host's screen too.
+   Each bolt is ONE mesh (crossed jagged ribbons, bright core + violet
+   sheath, pre-generated geometry variants); the pool is invisible and
+   costs no draw calls between casts. */
+const BOLT_POOL=12, BOLT_LIFE=0.24;
+let boltMeshes=[], boltState=[];
+function boltGeo(variant){
+  const SEG=6, pos=[], col=[], idx=[];
+  const R=mkRng(0xB017+variant*77);
+  const pts=[[0,8.4,0]];
+  for(let i=1;i<SEG;i++){
+    const t=i/SEG;
+    pts.push([(R()-0.5)*1.15*(1-t*0.75), 8.4-7.3*t, (R()-0.5)*1.15*(1-t*0.75)]);
+  }
+  pts.push([0,1.1,0]);
+  for(const pa of [0,Math.PI/2]){
+    const ca=Math.cos(pa), sa=Math.sin(pa), base=pos.length/3;
+    for(let i=0;i<pts.length;i++){
+      const p=pts[i], t=i/(pts.length-1), w=0.17*(1-t*0.55), wc=w*0.38;
+      pos.push(p[0]-ca*w,p[1],p[2]-sa*w, p[0]+ca*w,p[1],p[2]+sa*w);
+      col.push(0.45,0.38,1.00, 0.45,0.38,1.00);
+      pos.push(p[0]-ca*wc,p[1],p[2]-sa*wc, p[0]+ca*wc,p[1],p[2]+sa*wc);
+      col.push(0.93,0.96,1.00, 0.93,0.96,1.00);
+      if(i>0){ const q=base+(i-1)*4;
+        idx.push(q,q+4,q+1, q+1,q+4,q+5, q+2,q+6,q+3, q+3,q+6,q+7); }
+    }
+  }
+  const g=new T.BufferGeometry();
+  g.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  g.setAttribute('color',new T.Float32BufferAttribute(col,3));
+  g.setIndex(idx);
+  return g;
+}
+function setupBolts(){
+  for(let i=0;i<BOLT_POOL;i++){
+    const m=new T.Mesh(boltGeo(i%4),
+      new T.MeshBasicMaterial({vertexColors:true,transparent:true,opacity:0,
+        blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide,fog:false}));
+    m.frustumCulled=false; m.visible=false; scene.add(m);
+    boltMeshes.push(m); boltState.push({t:9});
+  }
+}
+function fireBolt(x,z,big){
+  let idx=boltState.findIndex(b=>b.t>=BOLT_LIFE);
+  if(idx<0)idx=0;
+  boltState[idx].t=0;
+  const m=boltMeshes[idx];
+  m.position.set(x,0,z); m.rotation.y=CRNG()*Math.PI;
+  m.scale.setScalar(big?1.45:1);
+  m.visible=true;
+}
+function updateBolts(dt){
+  for(let i=0;i<BOLT_POOL;i++){
+    const sl=boltState[i];
+    if(sl.t>=BOLT_LIFE){ boltMeshes[i].visible=false; continue; }
+    sl.t+=dt;
+    const u=Math.min(1,sl.t/BOLT_LIFE);
+    boltMeshes[i].material.opacity=0.92*(u<0.16?u/0.16:Math.max(0,1-(u-0.16)/0.84));
+    boltMeshes[i].visible=sl.t<BOLT_LIFE;
+  }
 }
 
 function consumeEvents(){
@@ -2191,6 +2316,7 @@ function consumeEvents(){
       case 'enrage': showBanner('\u2620 THE WARDEN RAGES \u2620',2600); Audio.boss(); break;
       case 'summon': burst(e.x,1.6,e.z,[1,.5,.2],18,4.0); break;
       case 'potion': damageNumber(e.x,1.5,e.z,'+MAGIC',false); burst(e.x,1,e.z,[.77,.42,1],10,2.2); Audio.gem(); break;
+      case 'bolt': fireBolt(e.x,e.z,e.boss); burst(e.x,1.15,e.z,[.72,.62,1],10,2.8); break;
       case 'magic': { burst(e.x,1.2,e.z,[.77,.42,1],46,7.0); burst(e.x,0.5,e.z,[.9,.7,1],30,9.0);
         const fl=$('flash'); fl.style.transition='none'; fl.style.opacity='0.5';
         requestAnimationFrame(()=>{ fl.style.transition='opacity .45s'; fl.style.opacity='0'; });
@@ -3199,6 +3325,7 @@ function frame(now){
   if(s.chapter!==lastChapter){lastChapter=s.chapter;buildMapMeshes(s);}
   syncViews(s,dt);
   updateSlashFX(s,dt);
+  updateBolts(dt);
   updatePickupMeshes(s,RTIME);
   updateVFX(dt,RTIME);
   Audio.setIntensity(Math.min(1,s.enemies.length/7+(s.boss?0.55:0)+s.chapter*0.05));
