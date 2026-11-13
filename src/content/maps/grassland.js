@@ -9,6 +9,7 @@ export const grassland = {
     ground: '#4da337', ground2: '#66bb47', path: '#c7ab6d',
     pond: 0x2fa3dd, tree: 0x35a047, trunk: 0x7d5c39, rock: 0x9aa294,
     hill: 0x86a374, accent: 0xffd98a, light: 0xfff0d0, hemi: 0xbcd8ff, amb: 1.02,
+    texStyle: 'grass', sunIntensity: 1.45, lavaWater: false,
   },
   map: {
     seed: 17620,                 // 9701 + chapter*7919

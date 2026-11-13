@@ -627,3 +627,73 @@ ordered this visibility change; the delta is recorded here and in
 PLAN.md rather than silently tuned away. If he wants Chapter 1 softer,
 the lever is the `map.fill` table in `grassland.js` (lower the early
 trio's weights first).
+
+## 9. Chapters 4–6 and placeholder bosses (AB-NET-11)
+
+The campaign is **six chapters**: 4 FROSTFALL GLACIER, 5 EMBER CALDERA,
+6 DARK AGE SIEGE, adopted as data from Matt's maps handoff (2026-11-14).
+VICTORY now requires the chapter 6 boss kill. Everything chapter-counted
+is DERIVED: `CHAPTER_COUNT = MAP_CONFIGS.length` in game.js drives
+progression, the clear/victory overlays, armoury stars and the
+`__GAME.setChapter` clamp — there is no hard-coded `3` left. Adding a
+chapter is still one descriptor file + one registry line + one boss.
+
+New descriptor surface the renderer consumes (all validated in
+content:check's refs gate):
+- `map.landmarkBlocks[]` — explicit set-piece blocks RELATIVE to
+  `map.landmark`; when present it replaces the legacy
+  windmill|crypt|keep branch. Colliders come from the SOLID PROPS pass
+  (BLOCK_R, extended to 11 kinds — kinds 6–10 are the new silhouettes).
+- `map.extra.<family>[]` — hand-placed dressing in ABSOLUTE coords,
+  appended to the sim arrays; rock/pillar/stone/trunk/torch entries
+  also get colliders.
+- `map.theme` (Ch.5 only) — VIEW-ONLY silhouette vocabulary (mesas,
+  skyline, cones, craters, rims, ribbons, columns, embers), one
+  instanced draw per family, read straight from MAP_CONFIGS by
+  buildMapMeshes. Only the `cr` radii on mesas/cones/columns mirror
+  into `sim.map.colliders` in buildMapData (before tryPlace, so the
+  seeded scatter avoids them). The main caldera mesa is a 14.7 m-radius
+  collider disc — keep it a disc.
+- Palette flags on EVERY chapter: `texStyle`
+  (grass|ash|snow|mud|caldera), `sunIntensity`, `lavaWater` — these
+  replaced the renderer's chapter-number special cases; Ch.1–3 carry
+  exactly the values their hard-coded branches used, so their look is
+  unchanged.
+- Prop `chapters` arrays and every `*ByChapter` colour table cover all
+  six chapters (refs gate fails otherwise).
+
+**Placeholder bosses.** Matt creates his own bosses for chapters 4–6;
+the handoff pack's frost-warden / cinder-lancer / siege-wyrm were NOT
+adopted, and its `bosses/shared.js` was REJECTED (stale pre-buff
+numbers — copying it would have silently reverted the AB-NET-7 boss
+buff). Until Matt's bosses land, the existing three reappear as their
+own registry entries (`placeholder: true` in the descriptor, marked in
+STATS.md): Ch.4 GRAVE SOVEREIGN on the warlord figure/cfg at HP 520,
+Ch.5 EMERALD DRAKE (dragon, breath) at HP 580, Ch.6 THE IRON LANCER
+(knight-mount) at HP 640 — the escalation continues 396/330/462 →
+520/580/640 for a hero who arrives levelled with upgrades carried.
+All standing rules apply (dmgMul 1.1, phase 2, FURY at 15%,
+playerScaling — measured ×2.2 at N=2: 1144/1276/1408).
+
+**Save compatibility (hard gate, verified):** `aetherblade-meta-v1`
+saves from the 3-chapter era load untouched — loadMeta default-fills
+`best`/`cleared` for chapters 4–6 and preserves gold/tracks/heroes.
+Verified with a fabricated old-format save: backfilled slots, armoury
+renders six chapter lines, zero page errors.
+
+**Digest story:** every scenario digest AND the combined digest are
+bit-identical to AB-NET-10 — Ch.1–3 sim behaviour is provably
+untouched (their map objects gained nothing; the palette flags are not
+hashed; BLOCK_R only appended kinds). Only the SIM_CONTENT hash moved
+(registry growth), re-recorded via content:baseline with the stamp
+bumped AB-NET-10 → AB-NET-11.
+
+**Known wrinkle (observed, not fixed):** on Ch.5's east side, the
+second mesa (26,−8, cr 6.3), a cinder cone (32.3,−9.9, cr 4.9) and the
+basalt column cluster form a pocket where a purely radial-steering
+audit bot and the drake can pin each other across the mesa rim
+(canonical-seed audit run stalled there; the same bot killed the boss
+on two other seeds, and a variant bot killed it on the canonical seed
+in open ground). A human simply walks around the mesa. If Matt wants
+the pocket gone, the lever is data: shrink mesa 2's `cr` or move the
+cone — a sim-visible change, so baseline + stamp per process.

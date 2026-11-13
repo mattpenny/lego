@@ -5,9 +5,16 @@ import { deepFreeze } from '../schema.js';
 import { grassland } from './grassland.js';
 import { graveyardForest } from './graveyard-forest.js';
 import { volcanoCastle } from './volcano-castle.js';
+/* Chapters 4-6 — themed expansion (snow / volcanic / dark age), adopted
+   from Matt's maps handoff 2026-11-14 (descriptors as data; the pack's
+   one-off generator was NOT adopted — edit these files directly). */
+import { frostfallGlacier } from './frostfall-glacier.js';
+import { emberCaldera } from './ember-caldera.js';
+import { darkAgeSiege } from './dark-age-siege.js';
 
 export const MAPS = deepFreeze({
   1: grassland, 2: graveyardForest, 3: volcanoCastle,
+  4: frostfallGlacier, 5: emberCaldera, 6: darkAgeSiege,
 });
 export const MAP_IDS = deepFreeze(Object.values(MAPS).map((m) => m.id));
 

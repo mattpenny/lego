@@ -26,6 +26,13 @@ import {
    render an invisible character or silently never appear. */
 assertRegistry(REGISTRY);
 
+/* Chapter count is DERIVED from the map registry (chapters 4-6 expansion,
+   2026-11-14). Adding a file to src/content/maps/ and one line to its
+   index.js extends progression, the boss HUD, the armoury star list and
+   the victory screen automatically — no hard-coded chapter cap below. */
+const CHAPTER_COUNT = MAP_CONFIGS.length;
+const CHAPTER_IDS = Array.from({ length: CHAPTER_COUNT }, (_, i) => i + 1);
+
 (function(){ 'use strict';
 /* =====================================================================
    AETHERBLADE — 3D ARENA SURVIVOR
@@ -104,6 +111,17 @@ function buildMapData(chapter){
               pond:{x:M.pond.x, z:M.pond.z, r:M.pond.r},
               landmark:{x:M.landmark.x, z:M.landmark.z} };
   const colliders = d.colliders;
+  /* THEME COLLIDERS — `map.theme` geometry is view-only, but anything with
+     a `cr` field (the caldera mesa, cinder cones, basalt columns) must
+     also stop the hero. Mirror those radii into SIM before tryPlace() so
+     the seeded scatter naturally avoids the mountain. buildMapMeshes()
+     reads the geometry straight from MAP_CONFIGS; the theme arrays
+     themselves never enter sim state beyond these collider discs. */
+  if(M.theme){
+    for(const k of ['mesas','cones','columns'])
+      for(const t of (M.theme[k]||[]))
+        if(typeof t.cr==='number') colliders.push({x:t.x,z:t.z,r:t.cr});
+  }
   function tryPlace(count, minR, maxR, minGap, bodyR, cb){
     let placed=0, guard=0;
     while(placed<count && guard++<count*30){
@@ -157,7 +175,13 @@ function buildMapData(chapter){
   }
   // landmark + dressing blocks (style comes from the chapter map descriptor)
   const L=d.landmark;
-  if(M.landmarkStyle==='windmill'){
+  if(Array.isArray(M.landmarkBlocks)){
+    /* Explicit set-piece: chapters 4-6 compose their own landmark out of
+       block shapes. Coordinates are RELATIVE to map.landmark, and the
+       SOLID PROPS pass below gives every one of them a collider. */
+    for(const b of M.landmarkBlocks)
+      d.block.push({x:L.x+(b.x||0),z:L.z+(b.z||0),s:b.s||1,rot:b.rot||0,kind:b.kind|0});
+  }else if(M.landmarkStyle==='windmill'){
     d.block.push({x:L.x,z:L.z,s:1,rot:0,kind:0});       // windmill tower
     for(let i=0;i<4;i++)d.block.push({x:L.x+(i-1.5)*2.4,z:L.z+7,s:0.45,rot:0,kind:1});
   }else if(M.landmarkStyle==='crypt'){
@@ -179,6 +203,24 @@ function buildMapData(chapter){
   for(let i=0;i<M.reeds;i++){
     const a=R()*TAU, rr=d.pond.r+0.4+R()*1.1;
     d.reeds.push({x:d.pond.x+Math.cos(a)*rr,z:d.pond.z+Math.sin(a)*rr,s:0.6+R()*0.7,rot:R()*TAU});
+  }
+
+  /* ---- HAND-PLACED THEMED DRESSING (map.extra) ------------------------
+     Chapters 4-6 add explicit placements on top of the seeded scatter:
+     ice colonnades, forge chimneys, grave rows, banner lines. Entries are
+     ABSOLUTE world coords. Shallow-copy each one so nothing can mutate
+     the deep-frozen content registry. Solid families get the same
+     collider radius their randomly-placed twins use, so no decoration is
+     accidentally walk-through. `block` colliders come from the SOLID
+     PROPS pass below, which runs after this injection. */
+  if(M.extra){
+    for(const k of ['block','rock','pillar','stone','torch','lava','hill','reeds','trunk','canopy'])
+      if(Array.isArray(M.extra[k])&&Array.isArray(d[k]))
+        for(const p of M.extra[k]) d[k].push(Object.assign({},p));
+    for(const [k,r] of [['rock',PLACE_RADII.rock],['pillar',PLACE_RADII.pillar],
+                        ['stone',PLACE_RADII.stone],['trunk',PLACE_RADII.trunk]])
+      for(const p of (M.extra[k]||[])) colliders.push({x:p.x,z:p.z,r});
+    for(const p of (M.extra.torch||[])) colliders.push({x:p.x,z:p.z,r:TORCH_RADIUS});
   }
 
   /* ---- SOLID PROPS ----------------------------------------------------
@@ -1142,7 +1184,7 @@ function simStep(raw){
   if(s.phase==='clear'){
     s.chapterClearTimer-=FIXED;
     if(s.chapterClearTimer<=0){
-      if(s.chapter<3){
+      if(s.chapter<CHAPTER_COUNT){
         s.chapter++; s.map=buildMapData(s.chapter);
         s.waveLeft=CFG.waveSeconds; s.bossSpawned=false; s.boss=null;
         s.enemies=[]; s.projectiles=[]; s.arrows=[]; s.gems=[]; s.heals=[]; s.potions=[];
@@ -1296,17 +1338,65 @@ function groundTexture(ch){
   g.bezierCurveTo(360*S/512,250*S/512,360*S/512,120*S/512,540*S/512,60*S/512);g.stroke();
   g.globalAlpha=0.30;g.lineWidth=20*S/512;g.strokeStyle='rgba(255,255,255,.25)';g.stroke();
   g.globalAlpha=1;
-  // speckles / cracks
+  // speckles / cracks — texStyle is a PALETTE flag, not a chapter number:
+  // 'grass' | 'ash' | 'snow' | 'mud' | 'caldera'. Chapters 1-3 keep their
+  // exact original look because their palettes name the style they always
+  // used implicitly ('grass', 'grass', 'ash').
+  const TS=P.texStyle||'grass';
   for(let i=0;i<900;i++){
     const x=R()*S,y=R()*S;
-    g.fillStyle=ch===3&&R()<0.35?'rgba(255,110,40,.45)':R()<0.5?'rgba(255,255,255,.10)':'rgba(0,0,0,.14)';
+    g.fillStyle=TS==='caldera'&&R()<0.42?'rgba(255,150,70,.40)':
+                TS==='ash'&&R()<0.35?'rgba(255,110,40,.45)':
+                TS==='snow'&&R()<0.45?'rgba(255,255,255,.55)':
+                TS==='mud'&&R()<0.30?'rgba(24,20,14,.30)':
+                R()<0.5?'rgba(255,255,255,.10)':'rgba(0,0,0,.14)';
     g.fillRect(x,y,1+R()*3,1+R()*2);
   }
-  if(ch===3){
+  if(TS==='caldera'){
+    /* Radial cooling cracks around the hot centre — reads as a cooled
+       lava sheet rather than random squiggles. */
+    const cx=S*0.5,cy=S*0.5;
+    for(let i=0;i<58;i++){
+      const a=R()*TAU, r0=(8+R()*46)*S/512, r1=r0+(70+R()*170)*S/512;
+      g.strokeStyle=R()<0.34?'rgba(255,128,44,.62)':'rgba(12,9,9,.55)';
+      g.lineWidth=(1+R()*3)*S/512;g.globalAlpha=.78;
+      g.beginPath();g.moveTo(cx+Math.cos(a)*r0,cy+Math.sin(a)*r0);
+      g.lineTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);g.stroke();
+    }
+    g.globalAlpha=.22;
+    for(let i=1;i<=5;i++){
+      g.strokeStyle='rgba(0,0,0,.7)';g.lineWidth=(2+R()*3)*S/512;
+      g.beginPath();g.arc(cx,cy,(48+i*46)*S/512,0,TAU);g.stroke();
+    }
+    for(let i=0;i<620;i++){
+      const x=R()*S,y=R()*S;
+      g.fillStyle=R()<0.22?'rgba(255,158,78,.34)':'rgba(196,186,176,.10)';
+      g.fillRect(x,y,1+R()*2,1+R()*2);
+    }
+    g.globalAlpha=1;
+  }else if(TS==='ash'){
     g.strokeStyle='rgba(255,105,35,.55)';g.lineWidth=2*S/512;g.globalAlpha=.8;
     for(let i=0;i<26;i++){
       const x=R()*S,y=R()*S;g.beginPath();g.moveTo(x,y);
       for(let k=0;k<4;k++)g.lineTo(x+(R()-0.5)*70*S/512,y+(R()-0.5)*70*S/512);g.stroke();
+    }
+    g.globalAlpha=1;
+  }else if(TS==='snow'){
+    // wind-swept drift strokes and cold blue shadow creases (FROSTFALL)
+    for(let i=0;i<40;i++){
+      const x=R()*S,y=R()*S,len=(18+R()*46)*S/512;
+      g.strokeStyle=R()<0.5?'rgba(255,255,255,.42)':'rgba(120,160,190,.20)';
+      g.lineWidth=(2+R()*4)*S/512;g.globalAlpha=.7;
+      g.beginPath();g.moveTo(x,y);g.quadraticCurveTo(x+len*0.5,y-6*S/512,x+len,y);g.stroke();
+    }
+    g.globalAlpha=1;
+  }else if(TS==='mud'){
+    // cart ruts and churned earth (DARK AGE SIEGE)
+    for(let i=0;i<34;i++){
+      const x=R()*S,y=R()*S,len=(14+R()*38)*S/512;
+      g.strokeStyle=R()<0.5?'rgba(20,18,12,.28)':'rgba(150,130,95,.16)';
+      g.lineWidth=(2+R()*3)*S/512;g.globalAlpha=.65;
+      g.beginPath();g.moveTo(x,y);g.lineTo(x+len,y+(R()-0.5)*12*S/512);g.stroke();
     }
     g.globalAlpha=1;
   }
@@ -1322,7 +1412,7 @@ function setSky(ch){
   scene.background=new T.Color(P.sky);
   scene.fog=new T.Fog(P.fog,K.fogNear,K.fogFar);
   hemi.color.setHex(P.hemi); hemi.intensity=P.amb;
-  sun.color.setHex(P.light); sun.intensity=ch===3?1.30:1.45;
+  sun.color.setHex(P.light); sun.intensity=P.sunIntensity;
   if(!skyMesh){
     const g=new T.SphereGeometry(RAD,K.widthSegments,K.heightSegments);
     const cols=[]; const pos=g.getAttribute('position');
@@ -1380,7 +1470,7 @@ function buildMapMeshes(sim){
 
   /* ---- pond + rim: src/content/props/pond.js ---- */
   const PW=V.pond.view;
-  const lavaWater=ch===3;
+  const lavaWater=!!P.lavaWater;   // palette flag, not a chapter number
   const pond=new T.Mesh(new T.CircleGeometry(d.pond.r,PW.segments),
     new T.MeshLambertMaterial({color:P.pond,transparent:true,opacity:PW.opacityByChapter[ch],
       emissive:lavaWater?PW.emissiveColor:0x000000,
@@ -1402,11 +1492,14 @@ function buildMapMeshes(sim){
   /* ---- canopies / dead branches / burnt crowns ---- */
   const CV=V.canopy.view;
   inst(new T.ConeGeometry(0.5,1,CV.segments),MAT(0xffffff),d.canopy,(o,p)=>{
-    const dead=p.kind===1, burnt=p.kind===2;
-    const sc=dead?CV.scaleDead:CV.scaleNormal;
-    o.position.set(p.x,(dead?CV.liftDead:CV.liftNormal)*p.s,p.z);o.rotation.set(0,p.rot,0);
+    const dead=p.kind===1, burnt=p.kind===2, snow=p.kind===3;
+    const sc=dead?CV.scaleDead:(snow?CV.scaleSnow:CV.scaleNormal);
+    const lift=dead?CV.liftDead:(snow?CV.liftSnow:CV.liftNormal);
+    o.position.set(p.x,lift*p.s,p.z);o.rotation.set(0,p.rot,0);
     o.scale.set(sc[0]*p.s,sc[1]*p.s,sc[2]*p.s);
-  },p=>p.kind===2?new T.Color(CV.burntColor):(p.kind===1?new T.Color(CV.deadColor):cTree));
+  },p=>p.kind===3?new T.Color(CV.snowColor):
+       (p.kind===2?new T.Color(CV.burntColor):
+       (p.kind===1?new T.Color(CV.deadColor):cTree)));
   /* ---- rocks ---- */
   const RV=V.rock.view;
   inst(new T.DodecahedronGeometry(0.5,0),MAT(0xffffff),d.rock,(o,p)=>{
@@ -1470,6 +1563,72 @@ function buildMapMeshes(sim){
     o.position.set(p.x,RD.offsetY*p.s,p.z);o.rotation.set(0,p.rot,0);
     o.scale.set(RD.scale[0],RD.scale[1]*p.s,RD.scale[2]);
   });
+
+  /* ---- THEME GEOMETRY -------------------------------------------------
+     An optional per-chapter silhouette vocabulary (chapter 5's caldera).
+     Deliberately VIEW-ONLY: it reads MAP_CONFIGS (content) directly and
+     never touches sim.map — only the `cr` collider radii were mirrored
+     into the sim by buildMapData(). A chapter with no `theme` renders
+     exactly as before. Each family is one instanced draw call. */
+  const TH=(MAP_CONFIGS[ch-1]||{}).theme;
+  if(TH){
+    /* Shield-caldera mesas: base radius r, flat top radius 0.52r, height
+       h. A WIDE low cone reads as a caldera from the follow camera; a
+       tall narrow one just occludes the arena. */
+    if(TH.mesas&&TH.mesas.length)
+      inst(new T.CylinderGeometry(0.26,0.5,1,9),MAT(TH.coneColor),TH.mesas,(o,p)=>{
+        o.position.set(p.x,p.y,p.z);o.rotation.set(0,p.rot,0);
+        o.scale.set(p.r*2,p.h,p.r*2);
+      });
+    if(TH.cones&&TH.cones.length)
+      inst(new T.ConeGeometry(0.5,1,6),MAT(TH.coneColor),TH.cones,(o,p)=>{
+        o.position.set(p.x,p.h/2,p.z);o.rotation.set(0,p.rot,0);
+        o.scale.set(p.r*2,p.h,p.r*2);
+      });
+    /* Horizon ring, in its own lighter haze colour — at the caldera's
+       near-black the skyline read as a wall. */
+    if(TH.skyline&&TH.skyline.length)
+      inst(new T.ConeGeometry(0.5,1,6),MAT(TH.skylineColor||TH.coneColor),TH.skyline,(o,p)=>{
+        o.position.set(p.x,p.h/2,p.z);o.rotation.set(0,p.rot,0);
+        o.scale.set(p.r*2,p.h,p.r*2);
+      });
+    // Dark crater rims, drawn BEFORE the glow so the lip frames the lava.
+    if(TH.rims&&TH.rims.length)
+      inst(new T.RingGeometry(0.78,1,20),MAT(TH.rimColor||TH.coneColor),TH.rims,(o,p)=>{
+        o.position.set(p.x,p.y,p.z);o.rotation.set(-Math.PI/2,0,p.rot);o.scale.setScalar(p.r);
+      });
+    // Glowing crater caps, laid flat on the mesa tops.
+    if(TH.craters&&TH.craters.length)
+      inst(new T.CircleGeometry(1,20),new T.MeshBasicMaterial({color:TH.glow,
+        side:T.DoubleSide,transparent:true,opacity:0.95,depthWrite:false}),TH.craters,(o,p)=>{
+        o.position.set(p.x,p.y,p.z);o.rotation.set(-Math.PI/2,0,p.rot);o.scale.setScalar(p.r);
+      });
+    /* Lava channels: a wide dim additive glow first, then the bright
+       narrow core. A black border made them read as taped-on beams. */
+    if(TH.ribbons&&TH.ribbons.length){
+      inst(new T.BoxGeometry(1,1,1),new T.MeshBasicMaterial({color:TH.riverColor,
+        transparent:true,opacity:0.34,depthWrite:false}),TH.ribbons,(o,p)=>{
+        o.position.set(p.x,0.04,p.z);o.rotation.set(0,p.rot,0);
+        o.scale.set(p.w*2.6,0.08,p.len*1.01);
+      });
+      inst(new T.BoxGeometry(1,1,1),new T.MeshBasicMaterial({color:TH.glow}),TH.ribbons,(o,p)=>{
+        o.position.set(p.x,0.07,p.z);o.rotation.set(0,p.rot,0);
+        o.scale.set(p.w,0.10,p.len);
+      });
+    }
+    // Solid hexagonal basalt columns (colliders mirrored in buildMapData).
+    if(TH.columns&&TH.columns.length)
+      inst(new T.CylinderGeometry(0.5,0.5,1,6),MAT(TH.columnColor),TH.columns,(o,p)=>{
+        o.position.set(p.x,p.h/2,p.z);o.rotation.set(0,p.rot,0);
+        o.scale.set(p.r*2,p.h,p.r*2);
+      });
+    // Floating embers + ash plume.
+    if(TH.embers&&TH.embers.length)
+      inst(new T.SphereGeometry(1,6,4),new T.MeshBasicMaterial({color:TH.emberColor,
+        transparent:true,opacity:0.85,depthWrite:false}),TH.embers,(o,p)=>{
+        o.position.set(p.x,p.y,p.z);o.scale.setScalar(p.s);
+      });
+  }
 }
 
 /* =====================================================================
@@ -3249,9 +3408,20 @@ const CREDITS_HTML='three.js r170 &mdash; MIT, &copy; 2010-2024 three.js authors
 const META_KEY='aetherblade-meta-v1';
 function loadMeta(){
   try{ const m=JSON.parse(localStorage.getItem(META_KEY));
-    if(m&&m.v===1&&m.tracks&&m.heroes)return m; }catch(e){}
+    if(m&&m.v===1&&m.tracks&&m.heroes){
+      /* Old saves predate chapters 4-6; backfill their star/best slots so
+         the armoury never renders "undefined" for the new chapters. The
+         save key and shape are unchanged — this is a pure default-fill. */
+      m.best=m.best||{}; m.cleared=m.cleared||{};
+      for(const c of CHAPTER_IDS){
+        if(m.best[c]===undefined)m.best[c]=0;
+        if(m.cleared[c]===undefined)m.cleared[c]=false;
+      }
+      return m;
+    } }catch(e){}
   return {v:1,gold:0,tracks:{hp:0,dmg:0,spd:0},heroes:{},heroSkin:'hero',
-          best:{1:0,2:0,3:0},bestTotal:0,cleared:{1:false,2:false,3:false},hints:{},rev:0};
+          best:Object.fromEntries(CHAPTER_IDS.map(c=>[c,0])),bestTotal:0,
+          cleared:Object.fromEntries(CHAPTER_IDS.map(c=>[c,false])),hints:{},rev:0};
 }
 let META=loadMeta();
 let HERO_SKIN=safeHero(META.heroSkin);
@@ -3302,7 +3472,7 @@ function closeArmoury(){ armouryOpen=false;
   const a=$('armoury'); if(a)a.classList.remove('on'); }
 function armouryBodyHTML(){
   return '<div>\u{1FA99} GOLD <span class="k">'+META.gold+'</span> &nbsp;\u00B7&nbsp; BEST '+META.bestTotal+
-    ' &nbsp;\u00B7&nbsp; '+[1,2,3].map(c=>(META.cleared[c]?'\u2605':'\u2606')+' CH'+c+(META.best[c]?' \u00B7 '+META.best[c]:'')).join(' &nbsp; ')+
+    ' &nbsp;\u00B7&nbsp; '+CHAPTER_IDS.map(c=>(META.cleared[c]?'\u2605':'\u2606')+' CH'+c+(META.best[c]?' \u00B7 '+META.best[c]:'')).join(' &nbsp; ')+
     ' &nbsp;\u00B7&nbsp; HERO: '+esc(heroLabel(safeHero(META.heroSkin)))+'</div>'+
   '<div>Spend gold below: permanent upgrades and hero skins carry across every run. Magic: fill the meter with kills, then unleash 60 damage on everything near.</div>';
 }
@@ -3496,7 +3666,7 @@ function syncOverlay(){
       else if(NET.role==='guest')pickNote='The host is choosing for the party.';
     }
     setOverlay(key,'LEVEL '+s.level,'CHOOSE AN UPGRADE',pickNote,
-      '<div style="text-align:center">Upgrades and score carry across all three chapters.</div>',
+      '<div style="text-align:center">Upgrades and score carry across all '+CHAPTER_COUNT+' chapters.</div>',
       cards,null,'');
   }else if(s.phase==='clear'){
     if(!SETTLED.ch[s.chapter]){ SETTLED.ch[s.chapter]=true;
@@ -3504,7 +3674,7 @@ function syncOverlay(){
       if(s.score>(META.best[s.chapter]||0))META.best[s.chapter]=s.score;
       if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); }
     setOverlay(key,'CHAPTER '+s.chapter,'CHAPTER CLEARED',
-      s.chapter<3?'NEXT: '+PALETTES[s.chapter].name:'THE ECLIPSE IS BROKEN',
+      s.chapter<CHAPTER_COUNT?'NEXT: '+PALETTES[s.chapter].name:'THE ECLIPSE IS BROKEN',
       '<div style="text-align:center">Score '+s.score+' &nbsp;·&nbsp; Kills '+s.kills+' &nbsp;·&nbsp; HP '+Math.round(localHero(s).hp)+'</div>',
       null,null,'');
   }else if(s.phase==='dead'){
@@ -3518,7 +3688,7 @@ function syncOverlay(){
     if(!SETTLED.ended){ SETTLED.ended=true;
       META.gold+=Math.floor(s.score/CFG.meta.scoreGoldDivisor)+CFG.meta.victoryBonus;
       if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); }
-    setOverlay(key,'ALL THREE CHAPTERS CLEARED','VICTORY','AETHERBLADE',
+    setOverlay(key,'ALL '+CHAPTER_COUNT+' CHAPTERS CLEARED','VICTORY','AETHERBLADE',
       '<div style="text-align:center">Final score '+s.score+' &nbsp;·&nbsp; '+s.kills+' kills &nbsp;·&nbsp; Level '+s.level+'</div>',
       null,(NET&&NET.active)?[{label:'END RUN',fn:()=>netTeardown(true)}]:[{label:'PLAY AGAIN',fn:startRun}],CREDITS_HTML);
   }else if(s.phase==='paused'){
@@ -4508,7 +4678,7 @@ window.__GAME={
   setHero(x,z,hp){SIM.hero.x=x;SIM.hero.z=z;SIM.hero.vx=0;SIM.hero.vz=0;
     if(hp!==undefined)SIM.hero.hp=hp;},
   setZoom(v){camZoom=clamp(v,0.35,2);},
-  setChapter(n){SIM.chapter=clamp(n|0,1,3);SIM.map=buildMapData(SIM.chapter);
+  setChapter(n){SIM.chapter=clamp(n|0,1,CHAPTER_COUNT);SIM.map=buildMapData(SIM.chapter);
     buildMapMeshes(SIM);lastChapter=SIM.chapter;return SIM.chapter;},
   spawnTestEnemy(type,x,z,state){const e=makeEnemy(SIM,type,x,z,0.6);
     if(state){e.state=state;e.timer=0.55;e.lockYaw=e.yaw;}return e.id;},

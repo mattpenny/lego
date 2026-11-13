@@ -56,8 +56,8 @@ function run(script, args = []) {
      content lands, so reconcile this line once after concurrent branches
      (heroes and enemies) have merged — it is a shared integration point.
      (Wording adopted from the heraldic-enemies handoff, AB-NET-8.) */
-  const expected = { HEROES: 7, FIGURES: 28, ENEMIES: 22, BOSSES: 3,
-                     ITEMS: 3, PROPS: 14, MAPS: 3, UPGRADES: 9 };
+  const expected = { HEROES: 7, FIGURES: 28, ENEMIES: 22, BOSSES: 6,
+                     ITEMS: 3, PROPS: 14, MAPS: 6, UPGRADES: 9 };
   for (const [k, v] of Object.entries(expected)) {
     if (counts[k] !== v) errors.push(`schema: expected ${v} ${k}, found ${counts[k]}`);
   }
@@ -129,6 +129,44 @@ function run(script, args = []) {
     if (m.chapter !== Number(ch))
       errors.push(`refs: MAPS.${ch}.chapter is ${m.chapter}, key mismatch`);
     if (!m.map.eventPack.length) errors.push(`refs: MAPS.${ch} has an empty chapter event pack`);
+    /* Chapters 4-6 expansion gates (ported from the maps handoff):
+       the boss named by the map must claim THIS map back (mapId), every
+       palette must carry the renderer flags, and every placed block kind
+       must resolve to a shape + a collider radius. */
+    const boss = Object.values(BOSSES).find((b) => b.id === m.bossId);
+    if (boss && boss.mapId !== m.id)
+      errors.push(`refs: MAPS.${ch}.bossId "${m.bossId}" belongs to map "${boss.mapId}", not "${m.id}"`);
+    for (const f of ['texStyle', 'sunIntensity', 'lavaWater'])
+      if (m.palette[f] === undefined)
+        errors.push(`refs: MAPS.${ch}.palette.${f} is missing (the renderer reads it directly)`);
+    const shapeCount = PROPS.block.view.shapes.length;
+    const radiusCount = PROPS.block.collider.radii.length;
+    const placed = [...(m.map.landmarkBlocks || []), ...((m.map.extra || {}).block || [])];
+    for (const b of placed)
+      if (!Number.isInteger(b.kind) || b.kind < 0 || b.kind >= Math.min(shapeCount, radiusCount))
+        errors.push(`refs: MAPS.${ch} uses unknown block kind ${b.kind}`);
+    /* Theme geometry is view-only but positional: every entry needs x/z,
+       and the families the renderer knows about must stay in sync. */
+    if (m.map.theme !== undefined) {
+      const known = ['mesas', 'skyline', 'cones', 'craters', 'rims', 'ribbons', 'columns', 'embers',
+                     'coneColor', 'skylineColor', 'columnColor', 'rimColor', 'glow',
+                     'riverColor', 'bankColor', 'emberColor'];
+      for (const k of Object.keys(m.map.theme))
+        if (!known.includes(k)) errors.push(`refs: MAPS.${ch}.theme.${k} is not rendered by game.js`);
+      for (const k of ['mesas', 'skyline', 'cones', 'craters', 'rims', 'ribbons', 'columns', 'embers'])
+        for (const it of (m.map.theme[k] || []))
+          if (!Number.isFinite(it.x) || !Number.isFinite(it.z))
+            errors.push(`refs: MAPS.${ch}.theme.${k} has an entry without numeric x/z`);
+    }
+  }
+  /* Every *ByChapter prop colour table must cover every playable chapter.
+     A missing key renders as an undefined (black) material. */
+  for (const [pid, prop] of Object.entries(PROPS)) {
+    const v = prop.view || {};
+    for (const field of Object.keys(v).filter((f) => /ByChapter$/.test(f)))
+      for (const ch of Object.keys(MAPS))
+        if (v[field][ch] === undefined)
+          errors.push(`refs: PROPS.${pid}.${field} has no entry for chapter ${ch}`);
   }
   if (BOSS_NAMES.length !== Object.keys(BOSSES).length)
     errors.push('refs: BOSS_NAMES length does not match BOSSES');

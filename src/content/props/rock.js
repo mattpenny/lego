@@ -1,7 +1,7 @@
 /* ROCK — dodecahedron boulder, solid disc collider. */
 export const rock = {
   id: 'rock', type: 'prop', displayName: 'BOULDER',
-  mapKey: 'rock', chapters: [1, 2, 3],
+  mapKey: 'rock', chapters: [1, 2, 3, 4, 5, 6],
   placement: { minR: 6, maxR: 38, minGap: 1.9, scale: [0.55, 1.55] },
   collider: { kind: 'disc', radius: 1.0 },
   view: { geometry: 'dodecahedron', paletteSlot: 'rock',

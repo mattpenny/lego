@@ -8,6 +8,7 @@ export const volcanoCastle = {
     ground: '#4d3638', ground2: '#63453a', path: '#7d5a44',
     pond: 0xff7030, tree: 0x5c3d2d, trunk: 0x4d3630, rock: 0x745854,
     hill: 0x654a3e, accent: 0xffa657, light: 0xffb070, hemi: 0xc97f66, amb: 0.92,
+    texStyle: 'ash', sunIntensity: 1.30, lavaWater: true,
   },
   map: {
     seed: 33458,                 // 9701 + chapter*7919

@@ -2,7 +2,7 @@
    Purely cosmetic; ARENA_R (40 m) is the real movement boundary. */
 export const hill = {
   id: 'hill', type: 'prop', displayName: 'TERRAIN EDGE HILLS',
-  mapKey: 'hill', chapters: [1, 2, 3],
+  mapKey: 'hill', chapters: [1, 2, 3, 4, 5, 6],
   placement: { count: 64, radius: [45, 51], scale: [6, 14] },
   collider: { kind: 'none' },
   view: { geometry: 'dodecahedron', paletteSlot: 'hill',

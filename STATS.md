@@ -33,8 +33,11 @@ Magic basics (every hero): the meter fills **1 per kill**, casting costs **20**,
 | 1 | EMERALD DRAKE | 396 | 6 | 1.95 | ×1.3 | 1800 | `src/content/enemies/bosses/emerald-drake.js · cfg` |
 | 2 | GRAVE SOVEREIGN | 330 | 7.4 | 1.495 | ×2.145 | 1500 | `src/content/enemies/bosses/shared.js (BOSS_CFG) · cfg` |
 | 3 | THE IRON LANCER | 462 | 6.8 | 1.755 | ×1.3 | 2200 | `src/content/enemies/bosses/iron-lancer.js · cfg` |
+| 4 | GRAVE SOVEREIGN (PLACEHOLDER) | 520 | 7.4 | 1.495 | ×2.145 | 1500 | `src/content/enemies/bosses/frost-sovereign.js · cfg` |
+| 5 | EMERALD DRAKE (PLACEHOLDER) | 580 | 6 | 1.95 | ×1.3 | 1800 | `src/content/enemies/bosses/caldera-drake.js · cfg` |
+| 6 | THE IRON LANCER (PLACEHOLDER) | 640 | 6.8 | 1.755 | ×1.3 | 2200 | `src/content/enemies/bosses/siege-lancer.js · cfg` |
 
-Boss size: all three figures and sim radii are **×1.3** their original size (radius is the sim body; the figure scale is the matching view size).
+Boss size: all boss figures and sim radii are **×1.3** their original size (radius is the sim body; the figure scale is the matching view size). Chapters 4-6 bosses are PLACEHOLDERS (the existing three bosses reappearing with late-game HP) pending Matt's own boss creations.
 
 ### Boss attacks — base → effective (damage multiplier applied once, one rounding)
 
@@ -51,8 +54,19 @@ Boss size: all three figures and sim radii are **×1.3** their original size (ra
 | THE IRON LANCER | Slam | 24 | ×1.1 | **26** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/iron-lancer.js · cfg.slamDmg / cfg.slamRange` |
 | THE IRON LANCER | Slam (enraged) | 24 + 4 bonus | ×1.1 | **31** | bonus added BEFORE the multiplier | `cfg.slamDmg` + `bosses/shared.js · BOSS_PHASE2.slamBonus` |
 | THE IRON LANCER | Charge | 26 | ×1.1 | **29** | trigger ≤ 4.5 m, speed 19 m/s, telegraph 0.55 s | `src/content/enemies/bosses/iron-lancer.js · cfg.chargeDmg / cfg.chargeRange` |
+| GRAVE SOVEREIGN | Slam | 22 | ×1.1 | **24** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/frost-sovereign.js · cfg.slamDmg / cfg.slamRange` |
+| GRAVE SOVEREIGN | Slam (enraged) | 22 + 4 bonus | ×1.1 | **29** | bonus added BEFORE the multiplier | `cfg.slamDmg` + `bosses/shared.js · BOSS_PHASE2.slamBonus` |
+| GRAVE SOVEREIGN | Charge | 20 | ×1.1 | **22** | trigger ≤ 6.5 m, speed 16 m/s, telegraph 0.7 s | `src/content/enemies/bosses/frost-sovereign.js · cfg.chargeDmg / cfg.chargeRange` |
+| EMERALD DRAKE | Slam | 26 | ×1.1 | **29** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/caldera-drake.js · cfg.slamDmg / cfg.slamRange` |
+| EMERALD DRAKE | Slam (enraged) | 26 + 4 bonus | ×1.1 | **33** | bonus added BEFORE the multiplier | `cfg.slamDmg` + `bosses/shared.js · BOSS_PHASE2.slamBonus` |
+| EMERALD DRAKE | Charge | 24 | ×1.1 | **26** | trigger ≤ 6.5 m, speed 16 m/s, telegraph 0.7 s | `src/content/enemies/bosses/caldera-drake.js · cfg.chargeDmg / cfg.chargeRange` |
+| EMERALD DRAKE | Fire breath (per tick) | 9 | ×1.1 | **10** | cone 10.925 m, half-angle 25°, ticks every 0.2 s, telegraph 0.8 s | `src/content/enemies/bosses/caldera-drake.js · cfg.breath.tickDmg` |
+| EMERALD DRAKE | Fire breath (full exposure) | — | — | **60** (phase 1, 6 ticks) / **70** (phase 2, 7 ticks) | fires from 3.5–11.5 m, mouth offset (headDist) 3.38 m, breath cooldown 4 s (phase 2: 3 s) | `src/content/enemies/bosses/caldera-drake.js · cfg.breath` |
+| THE IRON LANCER | Slam | 24 | ×1.1 | **26** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/siege-lancer.js · cfg.slamDmg / cfg.slamRange` |
+| THE IRON LANCER | Slam (enraged) | 24 + 4 bonus | ×1.1 | **31** | bonus added BEFORE the multiplier | `cfg.slamDmg` + `bosses/shared.js · BOSS_PHASE2.slamBonus` |
+| THE IRON LANCER | Charge | 26 | ×1.1 | **29** | trigger ≤ 4.5 m, speed 19 m/s, telegraph 0.55 s | `src/content/enemies/bosses/siege-lancer.js · cfg.chargeDmg / cfg.chargeRange` |
 
-### Boss phases (shared by all three bosses)
+### Boss phases (shared by all bosses)
 
 | Phase | Triggers at | Effect | Source |
 |---|---|---|---|

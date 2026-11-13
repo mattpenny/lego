@@ -83,19 +83,21 @@ L.push('## Bosses');
 L.push('');
 L.push('| Chapter | Boss | HP | Speed (m/s) | Radius (m) | Figure scale | Score | Source |');
 L.push('|---|---|---|---|---|---|---|---|');
-const BOSS_FILE = { 1: 'src/content/enemies/bosses/emerald-drake.js', 2: 'src/content/enemies/bosses/shared.js (BOSS_CFG)', 3: 'src/content/enemies/bosses/iron-lancer.js' };
-for (const ch of [1, 2, 3]) {
+const BOSS_FILE = { 1: 'src/content/enemies/bosses/emerald-drake.js', 2: 'src/content/enemies/bosses/shared.js (BOSS_CFG)', 3: 'src/content/enemies/bosses/iron-lancer.js',
+                    4: 'src/content/enemies/bosses/frost-sovereign.js', 5: 'src/content/enemies/bosses/caldera-drake.js', 6: 'src/content/enemies/bosses/siege-lancer.js' };
+const BOSS_CHAPTERS = Object.keys(BOSSES).map(Number).sort((a, b) => a - b);
+for (const ch of BOSS_CHAPTERS) {
   const b = BOSS_CFG_BY_CHAPTER[ch], d = BOSSES[ch];
-  L.push(`| ${ch} | ${d.displayName} | ${b.hp} | ${fmt(b.speed)} | ${fmt(b.radius)} | ×${fmt(FIGURE_SCALES[d.figure] || 1)} | ${b.score} | \`${BOSS_FILE[ch]} · cfg\` |`);
+  L.push(`| ${ch} | ${d.displayName}${d.placeholder ? ' (PLACEHOLDER)' : ''} | ${b.hp} | ${fmt(b.speed)} | ${fmt(b.radius)} | ×${fmt(FIGURE_SCALES[d.figure] || 1)} | ${b.score} | \`${BOSS_FILE[ch]} · cfg\` |`);
 }
 L.push('');
-L.push('Boss size: all three figures and sim radii are **×1.3** their original size (radius is the sim body; the figure scale is the matching view size).');
+L.push('Boss size: all boss figures and sim radii are **×1.3** their original size (radius is the sim body; the figure scale is the matching view size). Chapters 4-6 bosses are PLACEHOLDERS (the existing three bosses reappearing with late-game HP) pending Matt\'s own boss creations.');
 L.push('');
 L.push('### Boss attacks — base → effective (damage multiplier applied once, one rounding)');
 L.push('');
 L.push('| Boss | Attack | Base | × dmgMul | Effective | Range / notes | Source field |');
 L.push('|---|---|---|---|---|---|---|');
-for (const ch of [1, 2, 3]) {
+for (const ch of BOSS_CHAPTERS) {
   const b = BOSS_CFG_BY_CHAPTER[ch], d = BOSSES[ch], f = BOSS_FILE[ch];
   const P = BOSS_PHASE2;
   L.push(`| ${d.displayName} | Slam | ${b.slamDmg} | ${mul(b)} | **${landed(b.slamDmg, b)}** | reach ${fmt(b.slamRange)} m (centre distance), telegraph ${fmt(b.slamTele)} s | \`${f} · cfg.slamDmg / cfg.slamRange\` |`);
@@ -113,7 +115,7 @@ for (const ch of [1, 2, 3]) {
   }
 }
 L.push('');
-L.push('### Boss phases (shared by all three bosses)');
+L.push('### Boss phases (shared by all bosses)');
 L.push('');
 L.push('| Phase | Triggers at | Effect | Source |');
 L.push('|---|---|---|---|');

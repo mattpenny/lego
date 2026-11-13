@@ -8,6 +8,7 @@ export const graveyardForest = {
     ground: '#40604b', ground2: '#4f7358', path: '#92927f',
     pond: 0x43a89e, tree: 0x406652, trunk: 0x615244, rock: 0x939e97,
     hill: 0x6d7d78, accent: 0xc2ecdc, light: 0xbcd0ff, hemi: 0x9db9e2, amb: 0.95,
+    texStyle: 'grass', sunIntensity: 1.45, lavaWater: false,
   },
   map: {
     seed: 25539,                 // 9701 + chapter*7919
