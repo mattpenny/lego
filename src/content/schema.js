@@ -25,6 +25,14 @@ export const JOINT_COUNT = 13;
 /** The only primitive names rigParts()/rigGeometry() accept. */
 export const PRIM_KINDS = Object.freeze(['box', 'sph', 'cyl', 'cyl12', 'cone']);
 
+/** Figure renderers that are NOT the 13-joint rig. Each id names a
+    dedicated procedural builder in src/game.js PART 3 (a quadruped like
+    the dragon cannot be moulded onto a humanoid skeleton). A figure with
+    `custom: '<id>'` carries a tint + meshScale but NO rig parts — its
+    builder owns the geometry and its animation. Adding a renderer means
+    adding the builder in game.js AND the id here, in the same commit. */
+export const CUSTOM_RENDERERS = Object.freeze(['dragon']);
+
 /** Named plastic colour slots used by TINTS and by part `c` references. */
 export const TINT_SLOTS = Object.freeze([
   'armor', 'trim', 'cloth', 'skin', 'blade', 'dark', 'glow', 'metal',
@@ -130,7 +138,17 @@ function checkFigure(d, key, errors, warnings) {
   common(d, key, 'figure', w, errors, warnings);
   if (!isStr(d.displayName)) errors.push(`${w}: displayName is required`);
   checkTint(d.tint, w, errors);
-  checkParts(d.parts, d.tint, w, errors);
+  if (d.custom !== undefined) {
+    /* Custom-rendered figure (see CUSTOM_RENDERERS): geometry and
+       animation live in its game.js builder, so rig parts are forbidden
+       here rather than silently ignored. */
+    if (!CUSTOM_RENDERERS.includes(d.custom))
+      errors.push(`${w}: custom renderer "${d.custom}" has no builder (see CUSTOM_RENDERERS)`);
+    if (d.parts !== undefined && (!Array.isArray(d.parts) || d.parts.length))
+      errors.push(`${w}: a custom figure must not carry rig parts (its builder owns the geometry)`);
+  } else {
+    checkParts(d.parts, d.tint, w, errors);
+  }
   if (!isNum(d.meshScale) || d.meshScale <= 0)
     errors.push(`${w}: meshScale must be > 0`);
 }
@@ -180,6 +198,27 @@ function checkBoss(d, key, errors, warnings, registry) {
     errors.push(`${w}: mapId does not match MAPS[${d.chapter}].id`);
   if (registry.FIGURES && !registry.FIGURES[d.figure])
     errors.push(`${w}: figure "${d.figure}" is not in FIGURES`);
+  if (d.kind !== undefined && !isId(d.kind))
+    errors.push(`${w}: kind must be a lowercase id`);
+  /* A boss MAY carry its own cfg (a genuinely different boss, CONTENT-GUIDE
+     section 3); it then overrides the shared boss numbers for its chapter.
+     The breath sub-block is the fire-breath attack (Emerald Drake). */
+  if (d.cfg !== undefined) {
+    if (!isObj(d.cfg)) errors.push(`${w}: cfg must be an object`);
+    else {
+      for (const f of ['hp', 'speed', 'radius', 'score', 'spawnMin', 'spawnMax',
+                       'chargeSpeed', 'chargeTele', 'chargeDur', 'chargeCd',
+                       'chargeRange', 'chargeDmg', 'slamTele', 'slamRange', 'slamDmg'])
+        if (!isNum(d.cfg[f])) errors.push(`${w}: cfg.${f} must be numeric`);
+      if (d.cfg.breath !== undefined) {
+        if (!isObj(d.cfg.breath)) errors.push(`${w}: cfg.breath must be an object`);
+        else for (const f of ['minRange', 'maxRange', 'range', 'halfAngleDeg',
+                               'headDist', 'tele', 'dur', 'p2Dur', 'tickDmg',
+                               'tickEvery', 'cd', 'p2Cd', 'firstCd'])
+          if (!isNum(d.cfg.breath[f])) errors.push(`${w}: cfg.breath.${f} must be numeric`);
+      }
+    }
+  }
 }
 
 function checkItem(d, key, errors, warnings) {

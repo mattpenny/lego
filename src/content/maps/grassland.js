@@ -3,7 +3,7 @@
    buildMapData() used to hard-code. Both are now the source of truth. */
 export const grassland = {
   id: 'grassland', type: 'map', chapter: 1,
-  displayName: 'GRASSLAND', bossId: 'ashen-warden',
+  displayName: 'GRASSLAND', bossId: 'emerald-drake',
   palette: {
     name: 'GRASSLAND', sky: 0x8ec7f0, fog: 0xa4cda6,
     ground: '#4da337', ground2: '#66bb47', path: '#c7ab6d',

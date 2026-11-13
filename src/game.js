@@ -13,7 +13,7 @@ import {
   FIGURES, FIGURE_INK, TINTS, FIGURE_SCALES,
   ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL, SCHEDULED_ELITES, OPENER_KIND,
   ENEMIES,
-  BOSS_CFG, BOSS_PHASE2, BOSS_NAMES,
+  BOSS_CFG, BOSS_PHASE2, BOSS_NAMES, BOSSES, BOSS_CFG_BY_CHAPTER,
   ITEM_DROPS, HEAL_CFG, POTION_CFG, ELITE_KINDS, GEM_SCORE,
   PROPS, PLACE_RADII, BLOCK_R, BLOCK_FALLBACK_R,
   WALL_KIND, WALL_HALF_LENGTH, WALL_RADIUS, POND_PAD, FENCE_RADIUS, TORCH_RADIUS,
@@ -243,6 +243,10 @@ function anchorHero(s){
   for(const h of s.heroes)if(!h.downed)return h;
   return s.heroes[0];
 }
+/* The boss sim for THIS chapter: a boss descriptor with its own cfg
+   (the Emerald Drake) overrides the shared warlord numbers; chapters
+   without one fall back to CFG.boss. Derived in bosses/index.js. */
+function bossCfgOf(s){ return BOSS_CFG_BY_CHAPTER[s.chapter]||CFG.boss; }
 /* nearest living hero to (x,z); deterministic index-order tie-break */
 function nearestHero(s,x,z){
   let best=null,bd=Infinity;
@@ -332,6 +336,16 @@ function moveWithCollision(s,e,dx,dz,radius){
   }
 }
 
+/* Shared death/downed resolution for every damage source. In co-op a
+   fallen hero is DOWNED while a partner still stands (revived next
+   chapter); solo, or with no partner standing, the run is over. */
+function resolveHeroDeath(s,h){
+  const other=s.heroes.find(o=>o!==h&&!o.downed);
+  if(s.players>1&&other){ h.downed=true; h.state='down'; h.st=0; h.vx=0; h.vz=0;
+    emit('down',{x:h.x,z:h.z}); }
+  else { s.phase='dead'; emit('death',{x:h.x,z:h.z}); }
+}
+
 function hurtHero(s,h,dmg,kind){
   if(!h||h.downed)return false;
   if(h.invuln>0 || s.phase==='dead' || s.phase==='clear')return false;
@@ -340,12 +354,7 @@ function hurtHero(s,h,dmg,kind){
   emit('hurt',{x:h.x,z:h.z,dmg,kind});
   emit('shake',{v:0.55});
   if(kind==='boss')addHitStop(s,CFG.hitStopMs.bossSlam);
-  if(h.hp<=0){
-    const other=s.heroes.find(o=>o!==h&&!o.downed);
-    if(s.players>1&&other){ h.downed=true; h.state='down'; h.st=0; h.vx=0; h.vz=0;
-      emit('down',{x:h.x,z:h.z}); }
-    else { s.phase='dead'; emit('death',{x:h.x,z:h.z}); }
-  }
+  if(h.hp<=0)resolveHeroDeath(s,h);
   return true;
 }
 
@@ -403,7 +412,7 @@ function damageBoss(s,b,dmg,crit){
     b.enraged=true; emit('enrage',{x:b.x,z:b.z});
   }
   if(b.hp<=0){
-    s.score+=CFG.boss.score;
+    s.score+=bossCfgOf(s).score;
     emit('bossDeath',{x:b.x,z:b.z});
     addHitStop(s,CFG.hitStopMs.bossKill);
     emit('shake',{v:1.0});
@@ -422,7 +431,7 @@ function castMagic(s,h){
     if(dist2(e.x,e.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:e.x,z:e.z}); damageEnemy(s,e,CFG.magic.dmg,false); }
   }
   const b=s.boss;
-  if(b&&b.hp>0){ const rr=R+CFG.boss.radius;
+  if(b&&b.hp>0){ const rr=R+bossCfgOf(s).radius;
     if(dist2(b.x,b.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:b.x,z:b.z,boss:1}); damageBoss(s,b,CFG.magic.dmg,false); } }
   emit('magic',{x:h.x,z:h.z,r:R});
   addHitStop(s,CFG.magic.stopMs);
@@ -454,7 +463,8 @@ function doHeroHit(s,h,st){
   const b=s.boss;
   if(b && b.hp>0){
     const dx=b.x-h.x, dz=b.z-h.z, d=Math.sqrt(dx*dx+dz*dz);
-    if(d<=st.range+CFG.boss.radius && inArc(dx,dz,d,CFG.boss.radius)){
+    const br=bossCfgOf(s).radius;
+    if(d<=st.range+br && inArc(dx,dz,d,br)){
       const crit=rnd(s)<st.crit;
       damageBoss(s,b,st.dmg*(crit?1.7:1),crit);
     }
@@ -640,11 +650,39 @@ function updateProjectiles(s,dt){
   s.projectiles=out;
 }
 
+/* One fire-breath damage tick (Emerald Drake). The cone starts at the
+   dragon's HEAD (headDist ahead of the body centre along the LOCKED
+   facing) and widens at halfAngleDeg. Unlike hurtHero() this does NOT
+   set the post-hit 0.45 s invulnerability — ticks land every tickEvery
+   seconds by design (full exposure = (dur/tickEvery) x tickDmg). The
+   only immunity is the roll: a hero mid-roll is i-framed, exactly the
+   game's dodge rule. A hero behind or beside the dragon fails the cone
+   dot test and takes nothing. */
+function breathDamage(s,b,B){
+  const BR=B.breath;
+  const fx=Math.sin(b.lockYaw), fz=Math.cos(b.lockYaw);
+  const hx=b.x+fx*BR.headDist, hz=b.z+fz*BR.headDist;
+  const cosHalf=Math.cos(BR.halfAngleDeg*DEG);
+  for(const h of s.heroes){
+    if(h.downed||h.hp<=0)continue;
+    if(h.state==='roll')continue;                    // roll i-frames
+    const dx=h.x-hx, dz=h.z-hz;
+    const d=Math.sqrt(dx*dx+dz*dz);
+    if(d>BR.range+HERO_R)continue;
+    if(d>0.001 && (dx*fx+dz*fz)/d<cosHalf)continue;   // outside the cone
+    h.hp=Math.max(0,h.hp-BR.tickDmg);
+    b.pursuit=0;                                      // a hit landed: no ramp
+    emit('hit',{x:h.x,z:h.z,y:1.5,dmg:BR.tickDmg,crit:false,type:'boss'});
+    if(h.hp<=0)resolveHeroDeath(s,h);
+  }
+}
+
 function updateBoss(s,dt){
   const b=s.boss; if(!b||b.hp<=0)return;
-  const B=CFG.boss;
+  const B=bossCfgOf(s);
   b.hitFlash=Math.max(0,(b.hitFlash||0)-dt*4);
   b.cd=Math.max(0,b.cd-dt); b.slamCd=Math.max(0,b.slamCd-dt);
+  if(B.breath)b.brCd=Math.max(0,(b.brCd||0)-dt);
   const h=nearestHero(s,b.x,b.z);
   const dx=h.x-b.x, dz=h.z-b.z, d=Math.sqrt(dx*dx+dz*dz)||0.001;
   // A long chase with no hit ramps the pursuit speed so a fleeing hero is
@@ -656,7 +694,14 @@ function updateBoss(s,dt){
   if(b.state==='approach'){
     b.yaw=Math.atan2(dx,dz);
     if(d>stopDist){ const sp=(B.speed+boost)*(b.enraged?CFG.boss2.speedMul:1); mvx=dx/d*sp; mvz=dz/d*sp; }
-    if(d>B.chargeRange && b.cd<=0){
+    if(B.breath && b.brCd<=0 && d>=B.breath.minRange && d<=B.breath.maxRange){
+      /* Fire breath wins the mid-range slot when it is ready; the facing
+         LOCKS here, at telegraph start, so a sidestep during the 0.8 s
+         wind-up genuinely avoids the cone (locked-facing dodge rule). */
+      b.lockYaw=b.yaw; b.state='breathTele'; b.timer=B.breath.tele;
+      mvx=0;mvz=0;
+      emit('bossTelegraph',{x:b.x,z:b.z,kind:'BREATH'});
+    }else if(d>B.chargeRange && b.cd<=0){
       b.lockYaw=b.yaw; b.state='chargeTele'; b.timer=B.chargeTele;
       mvx=0;mvz=0;
       emit('bossTelegraph',{x:b.x,z:b.z,kind:'CHARGE'});
@@ -707,6 +752,32 @@ function updateBoss(s,dt){
     }
   }else if(b.state==='slam'){
     b.timer-=dt; if(b.timer<=0){ b.state='recover'; b.timer=0.55; b.slamCd=1.1; }
+  }else if(b.state==='breathTele'){
+    /* Stationary, head rearing, facing frozen at lockYaw. */
+    b.timer-=dt; b.yaw=b.lockYaw;
+    if(b.timer<=0){
+      b.state='breath';
+      /* Seed the tick accumulator with one step: 1/60 summed in floats
+         lands a hair under each 0.2 boundary, which would push every
+         tick one step late and eat the final tick of the 1.2 s breath
+         (5 ticks land instead of the designed 6). Seeded, ticks land at
+         steps 12/24/36/48/60/72 = 6 ticks phase 1, 7 in phase 2. */
+      b.brTick=dt;
+      b.timer=b.summoned?B.breath.p2Dur:B.breath.dur;   // phase 2 breathes longer
+      emit('breathStart',{x:b.x,z:b.z,yaw:b.lockYaw});
+    }
+  }else if(b.state==='breath'){
+    /* Stationary while breathing; damage ticks on a fixed accumulator
+       so both co-op peers land identical ticks on identical steps. */
+    b.yaw=b.lockYaw; b.timer-=dt; b.brTick+=dt;
+    while(b.brTick>=B.breath.tickEvery){
+      b.brTick-=B.breath.tickEvery;
+      breathDamage(s,b,B);
+    }
+    if(b.timer<=0){
+      b.state='recover'; b.timer=0.6;
+      b.brCd=b.summoned?B.breath.p2Cd:B.breath.cd;      // phase 2 cools down faster
+    }
   }else if(b.state==='recover'){
     b.timer-=dt; if(b.timer<=0)b.state='approach';
   }
@@ -833,7 +904,8 @@ function makeEnemy(s,type,x,z,cd){
 }
 function spawnBoss(s){
   const ah=anchorHero(s);
-  const a0=rnd(s)*TAU, rr=rndR(s,CFG.boss.spawnMin,CFG.boss.spawnMax);
+  const BC=bossCfgOf(s);
+  const a0=rnd(s)*TAU, rr=rndR(s,BC.spawnMin,BC.spawnMax);
   /* Keep the spawn inside the arena WITHOUT shortening the required 26-30 m
      gap. Sweep directions until one fits; an inward direction always exists
      for a 40 m arena and a hero anywhere inside it. */
@@ -849,8 +921,9 @@ function spawnBoss(s){
   }
   s.enemies=[]; s.projectiles=[];
   s.boss={id:s.nextId++,x,z,yaw:Math.atan2(ah.x-x,ah.z-z),lockYaw:0,
-    hp:CFG.boss.hp,maxHp:CFG.boss.hp,state:'approach',timer:0,cd:2.2,slamCd:0,
-    chargeVX:0,chargeVZ:0,chargeHit:false,pursuit:0,hitFlash:0,vx:0,vz:0};
+    hp:BC.hp,maxHp:BC.hp,state:'approach',timer:0,cd:2.2,slamCd:0,
+    chargeVX:0,chargeVZ:0,chargeHit:false,pursuit:0,hitFlash:0,vx:0,vz:0,
+    brCd:BC.breath?BC.breath.firstCd:0,brTick:0};
   s.bossSpawned=true; s.bossSpawnTick=s.tick; s.phase='boss';
   emit('bossSpawn',{x,z,dist:Math.sqrt((x-ah.x)*(x-ah.x)+(z-ah.z)*(z-ah.z))});
 }
@@ -935,7 +1008,7 @@ function simDigest(s){
   for(const p of s.projectiles)for(const v of [p.id,p.x,p.z,p.vx,p.vz,p.life,p.tx||0,p.tz||0])put(q(v));
   put('G'+s.gems.length);for(const g of s.gems)for(const v of [g.id,g.x,g.z])put(q(v));
   put('H'+s.heals.length);for(const o of s.heals)for(const v of [o.id,o.x,o.z])put(q(v));
-  if(s.boss){const b=s.boss;put('B1');for(const v of [b.x,b.z,b.yaw,b.lockYaw,b.hp,b.timer,b.cd,b.slamCd,b.pursuit||0,b.state==='charge'?1:0])put(q(v));put(b.state);put(b.enraged?1:0);put(b.summoned?1:0);}
+  if(s.boss){const b=s.boss;put('B1');for(const v of [b.x,b.z,b.yaw,b.lockYaw,b.hp,b.timer,b.cd,b.slamCd,b.pursuit||0,b.state==='charge'?1:0,b.brCd||0,b.brTick||0])put(q(v));put(b.state);put(b.enraged?1:0);put(b.summoned?1:0);}
   else put('B0');
   for(const k of Object.keys(s.up).sort())put(k+':'+s.up[k]);
   return (h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0');
@@ -1441,14 +1514,325 @@ function syncViews(s,dt){
   }
   if(s.boss&&s.boss.hp>0){
     const b=s.boss; seen.add(b.id);
-    let v=VIEWS.get(b.id); if(!v)v=makeView('boss',b.id);
-    setClip(v,clipFor('boss',b.state,b.state==='approach'?8:10));
-    updateAnim(v,dt,0);
-    v.mesh.position.set(b.x,0,b.z); v.mesh.rotation.y=b.yaw;
+    /* The boss FIGURE is per-chapter content (bosses/<id>.js): chapters
+       2/3 wear the humanoid warlord rig; chapter 1's Emerald Drake is a
+       custom-rendered quadruped with its own view + animation. */
+    const bfig=(BOSSES[s.chapter]||{}).figure||'boss';
+    let v=VIEWS.get(b.id);
+    if(v&&v.kind!==bfig){ scene.remove(v.mesh); if(v.dispose)v.dispose(); else v.mesh.material.dispose(); VIEWS.delete(b.id); v=null; }
+    if(FIGURES[bfig]&&FIGURES[bfig].custom){
+      if(!v)v=makeDragonView(b.id,b);
+      updateDragonView(v,b,dt);
+    }else{
+      if(!v)v=makeView('boss',b.id);
+      setClip(v,clipFor('boss',b.state,b.state==='approach'?8:10));
+      updateAnim(v,dt,0);
+      v.mesh.position.set(b.x,0,b.z); v.mesh.rotation.y=b.yaw;
+    }
   }
   for(const [id,v] of VIEWS){
-    if(!seen.has(id)){ scene.remove(v.mesh); v.mesh.material.dispose(); VIEWS.delete(id); }
+    if(!seen.has(id)){ scene.remove(v.mesh); if(v.dispose)v.dispose(); else v.mesh.material.dispose(); VIEWS.delete(id); }
   }
+}
+
+/* =====================================================================
+   EMERALD DRAKE — custom boss view (figure descriptor figures/dragon.js,
+   `custom: 'dragon'`). A quadruped cannot ride the 13-joint humanoid
+   rig, so the dragon is a hierarchy of merged-geometry groups — body,
+   neck, head, jaw, two wings, a 3-segment tail, four legs — animated
+   procedurally below. VIEW ONLY: it reads sim boss state and writes
+   nothing. All colours come from TINTS.dragon; geometry is owned by
+   this builder, exactly as the descriptor contract states.
+   ===================================================================== */
+function dGeo(parts){
+  const pos=[],nor=[],col=[],idx=[];
+  for(const p of parts){
+    const g=prim(p.g).clone();
+    const r=p.r||[0,0,0];
+    const m=new T.Matrix4().makeRotationFromEuler(new T.Euler(r[0],r[1],r[2]));
+    m.scale(new T.Vector3(p.s[0],p.s[1],p.s[2]));
+    m.setPosition(p.o[0],p.o[1],p.o[2]);
+    g.applyMatrix4(m);
+    const pa=g.getAttribute('position'),na=g.getAttribute('normal'),ia=g.getIndex();
+    const base=pos.length/3;
+    for(let i=0;i<pa.count;i++){
+      pos.push(pa.getX(i),pa.getY(i),pa.getZ(i));
+      nor.push(na.getX(i),na.getY(i),na.getZ(i));
+      col.push(p.c[0],p.c[1],p.c[2]);
+    }
+    if(ia)for(let i=0;i<ia.count;i++)idx.push(base+ia.getX(i));
+    else for(let i=0;i<pa.count;i++)idx.push(base+i);
+    g.dispose();
+  }
+  const geo=new T.BufferGeometry();
+  geo.setAttribute('position',new T.Float32BufferAttribute(pos,3));
+  geo.setAttribute('normal',new T.Float32BufferAttribute(nor,3));
+  geo.setAttribute('color',new T.Float32BufferAttribute(col,3));
+  geo.setIndex(idx);
+  geo.computeBoundingSphere();
+  return geo;
+}
+const dP=(g,o,s,c,r)=>({g,o,s,c,r});
+function dragonBodyParts(TN){
+  const A=TN.armor,L=TN.trim,R=TN.cloth;
+  return [
+    dP('box',[0,1.52,-1.15],[1.35,1.05,1.45],A),
+    dP('box',[0,1.58,-0.05],[1.52,1.20,1.50],A),
+    dP('box',[0,1.62,0.95],[1.42,1.15,1.30],A),
+    dP('box',[0,1.02,-1.10],[1.05,0.30,1.30],L),
+    dP('box',[0,1.00,-0.05],[1.15,0.32,1.40],L),
+    dP('box',[0,1.05,0.95],[1.08,0.30,1.20],L),
+    dP('sph',[0.60,1.78,1.00],[0.62,0.55,0.62],A),
+    dP('sph',[-0.60,1.78,1.00],[0.62,0.55,0.62],A),
+    dP('sph',[0.58,1.68,-1.25],[0.60,0.55,0.60],A),
+    dP('sph',[-0.58,1.68,-1.25],[0.60,0.55,0.60],A),
+    dP('cone',[0,2.28,-1.55],[0.30,0.42,0.30],R),
+    dP('cone',[0,2.38,-0.75],[0.34,0.50,0.34],R),
+    dP('cone',[0,2.42,0.05],[0.36,0.52,0.36],R),
+    dP('cone',[0,2.40,0.80],[0.32,0.46,0.32],R),
+    dP('box',[0,1.85,1.50],[1.00,0.80,0.60],A,[-0.30,0,0]),
+  ];
+}
+function dragonNeckParts(TN){
+  const A=TN.armor,L=TN.trim,R=TN.cloth;
+  return [
+    dP('box',[0,0.18,0.28],[0.80,0.72,0.95],A,[-0.50,0,0]),
+    dP('box',[0,0.52,0.62],[0.70,0.64,0.85],A,[-0.30,0,0]),
+    dP('sph',[0,0.02,0.62],[0.50,0.42,0.30],L),
+    dP('sph',[0,0.38,0.90],[0.44,0.38,0.28],L),
+    dP('cone',[0,0.35,-0.05],[0.20,0.34,0.20],R),
+    dP('cone',[0,0.68,0.30],[0.17,0.30,0.17],R),
+  ];
+}
+function dragonHeadParts(TN){
+  const A=TN.armor,C=TN.skin,D=TN.dark,G=TN.glow;
+  const teeth=[];
+  for(const tx of [-0.15,-0.05,0.05,0.15])
+    teeth.push(dP('cone',[tx,-0.20,0.62],[0.05,0.12,0.05],C,[Math.PI,0,0]));
+  return [
+    dP('box',[0,0.06,0.02],[0.68,0.56,0.72],A),
+    dP('box',[0,-0.04,0.52],[0.46,0.30,0.55],A),
+    dP('cone',[0,0.14,0.72],[0.12,0.26,0.12],C,[0.50,0,0]),
+    dP('box',[0.20,0.22,0.30],[0.26,0.12,0.20],D),
+    dP('box',[-0.20,0.22,0.30],[0.26,0.12,0.20],D),
+    dP('sph',[0.21,0.10,0.37],[0.11,0.11,0.11],G),
+    dP('sph',[-0.21,0.10,0.37],[0.11,0.11,0.11],G),
+    dP('cone',[0.26,0.34,-0.12],[0.17,0.66,0.17],C,[-1.05,0,-0.25]),
+    dP('cone',[-0.26,0.34,-0.12],[0.17,0.66,0.17],C,[-1.05,0,0.25]),
+    dP('cone',[0.33,0.16,-0.18],[0.12,0.40,0.12],C,[-0.85,0,-0.40]),
+    dP('cone',[-0.33,0.16,-0.18],[0.12,0.40,0.12],C,[-0.85,0,0.40]),
+    dP('cone',[0.36,-0.02,0.05],[0.12,0.30,0.12],C,[0,0,-1.20]),
+    dP('cone',[-0.36,-0.02,0.05],[0.12,0.30,0.12],C,[0,0,1.20]),
+    ...teeth,
+  ];
+}
+function dragonJawParts(TN){
+  const A=TN.armor,C=TN.skin;
+  const teeth=[];
+  for(const tx of [-0.13,-0.04,0.05,0.14])
+    teeth.push(dP('cone',[tx,0.06,0.50],[0.045,0.10,0.045],C));
+  return [
+    dP('box',[0,-0.03,0.30],[0.42,0.13,0.62],A),
+    dP('cone',[0,-0.06,0.62],[0.10,0.18,0.10],C,[0.40,0,0]),
+    ...teeth,
+  ];
+}
+function dragonWingParts(TN,side){
+  const R=TN.cloth,K=TN.blade,A=TN.armor;
+  const parts=[dP('sph',[0.10*side,0.05,0],[0.50,0.40,0.60],A)];
+  /* spars: thin boxes from the root toward each tip direction */
+  const spars=[[2.95,0.15,-0.50,0.10],[2.60,0.10,-1.75,0.08],[2.00,0.05,-2.60,0.07],[1.15,0.00,-3.10,0.06]];
+  for(const [tx,ty,tz,w] of spars){
+    const len=Math.sqrt(tx*tx+tz*tz);
+    parts.push(dP('box',[tx*side/2,ty/2,tz/2],[len,w,w],K,[0,Math.atan2(-tz,tx*side),0]));
+  }
+  /* membrane panels fanning between the spars */
+  parts.push(dP('box',[1.55*side,0.02,-1.05],[2.20,0.045,1.50],R,[0,side*0.42,0]));
+  parts.push(dP('box',[1.25*side,0.00,-1.95],[1.80,0.045,1.35],R,[0,side*0.72,0]));
+  parts.push(dP('box',[0.85*side,-0.02,-2.60],[1.30,0.045,1.00],R,[0,side*1.00,0]));
+  return parts;
+}
+function dragonTailParts(TN,i){
+  const A=TN.armor,L=TN.trim,R=TN.cloth;
+  const W=[0.60,0.44,0.30][i], LEN=[1.15,1.00,0.95][i];
+  const parts=[
+    dP('box',[0,0,-LEN/2+0.08],[W,W*0.82,LEN],A),
+    dP('box',[0,-W*0.42,-LEN/2+0.08],[W*0.7,0.16,LEN*0.9],L),
+    dP('cone',[0,W*0.55,-LEN*0.40],[W*0.42,0.34,W*0.42],R),
+  ];
+  if(i===2)parts.push(dP('cone',[0,0.05,-LEN-0.18],[0.34,0.55,0.12],R,[-1.35,0,0]));
+  return parts;
+}
+function dragonLegParts(TN){
+  const A=TN.armor,D=TN.dark,C=TN.skin;
+  return [
+    dP('box',[0,-0.32,0],[0.36,0.68,0.42],A),
+    dP('sph',[0,-0.62,0.03],[0.34,0.30,0.34],D),
+    dP('box',[0,-0.88,0],[0.29,0.50,0.33],A),
+    dP('box',[0,-1.16,0.09],[0.40,0.15,0.60],D),
+    dP('cone',[0.12,-1.18,0.42],[0.09,0.22,0.09],C,[1.25,0,0]),
+    dP('cone',[-0.12,-1.18,0.42],[0.09,0.22,0.09],C,[1.25,0,0]),
+    dP('cone',[0,-1.18,0.46],[0.09,0.22,0.09],C,[1.25,0,0]),
+  ];
+}
+function dragonChestParts(TN){
+  const WOOD=[0.42,0.29,0.15], WOOD2=[0.34,0.22,0.11], M=TN.metal;
+  return [
+    dP('box',[0,0.31,0],[1.25,0.62,0.78],WOOD),
+    dP('box',[0,0.74,-0.10],[1.29,0.26,0.80],WOOD2,[-0.35,0,0]),
+    dP('box',[0.38,0.34,0],[0.12,0.68,0.82],M),
+    dP('box',[-0.38,0.34,0],[0.12,0.68,0.82],M),
+    dP('box',[0,0.40,0.41],[0.20,0.24,0.06],M),
+    dP('cone',[0.55,0.17,0.70],[0.50,0.35,0.50],M),
+    dP('cyl',[0.95,0.05,0.55],[0.22,0.07,0.22],M),
+    dP('cyl',[0.80,0.05,0.85],[0.22,0.07,0.22],M),
+    dP('cyl',[-0.85,0.05,0.65],[0.22,0.07,0.22],M),
+  ];
+}
+function makeDragonView(id,b){
+  const TN=TINTS.dragon;
+  const mat=new T.MeshLambertMaterial({vertexColors:true});
+  const root=new T.Group(); root.rotation.order='YXZ';
+  const torsoG=new T.Group(); root.add(torsoG);
+  torsoG.add(new T.Mesh(dGeo(dragonBodyParts(TN)),mat));
+  const neckG=new T.Group(); neckG.position.set(0,1.80,1.35); torsoG.add(neckG);
+  neckG.add(new T.Mesh(dGeo(dragonNeckParts(TN)),mat));
+  const headG=new T.Group(); headG.position.set(0,0.82,0.92); neckG.add(headG);
+  headG.add(new T.Mesh(dGeo(dragonHeadParts(TN)),mat));
+  const jawG=new T.Group(); jawG.position.set(0,-0.20,0.12); headG.add(jawG);
+  jawG.add(new T.Mesh(dGeo(dragonJawParts(TN)),mat));
+  const wingL=new T.Group(); wingL.position.set(-0.50,2.02,0.50); torsoG.add(wingL);
+  wingL.add(new T.Mesh(dGeo(dragonWingParts(TN,-1)),mat));
+  const wingR=new T.Group(); wingR.position.set(0.50,2.02,0.50); torsoG.add(wingR);
+  wingR.add(new T.Mesh(dGeo(dragonWingParts(TN,1)),mat));
+  const tailG=[]; let tailParent=torsoG;
+  for(let i=0;i<3;i++){
+    const g=new T.Group();
+    g.position.set(0,i===0?1.50:0.02,i===0?-1.80:(i===1?-1.08:-0.93));
+    g.add(new T.Mesh(dGeo(dragonTailParts(TN,i)),mat));
+    tailParent.add(g); tailG.push(g); tailParent=g;
+  }
+  const legGeo=dGeo(dragonLegParts(TN));
+  const legs=[];
+  for(const [lx,lz] of [[-0.68,0.92],[0.68,0.92],[-0.66,-1.22],[0.66,-1.22]]){
+    const g=new T.Group(); g.position.set(lx,1.34,lz);
+    g.add(new T.Mesh(legGeo,mat)); root.add(g); legs.push(g);
+  }
+  scene.add(root);
+  /* The drake's hoard: a treasure chest just OUTSIDE the arena edge,
+     behind the spawn point. Pure decoration — no collider, and heroes
+     can never reach it, so it can never block a fight. */
+  const chest=new T.Group();
+  chest.add(new T.Mesh(dGeo(dragonChestParts(TN)),mat));
+  const cd=Math.sqrt(b.x*b.x+b.z*b.z)||1;
+  chest.position.set(b.x/cd*(ARENA_R+1.5),0.35,b.z/cd*(ARENA_R+1.5));
+  chest.rotation.y=Math.atan2(-b.x,-b.z);
+  scene.add(chest);
+  /* Breath flame kit (pooled, scene-level): two additive cones + mouth
+     glow + ground scorch. Driven per-frame from sim state; invisible
+     unless the dragon is telegraphing or breathing. */
+  const mkFlame=(rt,rb,col)=>{
+    const g=new T.CylinderGeometry(rt,rb,9.5,12,1,true);
+    g.rotateX(Math.PI/2); g.translate(0,0,4.75);
+    const m=new T.Mesh(g,new T.MeshBasicMaterial({color:col,transparent:true,
+      opacity:0,blending:T.AdditiveBlending,side:T.DoubleSide,depthWrite:false}));
+    m.visible=false; m.frustumCulled=false; scene.add(m); return m;
+  };
+  const flameOuter=mkFlame(4.43,0.30,0xff5a14);
+  const flameInner=mkFlame(2.30,0.16,0xffc46b);
+  const glow=new T.Mesh(new T.SphereGeometry(0.30,10,8),
+    new T.MeshBasicMaterial({color:0xff7a26,transparent:true,opacity:0.9,
+      blending:T.AdditiveBlending,depthWrite:false}));
+  glow.visible=false; glow.frustumCulled=false; scene.add(glow);
+  const scorchGeo=new T.CircleGeometry(3.3,18); scorchGeo.rotateX(-Math.PI/2);
+  const scorch=new T.Mesh(scorchGeo,new T.MeshBasicMaterial({color:0xff4400,
+    transparent:true,opacity:0,blending:T.AdditiveBlending,depthWrite:false}));
+  scorch.visible=false; scorch.frustumCulled=false; scene.add(scorch);
+  const D={ t:0, trot:0, legAmp:0, spread:0.15, neckX:0, jaw:0,
+    torsoG, neckG, headG, jawG, wingL, wingR, tailG, legs, mat, chest,
+    flame:{outer:flameOuter, inner:flameInner, glow, scorch} };
+  const v={ kind:'dragon', id, mesh:root, dragon:D, baseScale:1,
+    anim:{cur:'dragon',prev:null,t:0,prevT:0,blend:1,weightSum:1},
+    bones:JOINTS.map(()=>({rotation:{x:0,y:0,z:0}})),
+    dispose(){
+      scene.remove(chest);
+      for(const m of [flameOuter,flameInner,glow,scorch]){ scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
+      root.traverse(o=>{ if(o.geometry)o.geometry.dispose(); });
+      chest.traverse(o=>{ if(o.geometry)o.geometry.dispose(); });
+      mat.dispose();
+    } };
+  VIEWS.set(id,v);
+  return v;
+}
+
+/* Procedural dragon animation — reads sim boss state only (position,
+   yaw, velocity, state string, hitFlash), so lockstep guests see the
+   same breath because they simulate the same state. */
+function updateDragonView(v,b,dt){
+  const D=v.dragon; D.t+=dt;
+  const root=v.mesh;
+  root.position.set(b.x,0,b.z); root.rotation.y=b.yaw;
+  const sp=Math.sqrt(b.vx*b.vx+b.vz*b.vz);
+  const moving=clamp(sp/6,0,1);
+  D.trot+=dt*(2.5+sp*2.0);
+  D.legAmp+=((moving>0.05?1:0)-D.legAmp)*Math.min(1,dt*7);
+  const legOffs=[0,Math.PI,Math.PI,0];      // diagonal gait pairs
+  for(let i=0;i<4;i++)
+    D.legs[i].rotation.x=Math.sin(D.trot+legOffs[i])*0.50*D.legAmp;
+  /* wings: idle folded sway; spread wide + flap hard for charge and the
+     breath telegraph; steady beat while breathing */
+  let spreadT=0.12,flapF=1.6,flapA=0.10;
+  if(b.state==='charge'||b.state==='chargeTele'){ spreadT=0.62; flapF=10.0; flapA=0.30; }
+  else if(b.state==='breathTele'){ spreadT=0.85; flapF=3.0; flapA=0.16; }
+  else if(b.state==='breath'){ spreadT=0.55; flapF=6.0; flapA=0.22; }
+  else if(moving>0.05){ spreadT=0.34; flapF=4.5; flapA=0.26; }
+  D.spread+=(spreadT-D.spread)*Math.min(1,dt*5);
+  const flap=Math.sin(D.t*flapF)*flapA;
+  D.wingR.rotation.z= 0.18+D.spread+flap;
+  D.wingL.rotation.z=-(0.18+D.spread+flap);
+  /* neck / head / jaw: idle bob; rear up on the telegraph; level and
+     open wide while the flame is out */
+  let neckT=-0.05+Math.sin(D.t*1.8)*0.035, jawT=0.04+Math.sin(D.t*2.3)*0.02;
+  if(b.state==='breathTele'){ neckT=-0.40; jawT=0.30; }
+  else if(b.state==='breath'){ neckT=0.14; jawT=0.55; }
+  else if(b.state==='charge'){ neckT=0.18; jawT=0.25; }
+  D.neckX+=(neckT-D.neckX)*Math.min(1,dt*6);
+  D.jaw+=(jawT-D.jaw)*Math.min(1,dt*8);
+  D.neckG.rotation.x=D.neckX;
+  D.headG.rotation.x=D.neckX*0.5+Math.sin(D.t*1.8+0.6)*0.03;
+  D.jawG.rotation.x=D.jaw;
+  /* tail sway with per-segment phase lag */
+  for(let i=0;i<3;i++)
+    D.tailG[i].rotation.y=Math.sin(D.t*2.3-i*0.75)*(0.13+0.10*moving);
+  /* body breathing / trot bob + the shared hit flash */
+  D.torsoG.position.y=Math.sin(D.t*2.1)*0.035+Math.abs(Math.sin(D.trot))*0.05*D.legAmp;
+  const hf=b.hitFlash||0;
+  D.mat.emissive.setRGB(0.50*hf,0.14*hf,0.05*hf);
+  updateDragonFlame(D,b);
+}
+function updateDragonFlame(D,b){
+  const F=D.flame;
+  const BC=BOSS_CFG_BY_CHAPTER[SIM.chapter], BR=BC&&BC.breath;
+  const breathing=b.state==='breath', tele=b.state==='breathTele';
+  if(!BR||(!breathing&&!tele)){
+    F.outer.visible=F.inner.visible=F.glow.visible=F.scorch.visible=false;
+    return;
+  }
+  const yaw=b.lockYaw;
+  const fx=Math.sin(yaw), fz=Math.cos(yaw);
+  const hx=b.x+fx*3.0, hz=b.z+fz*3.0;   // the mouth, world space
+  F.glow.visible=true;
+  F.glow.position.set(hx,2.45,hz);
+  F.glow.scale.setScalar(tele?0.9+0.35*Math.abs(Math.sin(D.t*7)):1.25);
+  if(!breathing){ F.outer.visible=F.inner.visible=F.scorch.visible=false; return; }
+  F.outer.visible=F.inner.visible=F.scorch.visible=true;
+  F.outer.position.set(hx,2.45,hz); F.outer.rotation.y=yaw;
+  F.inner.position.set(hx,2.45,hz); F.inner.rotation.y=yaw;
+  const fl=0.85+0.30*Math.sin(D.t*43)+0.12*Math.sin(D.t*91);
+  F.outer.scale.set(fl,fl,1); F.inner.scale.set(fl*0.95,fl*0.95,1);
+  F.outer.material.opacity=0.34; F.inner.material.opacity=0.50;
+  F.scorch.position.set(b.x+fx*(BR.headDist+4.8),0.06,b.z+fz*(BR.headDist+4.8));
+  F.scorch.material.opacity=0.26+0.06*Math.sin(D.t*37);
 }
 
 /* ---------- gems / heal orbs / projectiles (cosmetic instancing) ---------- */
@@ -1541,7 +1925,8 @@ function updatePickupMeshes(s,time){
     dummy.scale.set(r, r, 1);dummy.updateMatrix();shadowMesh.setMatrixAt(n++,dummy.matrix); };
   for(const h of s.heroes)put(h.x,h.z,0.55);
   for(const e of s.enemies)put(e.x,e.z,0.5);
-  if(s.boss&&s.boss.hp>0)put(s.boss.x,s.boss.z,1.25);
+  if(s.boss&&s.boss.hp>0){ const bf=(BOSSES[s.chapter]||{}).figure;
+    put(s.boss.x,s.boss.z,(FIGURES[bf]&&FIGURES[bf].custom)?2.35:1.25); }
   shadowMesh.count=n;shadowMesh.instanceMatrix.needsUpdate=true;
 }
 
@@ -1936,7 +2321,9 @@ function consumeEvents(){
       case 'chapter': Audio.level();break;
       case 'victory': Audio.level();break;
       case 'event': showBanner('\u26A0 ELITE INCOMING \u26A0',2600); Audio.boss(); break;
-      case 'enrage': showBanner('\u2620 THE WARDEN RAGES \u2620',2600); Audio.boss(); break;
+      case 'enrage': showBanner('\u2620 '+BOSS_NAMES[SIM.chapter-1]+' RAGES \u2620',2600); Audio.boss(); break;
+      case 'bossTelegraph': if(e.kind==='BREATH')Audio.whoosh(0.8); break;
+      case 'breathStart': Audio.boss(); break;
       case 'summon': burst(e.x,1.6,e.z,[1,.5,.2],18,4.0); break;
       case 'potion': damageNumber(e.x,1.5,e.z,'+MAGIC',false); burst(e.x,1,e.z,[.77,.42,1],10,2.2); Audio.gem(); break;
       case 'bolt': fireBolt(e.x,e.z,e.boss); burst(e.x,1.15,e.z,[.72,.62,1],10,2.8); break;
@@ -3014,7 +3401,8 @@ window.__GAME={
     if(state){e.state=state;e.timer=0.55;e.lockYaw=e.yaw;}return e.id;},
   clearEnemies(){SIM.enemies=[];SIM.projectiles=[];SIM.boss=null;},
   bossName(){return BOSS_NAMES[SIM.chapter-1];},
-  clearViews(){for(const [id,v] of VIEWS){scene.remove(v.mesh);v.mesh.material.dispose();}VIEWS.clear();},
+  clearViews(){for(const [id,v] of VIEWS){scene.remove(v.mesh);if(v.dispose)v.dispose();else v.mesh.material.dispose();}VIEWS.clear();},
+  drawCalls(){return renderer.info.render.calls;},
   stopAudio(){Audio.stop();},
   get meta(){return META;},
   get net(){ const n=NET; return n?{active:n.active,role:n.role,code:n.code,step:n.step,

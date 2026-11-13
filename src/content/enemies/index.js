@@ -20,7 +20,7 @@ import { archer } from './archer.js';
 import { sorcerer } from './sorcerer.js';
 import { knight } from './knight.js';
 import { MELEE_DEFAULTS, GLOBAL_ENEMY_CAP } from './shared.js';
-import { BOSSES, BOSS_NAMES, BOSS_CFG, BOSS_PHASE2, BOSS_FIGURE, BOSS_IDS } from './bosses/index.js';
+import { BOSSES, BOSS_NAMES, BOSS_CFG, BOSS_PHASE2, BOSS_FIGURE, BOSS_IDS, BOSS_CFG_BY_CHAPTER } from './bosses/index.js';
 
 export const ENEMIES = deepFreeze({
   brute, runner, ranger, soldier, archer, sorcerer, knight,
@@ -65,4 +65,4 @@ export const SCHEDULED_ELITES = deepFreeze(Object.values(ENEMIES)
 /** The kind that always opens a run (first spawn while kills === 0). */
 export const OPENER_KIND = (Object.values(ENEMIES).find((d) => d.opensFight) || {}).kind || 'soldier';
 
-export { BOSSES, BOSS_NAMES, BOSS_CFG, BOSS_PHASE2, BOSS_FIGURE, BOSS_IDS, MELEE_DEFAULTS };
+export { BOSSES, BOSS_NAMES, BOSS_CFG, BOSS_PHASE2, BOSS_FIGURE, BOSS_IDS, BOSS_CFG_BY_CHAPTER, MELEE_DEFAULTS };
