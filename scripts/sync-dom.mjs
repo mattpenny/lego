@@ -39,9 +39,10 @@ const FOOT = `
 </html>
 `;
 
-/** The exact body markup index.html must contain, derived from the DOM source. */
+/** The exact body markup index.html must contain, derived from the DOM source.
+    CRLF is normalised so the check is identical on Windows and CI/Linux. */
 export function expectedBody() {
-  return readFileSync(DOM, 'utf8').trim();
+  return readFileSync(DOM, 'utf8').replace(/\r\n/g, '\n').trim();
 }
 
 export function renderIndexHtml() {
@@ -50,14 +51,15 @@ export function renderIndexHtml() {
 
 /** Extract the generated body region from an index.html string. */
 export function bodyFromIndex(html) {
-  const a = html.indexOf('<body>');
-  const b = html.indexOf('<script src="src/three.js"></script>');
+  const s = html.replace(/\r\n/g, '\n');
+  const a = s.indexOf('<body>');
+  const b = s.indexOf('<script src="src/three.js"></script>');
   if (a < 0 || b < 0) return null;
-  return html.slice(a + '<body>'.length, b).trim();
+  return s.slice(a + '<body>'.length, b).trim();
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
-  const before = readFileSync(HTML, 'utf8');
+  const before = readFileSync(HTML, 'utf8').replace(/\r\n/g, '\n');
   const after = renderIndexHtml();
   if (before === after) console.log('index.html already in sync with src/game.dom.html');
   else {

@@ -1,0 +1,11 @@
+# Keep every text file LF in the repository AND in the working tree.
+#
+# Without this, Windows checkouts (core.autocrlf=true) get CRLF while the
+# generators in scripts/ emit LF — which makes `build-single --check` and the
+# DOM sync comparison report a false "stale" on one platform and pass on
+# another. Pinning eol=lf makes every machine byte-identical.
+* text=auto eol=lf
+
+# Generated, single-file phone build. Regenerate with `npm run single:build`;
+# never hand-edit. Declared binary-ish so no EOL rewriting ever touches it.
+dist-single/aetherblade.html text eol=lf

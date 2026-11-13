@@ -32,7 +32,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'dist-single', 'aetherblade.html');
 const ENTRY = 'src/main.js';
 
-const read = (p) => readFileSync(join(ROOT, p), 'utf8');
+/* Normalise CRLF -> LF on read. Without this the generated artifact depends on
+   the checkout's core.autocrlf setting (Windows CRLF vs CI/Linux LF), so
+   `--check` would fail on a machine with a different EOL policy. */
+const read = (p) => readFileSync(join(ROOT, p), 'utf8').replace(/\r\n/g, '\n');
 const rel = (p) => posix.normalize(relative(ROOT, p).split('\\').join('/'));
 
 function resolveImport(from, spec) {
@@ -199,7 +202,7 @@ if (check) {
   if (!existsSync(OUT)) {
     console.error('single build missing — run npm run single:build'); process.exit(1);
   }
-  const current = readFileSync(OUT, 'utf8');
+  const current = readFileSync(OUT, 'utf8').replace(/\r\n/g, '\n');
   if (current !== html) {
     console.error('single build is STALE — run npm run single:build'); process.exit(1);
   }
