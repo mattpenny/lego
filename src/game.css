@@ -192,4 +192,54 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
   font-family:"Palatino Linotype","Book Antiqua",Palatino,Georgia,serif;
   font-size:calc(11px*var(--u));letter-spacing:.2em;
   padding:calc(7px*var(--u)) calc(20px*var(--u));border-radius:calc(8px*var(--u))}
+/* ---- co-op: parchment modal, connection pill, waiting banner, hero tags ---- */
+#coop{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(3,5,10,.72);z-index:31;padding:calc(10px*var(--u))}
+#coop.on{display:flex}
+#coopCard{width:min(94vw,calc(560px*var(--u)));max-height:94vh;overflow:auto;text-align:center;
+  border-radius:calc(10px*var(--u));padding:calc(16px*var(--u)) calc(18px*var(--u));
+  background:linear-gradient(180deg,#f6ead0,#ecdcae 60%,#e0c88f);
+  border:2px solid #a97f33;color:#3a2a12;
+  box-shadow:0 18px 60px rgba(0,0,0,.75),inset 0 0 40px rgba(150,105,30,.18);
+  font-family:"Palatino Linotype","Book Antiqua",Palatino,Georgia,"Times New Roman",serif}
+#coopTitle{font-size:calc(21px*var(--u));font-weight:bold;letter-spacing:.22em;color:#6e4a10}
+#coopRule{height:2px;width:72%;margin:calc(9px*var(--u)) auto 0;
+  background:linear-gradient(90deg,transparent,#a97f33,transparent)}
+#coopBody{font-size:calc(12px*var(--u));line-height:1.7;color:#4a3512;
+  margin:calc(10px*var(--u)) auto;max-width:calc(500px*var(--u))}
+#coopBody .ccode{font-size:calc(40px*var(--u));font-weight:bold;letter-spacing:.3em;
+  color:#6e4a10;margin:calc(6px*var(--u)) 0;text-indent:.3em}
+#coopBody .cstat{font-size:calc(13px*var(--u));letter-spacing:.14em;color:#8a5a08;font-weight:bold}
+#coopJoin{display:none;gap:calc(8px*var(--u));justify-content:center;align-items:center;
+  margin:calc(10px*var(--u)) auto}
+#coopJoin.on{display:flex}
+#coopInput{width:calc(190px*var(--u));text-align:center;text-transform:uppercase;
+  font-family:inherit;font-size:calc(17px*var(--u));font-weight:bold;letter-spacing:.28em;
+  padding:calc(8px*var(--u)) calc(6px*var(--u));border-radius:calc(8px*var(--u));
+  border:2px solid #a97f33;background:#fdf6dd;color:#3a2a12;outline:none}
+#coopJoin .bigbtn{background:linear-gradient(180deg,#ffe2a0,#dfa83f);
+  border:1px solid #8a5f1c;color:#241703}
+#coopBtns{display:flex;gap:calc(8px*var(--u));justify-content:center;flex-wrap:wrap;
+  margin-top:calc(10px*var(--u))}
+#coopBtns .bigbtn{background:linear-gradient(180deg,#ffe2a0,#dfa83f);
+  border:1px solid #8a5f1c;color:#241703}
+#coopBtns .bigbtn.ghost{background:transparent;color:#6e4a10;border:1px solid #a97f33}
+#netStat{position:fixed;top:calc(8px*var(--u));left:50%;transform:translateX(-50%);
+  z-index:14;display:none;align-items:center;gap:calc(6px*var(--u));
+  padding:calc(4px*var(--u)) calc(11px*var(--u));border-radius:calc(20px*var(--u));
+  background:rgba(5,10,20,.55);border:1px solid rgba(170,210,255,.25);
+  color:#cfe2ff;font-size:calc(11px*var(--u));letter-spacing:.08em;pointer-events:none}
+#netDot{width:calc(8px*var(--u));height:calc(8px*var(--u));border-radius:50%;background:#57e389}
+#netDot.warn{background:#ffb84d}
+#netDot.bad{background:#ff5d5d}
+#netBanner{position:fixed;left:50%;top:22%;transform:translateX(-50%);z-index:15;display:none;
+  pointer-events:none;padding:calc(8px*var(--u)) calc(22px*var(--u));
+  border-radius:calc(8px*var(--u));background:rgba(20,12,2,.82);
+  border:1px solid #caa14e;color:#f5cf76;
+  font-family:"Palatino Linotype","Book Antiqua",Palatino,Georgia,"Times New Roman",serif;
+  font-size:calc(15px*var(--u));letter-spacing:.18em}
+.ptag{position:fixed;z-index:13;display:none;pointer-events:none;transform:translate(-50%,-100%);
+  font-size:calc(12px*var(--u));font-weight:bold;letter-spacing:.1em;
+  text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.6)}
+
 
