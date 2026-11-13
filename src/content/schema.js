@@ -131,6 +131,20 @@ function checkHero(d, key, errors, warnings) {
     errors.push(`${w}: slashTip must be {b: joint 0..12, o: [x,y,z]}`);
   if (d.sim !== undefined)
     errors.push(`${w}: per-hero sim stats are not supported yet (would move the digest)`);
+  /* Optional signature magic — the ONE supported per-hero sim ability.
+     It lives on the descriptor (not in a `sim` block) and is derived
+     into HERO_MAGIC; castMagic() applies it to the blast's survivors. */
+  if (d.magic !== undefined) {
+    const m = d.magic;
+    if (!isObj(m) || (m.kind !== 'frost' && m.kind !== 'earth'))
+      errors.push(`${w}: magic.kind must be 'frost' or 'earth'`);
+    else if (m.kind === 'frost' &&
+             (!isNum(m.freezeSec) || m.freezeSec <= 0 || !isNum(m.bossFreezeSec) || m.bossFreezeSec <= 0))
+      errors.push(`${w}: frost magic needs positive freezeSec and bossFreezeSec`);
+    else if (m.kind === 'earth' &&
+             (!isNum(m.push) || m.push <= 0 || !isNum(m.bossPush) || m.bossPush <= 0))
+      errors.push(`${w}: earth magic needs positive push and bossPush`);
+  }
 }
 
 function checkFigure(d, key, errors, warnings) {

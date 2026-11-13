@@ -9,7 +9,7 @@
    descriptor file under src/content/. See CONTENT-GUIDE.md section 6. */
 import {
   RULES, REGISTRY, SIM_CONTENT, contentSummary, assertRegistry,
-  HEROES, HERO_COSTS, HERO_SLASH_TIPS, heroName, safeHero,
+  HEROES, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC, heroName, safeHero,
   FIGURES, FIGURE_INK, TINTS, FIGURE_SCALES,
   ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL, SCHEDULED_ELITES, OPENER_KIND,
   ENEMIES,
@@ -236,7 +236,14 @@ function mkHero(i,two){
            state:'idle', st:0, atkCd:0, rollCd:0, invuln:0,
            hitDone:false, attackId:0, rollX:0, rollZ:0,
            lungeX:0, lungeZ:0, lastHitTick:-999, hitFlash:0,
-           downed:false, mods:{hp:0,dmg:0,spd:0} };
+           downed:false, mods:{hp:0,dmg:0,spd:0},
+           /* Which hero (skin) this player runs — cosmetic for the five
+              classic skins, but two skins carry a SIGNATURE MAGIC
+              (HERO_MAGIC), so the id is sim state: set from the player's
+              own selection at run start and hashed by simDigest, so a
+              mismatched pairing desyncs loudly instead of silently
+              freezing on one screen only. */
+           heroId:'hero' };
 }
 /* spawn anchor: first living hero (heroes[0] in solo — identical behaviour) */
 function anchorHero(s){
@@ -420,20 +427,51 @@ function damageBoss(s,b,dmg,crit){
   }
 }
 
+/* Signature magic, applied to one SURVIVOR of the blast (damage always
+   lands first — see castMagic). `t` is an enemy or the boss; `radius` is
+   that target's own body radius, used only by the earthquake clamp.
+   FROST: the freeze is stored as a whole number of sim steps
+   (seconds x 60) so its duration is exact and float-free; the frozen
+   entity's update is skipped entirely, which pauses its move / attack /
+   telegraph / charge / breath timers where they stand. Re-freezing
+   takes the max, never a sum and never a shorten.
+   EARTH: instant radial displacement away from the caster, clamped so
+   the target's centre never leaves ARENA_R - radius. A target standing
+   exactly on the caster is pushed along the caster's facing. */
+function applyMagicSig(s,h,sig,t,radius,isBoss){
+  if(sig.kind==='frost'){
+    const steps=Math.round((isBoss?sig.bossFreezeSec:sig.freezeSec)*60);
+    t.frozen=Math.max(t.frozen||0,steps);
+  }else if(sig.kind==='earth'){
+    let dx=t.x-h.x, dz=t.z-h.z, d=Math.sqrt(dx*dx+dz*dz);
+    if(d<0.001){ dx=Math.sin(h.yaw); dz=Math.cos(h.yaw); d=1; }
+    const push=isBoss?sig.bossPush:sig.push;
+    t.x+=dx/d*push; t.z+=dz/d*push; t.vx=0; t.vz=0;
+    const dd=Math.sqrt(t.x*t.x+t.z*t.z), lim=ARENA_R-radius;
+    if(dd>lim){ const k=lim/dd; t.x*=k; t.z*=k; }
+  }
+}
+
 function castMagic(s,h){
   if(s.magic<CFG.magic.cost)return;
   if(s.phase!=='play'&&s.phase!=='boss')return;
   s.magic-=CFG.magic.cost;
   const R=CFG.magic.radius;
+  /* The CASTER's own hero decides the signature (in co-op each player's
+     selected hero); skins without one keep the plain blast. */
+  const sig=HERO_MAGIC[h.heroId]||null;
   for(let i=0;i<s.enemies.length;i++){
     const e=s.enemies[i]; if(e.dead)continue;
     const rr=R+CFG.enemy[e.type].radius;
-    if(dist2(e.x,e.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:e.x,z:e.z}); damageEnemy(s,e,CFG.magic.dmg,false); }
+    if(dist2(e.x,e.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:e.x,z:e.z}); damageEnemy(s,e,CFG.magic.dmg,false);
+      if(sig&&!e.dead)applyMagicSig(s,h,sig,e,CFG.enemy[e.type].radius,false); }
   }
   const b=s.boss;
   if(b&&b.hp>0){ const rr=R+bossCfgOf(s).radius;
-    if(dist2(b.x,b.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:b.x,z:b.z,boss:1}); damageBoss(s,b,CFG.magic.dmg,false); } }
-  emit('magic',{x:h.x,z:h.z,r:R});
+    if(dist2(b.x,b.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:b.x,z:b.z,boss:1}); damageBoss(s,b,CFG.magic.dmg,false);
+      if(sig&&b.hp>0)applyMagicSig(s,h,sig,b,bossCfgOf(s).radius,true); } }
+  emit('magic',{x:h.x,z:h.z,r:R,sig:sig?sig.kind:''});
+  if(sig&&sig.kind==='earth')emit('shake',{v:0.9});
   addHitStop(s,CFG.magic.stopMs);
 }
 
@@ -581,6 +619,11 @@ function updateEnemies(s,dt){
     const cfg=C[e.type];
     e.hitFlash=Math.max(0,(e.hitFlash||0)-dt*4);
     e.cancelFlash=Math.max(0,(e.cancelFlash||0)-dt*3);
+    /* FROZEN (Frost Nova): the whole update is skipped — no movement, no
+       attack, and state/timer/cd do not advance, so a telegraph or
+       wind-up resumes exactly where it froze. The entity can still be
+       hit and killed (damage functions never consult this timer). */
+    if((e.frozen||0)>0){ e.frozen--; e.vx=0; e.vz=0; continue; }
     e.cd=Math.max(0,(e.cd||0)-dt);
     const h=nearestHero(s,e.x,e.z); e.tgt=h;
     const dx=h.x-e.x, dz=h.z-e.z, d=Math.sqrt(dx*dx+dz*dz)||0.001;
@@ -680,6 +723,10 @@ function breathDamage(s,b,B){
 function updateBoss(s,dt){
   const b=s.boss; if(!b||b.hp<=0)return;
   const B=bossCfgOf(s);
+  /* FROZEN (Frost Nova, half duration on bosses): everything pauses —
+     cooldowns, pursuit ramp, telegraph/charge/breath timers — and the
+     boss does not move. It can still be hit and killed while frozen. */
+  if((b.frozen||0)>0){ b.frozen--; b.hitFlash=Math.max(0,(b.hitFlash||0)-dt*4); b.vx=0; b.vz=0; return; }
   b.hitFlash=Math.max(0,(b.hitFlash||0)-dt*4);
   b.cd=Math.max(0,b.cd-dt); b.slamCd=Math.max(0,b.slamCd-dt);
   if(B.breath)b.brCd=Math.max(0,(b.brCd||0)-dt);
@@ -899,7 +946,7 @@ function makeEnemy(s,type,x,z,cd){
   const C=CFG.enemy[type];
   const e={id:s.nextId++,type,x,z,yaw:Math.atan2(anchorHero(s).x-x,anchorHero(s).z-z),
     lockYaw:0,hp:C.hp,maxHp:C.hp,state:'chase',timer:0,cd:cd||0.5,
-    slamCd:0,attackKind:'melee',vx:0,vz:0,hitFlash:0,cancelFlash:0,dead:false};
+    slamCd:0,attackKind:'melee',vx:0,vz:0,hitFlash:0,cancelFlash:0,dead:false,frozen:0};
   s.enemies.push(e);return e;
 }
 function spawnBoss(s){
@@ -922,7 +969,7 @@ function spawnBoss(s){
   s.enemies=[]; s.projectiles=[];
   s.boss={id:s.nextId++,x,z,yaw:Math.atan2(ah.x-x,ah.z-z),lockYaw:0,
     hp:BC.hp,maxHp:BC.hp,state:'approach',timer:0,cd:2.2,slamCd:0,
-    chargeVX:0,chargeVZ:0,chargeHit:false,pursuit:0,hitFlash:0,vx:0,vz:0,
+    chargeVX:0,chargeVZ:0,chargeHit:false,pursuit:0,hitFlash:0,vx:0,vz:0,frozen:0,
     brCd:BC.breath?BC.breath.firstCd:0,brTick:0};
   s.bossSpawned=true; s.bossSpawnTick=s.tick; s.phase='boss';
   emit('bossSpawn',{x,z,dist:Math.sqrt((x-ah.x)*(x-ah.x)+(z-ah.z)*(z-ah.z))});
@@ -1001,14 +1048,15 @@ function simDigest(s){
     for(const v of [h.x,h.z,h.yaw,h.vx,h.vz,h.hp,h.maxHp,h.st,h.atkCd,h.rollCd,h.invuln,h.state==='roll'?1:0])put(q(v));
     put(h.state);put(h.hitDone?1:0);put(h.attackId);put(h.downed?1:0);
     put(h.mods.hp);put(h.mods.dmg);put(h.mods.spd.toFixed(3));
+    put(h.heroId||'hero');
   }
   put('E'+s.enemies.length);
-  for(const e of s.enemies){ for(const v of [e.id,e.x,e.z,e.yaw,e.lockYaw,e.hp,e.timer,e.cd,e.state==='telegraph'?1:0,e.vx,e.vz])put(q(v)); put(e.state); put(e.attackKind||''); }
+  for(const e of s.enemies){ for(const v of [e.id,e.x,e.z,e.yaw,e.lockYaw,e.hp,e.timer,e.cd,e.state==='telegraph'?1:0,e.vx,e.vz])put(q(v)); put(e.state); put(e.attackKind||''); put(e.frozen||0); }
   put('P'+s.projectiles.length);
   for(const p of s.projectiles)for(const v of [p.id,p.x,p.z,p.vx,p.vz,p.life,p.tx||0,p.tz||0])put(q(v));
   put('G'+s.gems.length);for(const g of s.gems)for(const v of [g.id,g.x,g.z])put(q(v));
   put('H'+s.heals.length);for(const o of s.heals)for(const v of [o.id,o.x,o.z])put(q(v));
-  if(s.boss){const b=s.boss;put('B1');for(const v of [b.x,b.z,b.yaw,b.lockYaw,b.hp,b.timer,b.cd,b.slamCd,b.pursuit||0,b.state==='charge'?1:0,b.brCd||0,b.brTick||0])put(q(v));put(b.state);put(b.enraged?1:0);put(b.summoned?1:0);}
+  if(s.boss){const b=s.boss;put('B1');for(const v of [b.x,b.z,b.yaw,b.lockYaw,b.hp,b.timer,b.cd,b.slamCd,b.pursuit||0,b.state==='charge'?1:0,b.brCd||0,b.brTick||0])put(q(v));put(b.state);put(b.enraged?1:0);put(b.summoned?1:0);put(b.frozen||0);}
   else put('B0');
   for(const k of Object.keys(s.up).sort())put(k+':'+s.up[k]);
   return (h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0');
@@ -1507,9 +1555,12 @@ function syncViews(s,dt){
   for(let i=0;i<s.enemies.length;i++){
     const e=s.enemies[i]; seen.add(e.id);
     let v=VIEWS.get(e.id); if(!v)v=makeView(e.type,e.id);
-    const clip=clipFor(e.type,e.state,Math.sqrt(e.vx*e.vx+e.vz*e.vz));
+    /* Frozen figures hold their pose: clip time does not advance and a
+       moving state reads as idle (the ice shell sells the rest). */
+    const frz=(e.frozen||0)>0;
+    const clip=clipFor(e.type,e.state,frz?0:Math.sqrt(e.vx*e.vx+e.vz*e.vz));
     setClip(v,clip);
-    updateAnim(v,dt,0);
+    updateAnim(v,frz?0:dt,0);
     v.mesh.position.set(e.x,0,e.z); v.mesh.rotation.y=e.yaw;
   }
   if(s.boss&&s.boss.hp>0){
@@ -1522,16 +1573,17 @@ function syncViews(s,dt){
     let v=VIEWS.get(b.id);
     if(v&&v.kind!==bfig){ scene.remove(v.mesh); if(v.dispose)v.dispose(); else v.mesh.material.dispose(); VIEWS.delete(b.id); v=null; }
     const bCustom=FIGURES[bfig]&&FIGURES[bfig].custom;
+    const bfrz=(b.frozen||0)>0;
     if(bCustom==='dragon'){
       if(!v)v=makeDragonView(b.id,b);
-      updateDragonView(v,b,dt);
+      updateDragonView(v,b,bfrz?0:dt);
     }else if(bCustom==='knightMount'){
       if(!v)v=makeKnightMountView(b.id,b);
-      updateKnightMountView(v,b,dt);
+      updateKnightMountView(v,b,bfrz?0:dt);
     }else{
       if(!v)v=makeView('boss',b.id);
-      setClip(v,clipFor('boss',b.state,b.state==='approach'?8:10));
-      updateAnim(v,dt,0);
+      setClip(v,clipFor('boss',b.state,bfrz?0:(b.state==='approach'?8:10)));
+      updateAnim(v,bfrz?0:dt,0);
       v.mesh.position.set(b.x,0,b.z); v.mesh.rotation.y=b.yaw;
     }
   }
@@ -2491,6 +2543,75 @@ function updateBolts(dt){
   }
 }
 
+/* ---------- signature-magic FX (cosmetic only) ----------
+   Expanding ground rings for Frost Nova / Earthquake casts (fired from
+   the sim's 'magic' event, whose payload now carries the caster's
+   signature kind) and pooled translucent ice shells that encase frozen
+   figures for exactly as long as their sim frozen timer runs. The view
+   only READS sim state here; it writes nothing back. */
+const RING_POOL=4, RING_LIFE=0.5;
+let sigRingMeshes=[], sigRingState=[];
+function setupRings(){
+  for(let i=0;i<RING_POOL;i++){
+    const m=new T.Mesh(new T.RingGeometry(0.90,1.0,56),
+      new T.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,
+        side:T.DoubleSide,depthWrite:false,fog:false}));
+    m.rotation.x=-Math.PI/2; m.position.y=0.07; m.visible=false; m.frustumCulled=false;
+    scene.add(m); sigRingMeshes.push(m); sigRingState.push({t:9,maxR:14});
+  }
+}
+function fireRing(x,z,hex,maxR){
+  let idx=sigRingState.findIndex(r=>r.t>=RING_LIFE);
+  if(idx<0)idx=0;
+  sigRingState[idx].t=0; sigRingState[idx].maxR=maxR;
+  const m=sigRingMeshes[idx];
+  m.material.color.setHex(hex);
+  m.position.x=x; m.position.z=z; m.visible=true;
+}
+function updateRings(dt){
+  for(let i=0;i<RING_POOL;i++){
+    const st=sigRingState[i];
+    if(st.t>=RING_LIFE){ sigRingMeshes[i].visible=false; continue; }
+    st.t+=dt;
+    const u=Math.min(1,st.t/RING_LIFE), ease=1-(1-u)*(1-u);
+    const r=Math.max(0.05,st.maxR*ease);
+    sigRingMeshes[i].scale.set(r,r,r);
+    sigRingMeshes[i].material.opacity=0.85*(1-u);
+    sigRingMeshes[i].visible=st.t<RING_LIFE;
+  }
+}
+const ICE_POOL=18;
+let iceShells=[];
+function setupIce(){
+  const mat=new T.MeshLambertMaterial({color:0xbfe4ff,transparent:true,opacity:0.40,
+    emissive:0x2c5d7d,depthWrite:false});
+  const matTip=new T.MeshLambertMaterial({color:0xe4f6ff,transparent:true,opacity:0.55,
+    emissive:0x3d7396,depthWrite:false});
+  for(let i=0;i<ICE_POOL;i++){
+    const g=new T.Group();
+    const box=new T.Mesh(new T.BoxGeometry(1.5,2.1,1.5),mat); box.position.y=1.05; g.add(box);
+    for(let k=0;k<3;k++){
+      const cone=new T.Mesh(new T.ConeGeometry(0.30,0.85,5),matTip);
+      cone.position.set((k-1)*0.42,2.45,((k%2)?0.30:-0.28)); cone.rotation.z=(k-1)*0.22;
+      g.add(cone);
+    }
+    g.visible=false; scene.add(g); iceShells.push(g);
+  }
+}
+function syncIceShells(s){
+  let n=0;
+  const use=(x,z,yaw,rad,tall)=>{
+    if(n>=ICE_POOL)return;
+    const g=iceShells[n++];
+    g.position.set(x,0,z); g.rotation.y=yaw;
+    g.scale.set(rad*1.85,tall,rad*1.85);
+    g.visible=true;
+  };
+  for(const e of s.enemies)if((e.frozen||0)>0)use(e.x,e.z,e.yaw,CFG.enemy[e.type].radius,1);
+  if(s.boss&&(s.boss.frozen||0)>0)use(s.boss.x,s.boss.z,s.boss.yaw,bossCfgOf(s).radius,1.45);
+  for(let i=n;i<ICE_POOL;i++)iceShells[i].visible=false;
+}
+
 function consumeEvents(){
   for(let i=0;i<EV.length;i++){
     const e=EV[i];
@@ -2536,7 +2657,12 @@ function consumeEvents(){
       case 'summon': burst(e.x,1.6,e.z,[1,.5,.2],18,4.0); break;
       case 'potion': damageNumber(e.x,1.5,e.z,'+MAGIC',false); burst(e.x,1,e.z,[.77,.42,1],10,2.2); Audio.gem(); break;
       case 'bolt': fireBolt(e.x,e.z,e.boss); burst(e.x,1.15,e.z,[.72,.62,1],10,2.8); break;
-      case 'magic': { burst(e.x,1.2,e.z,[.77,.42,1],46,7.0); burst(e.x,0.5,e.z,[.9,.7,1],30,9.0);
+      case 'magic': {
+        if(e.sig==='frost'){ burst(e.x,1.2,e.z,[.72,.90,1],46,7.0); burst(e.x,0.5,e.z,[.85,.96,1],30,9.0);
+          fireRing(e.x,e.z,0x9fd9ff,e.r||14); }
+        else if(e.sig==='earth'){ burst(e.x,1.0,e.z,[.78,.58,.34],46,7.0); burst(e.x,0.4,e.z,[.62,.45,.28],34,9.5);
+          fireRing(e.x,e.z,0xc79a5e,e.r||14); }
+        else { burst(e.x,1.2,e.z,[.77,.42,1],46,7.0); burst(e.x,0.5,e.z,[.9,.7,1],30,9.0); }
         const fl=$('flash'); fl.style.transition='none'; fl.style.opacity='0.5';
         requestAnimationFrame(()=>{ fl.style.transition='opacity .45s'; fl.style.opacity='0'; });
         Audio.level(); break; }
@@ -2616,7 +2742,7 @@ const Audio=(function(){
 /* =====================================================================
    PART 4 — UI / INPUT / MAIN LOOP / VERIFICATION HOOKS
    ===================================================================== */
-setupPickupMeshes(); setupVFX(); buildMapMeshes(SIM);
+setupPickupMeshes(); setupVFX(); setupRings(); setupIce(); buildMapMeshes(SIM);
 
 /* BOSS_NAMES is derived from src/content/enemies/bosses/*.js (chapter order). */
 const UI={tiltX:0,tiltY:0,stickActive:false,stickId:null,attack:false,atkBuf:0,
@@ -2929,6 +3055,7 @@ function startRun(){
   SIM.heroes[0].mods={hp:SIM.mods.hp,dmg:SIM.mods.dmg,spd:SIM.mods.spd};
   SIM.hero.maxHp=CFG.hero.hp+SIM.mods.hp; SIM.hero.hp=SIM.hero.maxHp;
   HERO_SKIN=safeHero(META.heroSkin);
+  SIM.heroes[0].heroId=HERO_SKIN;
   HERO_SKINS=[HERO_SKIN]; LOCAL_IDX=0;
   const hv0=VIEWS.get(0);
   if(hv0&&hv0.kind!==HERO_SKIN){ scene.remove(hv0.mesh); hv0.mesh.material.dispose(); VIEWS.delete(0); }
@@ -3245,7 +3372,7 @@ function netResync(sess,T){
   SIM=newSim(seed>>>0,2); SIM.phase='play';
   players.forEach((p,i)=>{ const h=SIM.heroes[i];
     h.mods={hp:p.mods.hp||0,dmg:p.mods.dmg||0,spd:p.mods.spd||0};
-    h.maxHp=CFG.hero.hp+h.mods.hp; h.hp=h.maxHp; });
+    h.maxHp=CFG.hero.hp+h.mods.hp; h.hp=h.maxHp; h.heroId=safeHero(p.skin); });
   SIM.mods={hp:players[0].mods.hp,dmg:players[0].mods.dmg,spd:players[0].mods.spd};
   HERO_SKINS=[players[0].skin,players[1].skin]; LOCAL_IDX=sess.myIdx;
   for(let t=0;t<T;t++){
@@ -3272,7 +3399,7 @@ function startCoopRun(seed){
   SIM=newSim(seed>>>0,2); SIM.phase='play';
   sess.players.forEach((p,i)=>{ const h=SIM.heroes[i];
     h.mods={hp:p.mods.hp||0,dmg:p.mods.dmg||0,spd:p.mods.spd||0};
-    h.maxHp=CFG.hero.hp+h.mods.hp; h.hp=h.maxHp; });
+    h.maxHp=CFG.hero.hp+h.mods.hp; h.hp=h.maxHp; h.heroId=safeHero(p.skin); });
   SIM.mods={hp:sess.players[0].mods.hp,dmg:sess.players[0].mods.dmg,spd:sess.players[0].mods.spd};
   HERO_SKINS=[sess.players[0].skin,sess.players[1].skin];
   LOCAL_IDX=sess.myIdx;
@@ -3549,6 +3676,8 @@ function frame(now){
   syncViews(s,dt);
   updateSlashFX(s,dt);
   updateBolts(dt);
+  updateRings(dt);
+  syncIceShells(s);
   updatePickupMeshes(s,RTIME);
   updateVFX(dt,RTIME);
   Audio.setIntensity(Math.min(1,s.enemies.length/7+(s.boss?0.55:0)+s.chapter*0.05));

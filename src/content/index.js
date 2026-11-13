@@ -19,7 +19,7 @@
 import { deepFreeze, assertRegistry, validateRegistry, describeRegistry } from './schema.js';
 import { RULES } from './rules.js';
 import {
-  HEROES, HERO_IDS, HERO_COSTS, HERO_SLASH_TIPS,
+  HEROES, HERO_IDS, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC,
   DEFAULT_HERO, hasHero, safeHero, heroName,
 } from './heroes/index.js';
 import {
@@ -59,7 +59,7 @@ export const REGISTRY = deepFreeze({
  */
 export const SIM_CONTENT = deepFreeze({
   rules: RULES,
-  heroCosts: HERO_COSTS, slashTips: HERO_SLASH_TIPS,
+  heroCosts: HERO_COSTS, slashTips: HERO_SLASH_TIPS, heroMagic: HERO_MAGIC,
   enemies: ENEMY_CFG, caps: ENEMY_CAPS, wave: WAVE_RULES, fillPool: FILL_POOL,
   scheduledElites: SCHEDULED_ELITES, openerKind: OPENER_KIND,
   boss: BOSS_CFG, boss2: BOSS_PHASE2, bossByChapter: BOSS_CFG_BY_CHAPTER,
@@ -75,7 +75,7 @@ export const SIM_CONTENT = deepFreeze({
 export {
   deepFreeze, assertRegistry, validateRegistry, describeRegistry,
   RULES,
-  HEROES, HERO_IDS, HERO_COSTS, HERO_SLASH_TIPS,
+  HEROES, HERO_IDS, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC,
   DEFAULT_HERO, hasHero, safeHero, heroName,
   FIGURES, FIGURE_IDS, FIGURE_INK, TINTS, FIGURE_SCALES,
   ENEMIES, ENEMY_KINDS, ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL,

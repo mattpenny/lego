@@ -195,7 +195,28 @@ key `aetherblade-meta-v1`), into the co-op `hello`/`start` handshake and into
 the `RIG_GEO` geometry cache. Renaming one silently loses an unlock. Add a new
 id instead.
 
-Skins do not change the simulation, so no digest move and no net-stamp bump.
+Plain skins do not change the simulation, so no digest move and no
+net-stamp bump.
+
+**Signature magic (the one exception).** A hero descriptor may carry an
+optional `magic` block — the registry's only per-hero sim ability:
+
+```js
+magic: { kind: 'frost', freezeSec: 1.0, bossFreezeSec: 0.5 },  // FROST ARCHER
+magic: { kind: 'earth', push: 6, bossPush: 3 },                // EARTH DWARF
+```
+
+`heroes/index.js` derives `HERO_MAGIC` from the descriptors that carry
+one; it is hashed into `SIM_CONTENT`, and `castMagic()` applies the
+caster's signature to the survivors of the standard 60-dmg blast
+(frost: a whole-step freeze timer on enemies/boss, hashed by
+`simDigest`; earth: instant radial knockback clamped to
+`ARENA_R − radius`). The caster is identified by the sim hero's
+`heroId`, set from each player's own selected skin at run start (solo
+and co-op) and hashed per hero. A hero WITHOUT a `magic` block casts
+the plain blast, unchanged. Because this is simulation input, adding
+or tuning a signature **does** move the digest: re-record the baseline
+(`npm run content:baseline`) and bump `RULES.net.build`.
 
 ---
 

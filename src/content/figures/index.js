@@ -14,10 +14,12 @@ import { sorcerer } from './sorcerer.js';
 import { boss } from './boss.js';
 import { dragon } from './dragon.js';
 import { knightMount } from './knight-mount.js';
+import { frostarcher } from './frostarcher.js';
+import { dwarf } from './dwarf.js';
 
 export const FIGURES = deepFreeze({
   hero, knight, soldier, brute, runner, ranger, archer, sorcerer, boss,
-  dragon, 'knight-mount': knightMount,
+  dragon, 'knight-mount': knightMount, frostarcher, dwarf,
 });
 export const FIGURE_IDS = deepFreeze(Object.keys(FIGURES));
 

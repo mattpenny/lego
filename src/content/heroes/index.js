@@ -13,8 +13,10 @@ import { soldier } from './soldier.js';
 import { archer } from './archer.js';
 import { sorcerer } from './sorcerer.js';
 import { knight } from './knight.js';
+import { frostarcher } from './frostarcher.js';
+import { dwarf } from './dwarf.js';
 
-export const HEROES = deepFreeze({ hero, soldier, archer, sorcerer, knight });
+export const HEROES = deepFreeze({ hero, soldier, archer, sorcerer, knight, frostarcher, dwarf });
 
 export const DEFAULT_HERO = 'hero';
 
@@ -26,6 +28,15 @@ export const HERO_COSTS = deepFreeze(Object.fromEntries(
 /** Weapon-tip anchors — feeds SLASH_TIP. */
 export const HERO_SLASH_TIPS = deepFreeze(Object.fromEntries(
   Object.values(HEROES).map((h) => [h.id, h.slashTip]),
+));
+
+/** Signature magic, keyed by hero id — only heroes WITH a signature are
+    listed; every other skin casts the plain blast. This is the home the
+    registry gives per-hero abilities: the descriptor carries the block,
+    castMagic() reads it through this table via the caster's heroId.
+    Simulation input — hashed into SIM_CONTENT. */
+export const HERO_MAGIC = deepFreeze(Object.fromEntries(
+  Object.values(HEROES).filter((h) => h.magic).map((h) => [h.id, h.magic]),
 ));
 
 export const HERO_IDS = deepFreeze(Object.keys(HEROES));
@@ -43,4 +54,4 @@ export function heroName(id) {
   return (HEROES[id] || HEROES[DEFAULT_HERO]).displayName;
 }
 
-export { hero, soldier, archer, sorcerer, knight };
+export { hero, soldier, archer, sorcerer, knight, frostarcher, dwarf };
