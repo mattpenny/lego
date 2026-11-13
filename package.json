@@ -1,1 +1,26 @@
-{"description":"AETHERBLADE — 3D Arena Survivor, refactored from the single-file build (phase 1: works as-is).","devDependencies":{"vite":"^5.4.8"},"name":"aetherblade-refactor","private":true,"scripts":{"build":"vite build","dev":"vite","migrate":"node scripts/migrate.mjs","preview":"vite preview"},"type":"module","version":"0.1.0"}
+{
+  "name": "aetherblade-refactor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AETHERBLADE — 3D Arena Survivor. Content is a data-driven registry under src/content/, one file per id.",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "preview": "vite preview",
+    "migrate": "node scripts/migrate.mjs",
+    "content:check": "node scripts/content-check.mjs",
+    "content:baseline": "node scripts/digest-harness.mjs --baseline",
+    "content:summary": "node scripts/content-summary.mjs",
+    "digest:check": "node scripts/digest-harness.mjs --check",
+    "dom:sync": "node scripts/sync-dom.mjs",
+    "boot:smoke": "node scripts/boot-smoke.mjs",
+    "figures:check": "node scripts/extract-figures.mjs --check",
+    "single:build": "node scripts/build-single.mjs",
+    "single:smoke": "node scripts/single-smoke.mjs",
+    "verify": "npm run content:check"
+  },
+  "devDependencies": {
+    "vite": "^5.4.8"
+  }
+}

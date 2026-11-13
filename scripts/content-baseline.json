@@ -1,0 +1,19 @@
+{
+  "sourceSha256": "33e9b20c47e12d8091558941fac56eb25ad7675b0c4e73ef995872af93e56851",
+  "build": "AB-NET-2",
+  "heroCosts": {
+    "soldier": 150,
+    "archer": 200,
+    "sorcerer": 250,
+    "knight": 300
+  },
+  "simContentSha256": "b3e28ac9c5aecd0352aa7189cc6d25134976fdc636db2bce39a5c1d20de8873c",
+  "checks": {
+    "fresh": "3211ebe328fd195f",
+    "idle600": "9fea68db557a617b",
+    "combat3600": "a59d207ca092b290",
+    "combat3600_altSeed": "9b38b762209ef20a",
+    "coop1200": "1856c0d291d270c6"
+  },
+  "combined": "8ba246d908e892342f25d37bc2b5d606b7fe8451b96026eb1392f5237a60961b"
+}

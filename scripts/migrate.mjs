@@ -19,6 +19,11 @@
 
    Hand-authored phase-1 modules (content/enemies/**, rig/**,
    package.json, vite.config.js) are NOT touched by this script.
+
+   RETIRED after the full content-registry transform. Running it now would
+   overwrite src/game.js with the old single-file script and clobber the
+   compatibility shims src/content/palettes.js and upgrades.js. It needs an
+   explicit --force-legacy flag; do not use it on this checkout.
    ===================================================================== */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -27,6 +32,12 @@ import { createHash } from 'node:crypto';
 
 const srcPath = process.argv[2];
 if (!srcPath) { console.error('usage: node scripts/migrate.mjs <source.html> [projectRoot]'); process.exit(1); }
+if (!process.argv.includes('--force-legacy')) {
+  console.error('migrate.mjs is RETIRED: src/game.js is now generated from the content registry.');
+  console.error('Re-running it would destroy src/content/** descriptors. Pass --force-legacy');
+  console.error('only if you are deliberately rebuilding a fresh phase-1 checkout.');
+  process.exit(2);
+}
 const root = process.argv[3] ? resolve(process.argv[3])
   : resolve(dirname(fileURLToPath(import.meta.url)), '..');
 

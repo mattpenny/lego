@@ -1,236 +1,400 @@
 # AETHERBLADE — Content Guide
 
-*How to add heroes, enemies and bosses, piece by piece.*
-*Written 2026-11-13 against build AB-NET-2 (solo digest `b0df261292c596f2`). Line numbers drift as the game grows — the function/constant names are the stable anchors; search for those.*
+*How to add heroes, figures, enemies, bosses, items, props, maps and upgrades —
+one file per thing.*
+*Written 2026-11-13 against build AB-NET-2 (fresh digest `3211ebe328fd195f`,
+combined `8ba246d908e892342f25d37bc2b5d606b7fe8451b96026eb1392f5237a60961b`).
+Line numbers drift; the function/constant names are the stable anchors.*
+*Updated 2026-11-13 after the full content-registry transform (Steps 0–5):
+**every** content number now lives in `src/content/`, and `src/game.js`
+contains no content literal at all. See §6.*
 
 ---
 
 ## 0. The one thing to understand first
 
-**The game runs from a single runtime file: `src/game.js`.** Everything that
-actually plays — stats, spawning, AI, figures, colours — lives there.
+**`src/game.js` is still the only runtime** — simulation, rendering, audio,
+networking, HUD. But it no longer *contains* content. It imports a registry
+and derives everything from it.
 
-`src/content/` (enemies, bosses, palettes, upgrades) is a **registry that
-mirrors** that data in tidy per-kind files. The game does **not** read it yet
-(phase-1 extraction). So the workflow for any new content is:
+| Content | Source of truth (one file per id) | What `game.js` derives from it |
+| --- | --- | --- |
+| **Heroes / skins** | `src/content/heroes/<id>.js` | `CFG.meta.heroCosts`, `SLASH_TIP`, Armoury buttons, display names, safe-skin fallback |
+| **Figures** (visual character designs) | `src/content/figures/<id>.js` | `TINTS`, `rigParts()`, per-figure mesh scale |
+| **Enemies** | `src/content/enemies/<id>.js` | `CFG.enemy`, `CFG.caps`, `CFG.wave`, `FILL_POOL`, `SCHEDULED_ELITES`, `OPENER_KIND`, elite drop kinds |
+| **Bosses** | `src/content/enemies/bosses/<id>.js` | `BOSS_NAMES`; shared sim in `bosses/shared.js` → `CFG.boss`, `CFG.boss2` |
+| **Items / pickups** | `src/content/items/<id>.js` | `ITEM_DROPS`, `CFG.heal`, `CFG.magic.potion*`, `GEM_SCORE`, `GEM_XP` |
+| **Props / terrain** | `src/content/props/<id>.js` | collider radii + every render geometry/offset/colour |
+| **Maps / chapters** | `src/content/maps/<chapter>.js` | `PALETTES`, `MAP_CONFIGS`, `CHAPTER_NAMES`, `EVENT_PACKS` |
+| **Upgrades** | `src/content/upgrades/<id>.js` | the ordered `UPGRADES` pool |
+| **Global tuning** | `src/content/rules.js` | `RULES` → hero spec, magic, hit-stop, meta economy, net stamp |
 
-1. Add it in `src/game.js` — this makes it real.
-2. Mirror it into `src/content/…` — this keeps the registry truthful for the
-   next person/agent.
-3. Mirror it into the single-file build `lego-revised.html` (the phone
-   artefact in `~/workspace/new-arcade-game/`).
-4. Run the ship checklist in §5 (digest, net build stamp, deploy).
+The rule is simple: **find the folder for the type, add one file, add one line
+to that folder's `index.js`.** `src/game.js` never needs editing.
 
-Files you will **not** normally touch: `src/three.js` (vendored engine),
-`src/main.js` (loader), `src/rig/joints.js` / `src/rig/prims.js` (the shared
-13-joint skeleton and the 5 primitive shapes every figure is built from),
-`index.html` / `src/game.dom.html` / `src/game.css` (shell, DOM, styles —
-only for UI work).
+⚠️ **Two files are shims, not sources.** `src/content/palettes.js` and
+`src/content/upgrades.js` are deprecated phase-1 mirrors that now just
+re-export from `maps/index.js` and `upgrades/index.js`. Do not edit them.
+
+⚠️ `src/three.js` must stay a **classic** script: `game.js` reads its
+top-level `const`s (`WebGLRenderer`, `Scene`, …) as bare globals. It is never
+imported as a module.
+
+⚠️ `index.html` is generated. Author `src/game.dom.html` and run
+`npm run dom:sync`.
+
+### Two build outputs
+
+| Build | How | Output |
+| --- | --- | --- |
+| Browser / dev | `index.html` → classic `src/three.js` + module `src/main.js` | `npm run dev` |
+| **Single-file phone** | `npm run single:build` — inlines CSS, three.js and a bundled ESM graph | `dist-single/aetherblade.html` |
+
+The phone build is one self-contained `.html` with zero network fetches. It is
+generated, never hand-edited, and `content:check` fails if it is stale or if
+the inlined bundle does not boot.
 
 ---
 
-## 1. Adding a new ENEMY type
+## 1. Adding a new ENEMY
 
-Worked example: a melee **lancer**. All edits are in `src/game.js` unless
-noted. Pick a kind id — lowercase, one word (`lancer`). It is used as a key
-everywhere below.
+Worked example: a melee **lancer**. Two edits, both in `src/content/enemies/`.
 
-### 1.1 Stats — `CFG.enemy` (search `enemy: {`)
+### 1.1 The descriptor — `src/content/enemies/lancer.js`
 
-Add a block next to the existing kinds. Melee kinds use the shared defaults
-(`CFG.enemy.telegraph / strikeRange / strikeArcDeg`) unless they override
-`reach / arcDeg / tele / recovery / cd` like the soldier and knight do:
+Copy `soldier.js`. Pure data: no `three.js`, no DOM, no `Math.random`, no
+`Date.now`.
 
 ```js
-lancer:{hp:88, speed:2.50, dmg:16, radius:0.50, score:140,
-        reach:2.4, arcDeg:100, tele:0.55, recovery:0.45, cd:0.60},
+export const lancer = {
+  id: 'lancer', kind: 'lancer', type: 'enemy', cls: 'melee', figure: 'lancer',
+  cfg: {
+    hp: 88, speed: 2.50, dmg: 16, radius: 0.50, score: 140,
+    reach: 2.4, arcDeg: 100, tele: 0.55, recovery: 0.45, cd: 0.60,
+  },
+  cap: 2,                                        // its own alive cap
+  wave: { from: 45, cap: 2, w: 14 },             // scheduled fill entry
+  elite: false, events: [],                      // no chapter-event pack
+  fill: { order: 5, weight: 14, from: 45 },       // weighted-pool entry
+  added: '2026-11-13',
+  notes: 'Longer reach than the soldier; two hits to kill.',
+  behaviour: ['Closes to reach-0.35 m.'],
+};
+export default lancer;
 ```
 
-A **ranged** kind instead declares `minRange / maxRange / volley / projSpeed
-/ projR` (see ranger/archer/sorcerer). That alone switches the AI: the
-movement code (`updateEnemy`, search `cfg.minRange`) kites at band range, and
-the strike becomes a projectile. Add `splash:<metres>` for a bolt that
-detonates with area damage (sorcerer-style). Add `poise:true` for a wind-up
-that hero hits cannot interrupt (knight-style).
+Field meanings:
 
-*Radius matters:* since 2026-11-13 the hero's hit test uses the enemy **body**
-(cone widened by the radius, contact always hittable) — a fat kind is easier
-to hit, which is intended.
+- **`cfg`** — the sim block. Melee kinds inherit `telegraph / strikeRange /
+  strikeArcDeg / recovery` from `src/content/enemies/shared.js` unless they
+  override `reach / arcDeg / tele / recovery / cd`. A **ranged** kind instead
+  declares `minRange / maxRange / volley / projSpeed / projR`; that alone
+  switches the AI to kiting + projectiles. Add `splash:<m>` for an
+  area-damage bolt (sorcerer) and `poise:true` for a wind-up hero hits cannot
+  interrupt (knight).
+- **`cap`** — alive cap for this kind (`CFG.caps.<kind>`). The global 8-alive
+  cap is `GLOBAL_ENEMY_CAP` in `shared.js`.
+- **`wave`** — scheduled entry: `{from, cap, w}` for a normal fill kind, or
+  `{from, cap, w:0, every:<s>, priority:<n>}` for a **timer elite**. Any
+  descriptor with `every` is added to `SCHEDULED_ELITES`, sorted by
+  `priority` (knight 0, sorcerer 1 today).
+- **`fill`** — the weighted pool entry. `order` is **load-bearing**: it fixes
+  the RNG consumption order in `spawnEnemy()`. `weight` is the base weight;
+  `ramp` adds `weight + elapsed*ramp`; `from` gates first appearance.
+  **No `fill` = it never spawns from the pool** (elites have `fill: null`).
+- **`opensFight: true`** — exactly one kind may carry this; it is always the
+  first spawn while `kills === 0` (currently the soldier).
+- **`elite`** — documentation flag. The actual potion-drop list is
+  `ELITE_KINDS`, derived from `src/content/items/potion.js`.
+- **`events`** — chapter indices whose 90-second event pack may contain this
+  kind. The packs themselves live in the map descriptors.
 
-### 1.2 Spawning — `CFG.caps`, `CFG.wave`, `spawnEnemy`
+### 1.2 Register it — `src/content/enemies/index.js`
 
-The director (`spawnEnemy`) fills an arena of at most `CFG.caps.enemies`
-(**8, global, all kinds together**). Three things decide whether your kind
-ever appears:
+Add the import and one entry in `ENEMIES`. Everything else
+(`ENEMY_CFG`, `ENEMY_CAPS`, `WAVE_RULES`, `FILL_POOL`, `SCHEDULED_ELITES`,
+`OPENER_KIND`) is derived.
 
-- **Cap.** Add `lancers:2` to `CFG.caps` if it needs its own alive cap, or
-  give it a `cap` in its wave entry (the fallback for kinds not named in
-  `capOf()` inside `spawnEnemy`).
-- **Wave entry** in `CFG.wave`: `{from:<seconds into the wave>, cap, w:<fill
-  weight>}`. `from` gates its first appearance.
-- **The fill pool.** In `spawnEnemy`, the weighted pool is built from
-  explicit `addT('kind', weight)` lines — add yours, gated by its `from`
-  time like the archer's line. **No `addT` line = it never spawns**, however
-  complete everything else is.
+### 1.3 The figure — `src/content/figures/lancer.js`
 
-For an **elite on a timer** (knight/sorcerer pattern: `w:0, every:<seconds>`
-in `CFG.wave`), also add a scheduled-elite block at the top of `spawnEnemy`
-next to the knight/sorcerer blocks, with its own `s.<kind>NextAt` clock.
-
-Optional appearances: the 90-second chapter event packs (`CFG.events.pack`,
-lists of kind ids per chapter) and the boss's phase-2 summon
-(`CFG.boss2.summonKind`).
-
-### 1.3 Drops — `killEnemy`
-
-Automatic for every kind: score from its CFG block, +1 magic meter, one XP
-gem, 30% heal-brick chance. **Magic-potion drops are elite-only and the kind
-list is hard-coded** in `killEnemy`:
+A figure owns its palette **and** its complete moulded part list. Copy a
+similar figure and edit the parts:
 
 ```js
-if((e.type==='sorcerer'||e.type==='knight') && rnd(s)<CFG.magic.potionChance)
+export const lancer = {
+  id: 'lancer', type: 'figure', displayName: 'LANCER',
+  tint: { armor:[…], trim:[…], cloth:[…], skin:[…], blade:[…], dark:[…], glow:[…] },
+  meshScale: 1.02,
+  parts: [
+    { j:1, g:'box', o:[0,0.35,0], s:[0.86,0.28,0.44], c:'armor' },
+    { j:8, g:'cyl', o:[0,0.05,0], s:[0.055,1.55,0.055], c:'blade' },
+    …
+  ],
+  added: '2026-11-13',
+  notes: '…',
+};
+export default lancer;
 ```
 
-Add your kind there if it should count as an elite.
+- `j` is the joint index (0 hips … 12 right foot). Every part must attach to
+  an existing joint so the shared animation clips pose it.
+- `g` is a primitive: `box / sph / cyl / cyl12 / cone`.
+- `c` is a **tint slot name** (`armor`, `trim`, `metal`, `cloth`, `skin`,
+  `blade`, `dark`, `glow`) or the special `'INK'` for the shared near-black
+  face print. `rigParts()` resolves it against the figure's own tint.
+- `meshScale` replaces the old hard-coded scale chain in `makeView()`.
 
-### 1.4 Colours — `TINTS` (search `const TINTS={`)
+The existing 9 figures were extracted mechanically from the legacy
+`rigParts()` code; `npm run figures:check` proves they still reproduce it.
 
-One entry per kind: `armor / trim / cloth / skin / blade / dark` as
-`[r,g,b]` triples 0–1, plus `glow` for emissive accents. These feed the
-vertex colours of the figure. Keep the palette bright (the 2026-11-13 lift)
-and keep ground-vs-enemy contrast — Chapter 2 is moonlit, Chapter 3 is dark
-at the edges.
+### 1.4 Ship it
 
-### 1.5 Figure — `rigParts(kind)` and the scale table
-
-Figures are LEGO-style bodies assembled from primitives on the shared
-13-joint rig. Add a branch:
-
-```js
-if(kind==='lancer'){ … }
-```
-
-Build from the shared base (`bodyParts(add, c, INK)`) plus kind-specific
-parts via `add(joint, prim, offset, size, colour, rotation)` — copy the
-soldier branch as the template; prims are `box / sph / cyl / cyl12 / cone`.
-Every part must attach to an existing joint so the shared animation clips
-pose it.
-
-Then set its size in the mesh-scale table (search `mesh.scale.setScalar(1.65)`):
-an unlisted kind renders at scale 1.00.
-
-One more cosmetic hook: ranged kinds should be added to the telegraph-pose
-list (search `'cast':'telegraph'` in the view's pose function) so they raise
-their weapon to cast instead of using the melee wind-up pose.
-
-### 1.6 Mirror into the registry
-
-Create `src/content/enemies/lancer.js` (copy `soldier.js` — the fully-worked
-format: cfg, wave, tint, parts transcription) and register it in
-`src/content/enemies/index.js` (`import` + an `ENEMIES` entry). This file is
-documentation today, but keep it honest — it is what the next refactor phase
-will consume.
-
-### 1.7 Ship it
-
-Follow §5. A new enemy **changes the simulation**, so the net build stamp
-must bump and the digest baseline moves.
+A new enemy **changes the simulation** (new spawns consume RNG): the digest
+moves, so re-record the baseline and bump the net stamp (§5).
 
 ---
 
 ## 2. Adding a new HERO (playable skin)
 
-Heroes are **cosmetic skins**: behaviour and stats come from `CFG.hero` and
-the Armoury upgrade tracks, never from the skin. (A hero with its own stats
-or abilities is a bigger feature — per-skin stats in hero creation inside
-`newSim`; ask for it as its own task.)
+Heroes are **cosmetic skins**: behaviour and stats come from `RULES.hero` and
+the Armoury tracks, never from the skin.
 
-1. **Figure.** If the hero reuses an existing kind's figure (the current
-   skins reuse soldier/archer/sorcerer/knight), nothing to build. A new look
-   needs its own `rigParts` branch + `TINTS` entry, exactly as in §1.5/§1.4.
-2. **Price.** Add the kind id to `CFG.meta.heroCosts`
-   (`heroCosts:{ soldier:150, archer:200, sorcerer:250, knight:300 }`).
-   That single entry is the whole unlock logic: the Armoury builds its
-   UNLOCK/USE buttons from `heroCosts`, the display name is the kind id
-   upper-cased, and ownership persists in the existing save
-   (`localStorage` key `aetherblade-meta-v1` — do not rename it; existing
-   players' gold lives there).
-3. **Slash alignment.** Add a `SLASH_TIP` entry (`{b:<bone>, o:[x,y,z]}` —
-   bone 8 is the right-hand weapon bone for sword/spear/staff, bone 5 the
-   left hand for the bow) so the slash edge and trail start at the weapon
-   tip. A missing entry falls back to the hero sword tip — playable, but the
-   effect will sit slightly off a long weapon.
+1. **Create `src/content/heroes/<id>.js`:**
+
+   ```js
+   export const lancer = {
+     id: 'lancer',              // PERMANENT — see the warning below
+     type: 'hero',
+     displayName: 'LANCER',
+     price: 350,                // gold; 0 only for the free default
+     default: false,            // exactly one hero has default:true
+     figure: 'soldier',         // must name a figure descriptor
+     slashTip: { b: 8, o: [0, 1.26, 0] },  // bone 8 = right hand, 5 = left
+     added: '2026-11-13',
+     notes: 'Reuses the soldier figure with a spear tip offset.',
+   };
+   ```
+
+2. **Register it** in `src/content/heroes/index.js`. `HERO_COSTS`,
+   `HERO_SLASH_TIPS`, `HERO_IDS`, the Armoury buttons, display names and the
+   safe-skin fallback are all derived. There is no `heroCosts` literal and no
+   id list in `game.js`.
+
+3. **Figure.** Reusing an existing figure needs nothing. A genuinely new look
+   is one new `src/content/figures/<id>.js` (§1.3) plus one barrel line —
+   no `game.js` edit.
+
 4. **Co-op.** Nothing else: the skin id travels in the pairing handshake and
-   each hero renders with its owner's skin automatically.
+   each hero renders with its owner's skin. Unknown ids from an old save or an
+   older peer are funnelled through `safeHero()`.
 
-Skins do not change the simulation (same stats), so no digest move and no
-net-stamp bump **unless** the new figure work touched sim code — when in
-doubt, run the digest check in §5 and let it decide.
+5. **Verify.** `npm run content:check`.
 
----
+⚠️ **Ids are permanent.** A skin id is written into the save (`localStorage`
+key `aetherblade-meta-v1`), into the co-op `hello`/`start` handshake and into
+the `RIG_GEO` geometry cache. Renaming one silently loses an unlock. Add a new
+id instead.
 
-## 3. Adding a BOSS variant
-
-Today all three chapter bosses are **one** sim entry (`CFG.boss` + phase-2
-rules in `CFG.boss2`) wearing the `boss` figure, renamed per chapter
-(`BOSS_NAMES`). Two levels of "new boss":
-
-- **A new look per chapter (view-only):** add a `rigParts` branch selected
-  by chapter index where the boss view is built, plus its `TINTS` entry.
-  No sim change, no digest move, no net-stamp bump.
-- **A genuinely different boss (own HP/moves):** give `CFG.boss` per-chapter
-  overrides where the boss spawns (`spawnBoss` reads `CFG.boss` once) and
-  branch the boss AI (`updateBoss`) on chapter or on a `bossKind` field.
-  This **is** a sim change — full §5 routine, net stamp bump included.
-  Mirror the descriptor into `src/content/enemies/bosses/` either way.
-
-Remember the standing proof rule: a boss change must be verified on the
-**natural path** (boss spawns from the 3:00 timer at 26–30 m and walks in),
-never by teleporting it next to the hero.
+Skins do not change the simulation, so no digest move and no net-stamp bump.
 
 ---
 
-## 4. Other growth points (same pattern)
+## 3. Adding a BOSS
 
-- **New upgrade in the level-up pool:** the `UPGRADES` table in `game.js`
-  (id, name, max stacks, apply hook) + mirror in `src/content/upgrades.js`.
-  If the upgrade changes the hero/enemy numbers the sim reads, it is a sim
-  change (§5 routine).
-- **New chapter / palette:** the palettes table in `game.js` (ground, sky,
-  fog, lights, prop colours) + the `CHAPTERS` name list, mirrored in
-  `src/content/palettes.js`. View-only — but re-check HUD/slash readability
-  on the new ground colour.
-- **Balance passes:** numbers in `CFG` only. Even a pure numbers change is
-  a sim change — digest and net stamp still move (§5).
+Bosses share one sim entry (`BOSS_CFG` + `BOSS_PHASE2` in
+`src/content/enemies/bosses/shared.js`) and one `boss` figure, renamed per
+chapter. Two levels:
+
+- **A new name / identity (view-only):** add
+  `src/content/enemies/bosses/<id>.js` with `chapter`, `name`,
+  `displayName`, `mapId`, `figure` and `sharedSim`. Add it to `BOSSES` in
+  `bosses/index.js` (keyed by chapter) and set `bossId` on the map
+  descriptor. `BOSS_NAMES` derives from chapter order.
+- **A genuinely different boss (own HP/moves):** give `shared.js` per-chapter
+  overrides, or add a `cfg` object to the descriptor and branch the boss AI on
+  `s.chapter`. This **is** a sim change — full §5 routine.
+
+Remember the standing proof rule: verify on the **natural path** (boss spawns
+from the 3:00 timer at 26–30 m and walks in), never by teleporting it next to
+the hero.
+
+---
+
+## 4. Items, props, maps, upgrades
+
+- **Item / pickup:** `src/content/items/<id>.js` holds the drop rule
+  (`always` / `chance`), the offset from the corpse, the consumable value and
+  the instanced-mesh pool name. Add it to `ITEMS` and, if it needs sim wiring,
+  to `ITEM_DROPS` usage in `killEnemy()`.
+- **Prop / terrain:** `src/content/props/<id>.js` holds a `collider` block
+  (sim input — changing it moves the digest) and a `view` block (geometry,
+  offsets, scales, colours — view-only). `buildMapData()` and
+  `buildMapMeshes()` read both; neither is hard-coded in `game.js`.
+- **Map / chapter:** `src/content/maps/<chapter>.js` holds the palette, the
+  deterministic seed (`9701 + chapter*7919`), pond/landmark positions, prop
+  counts, landmark style, chapter-event pack and boss id. Add it to `MAPS`
+  keyed by chapter number. **Order matters**: `PALETTES` and `MAP_CONFIGS` are
+  built from `MAPS` in key order.
+- **Upgrade card:** `src/content/upgrades/<id>.js` holds `ic`, `displayName`,
+  `description` and the `apply(s)` hook. Add it to `UPGRADES` in the exact
+  intended order. **Order is load-bearing**: `pickChoices()` rolls
+  `rndI(s, UPGRADES.length)`, so reordering changes which cards appear and
+  moves the digest.
+- **Armoury track:** add an entry to `RULES.meta.tracks` (id, label, per-step
+  value, unit). Buttons and labels are generated from it.
+- **Balance pass:** numbers in `RULES` only. Still a sim change (§5).
 
 ---
 
 ## 5. Ship checklist (every content change)
 
-1. **Syntax + boot:** the page loads with zero console errors; a run starts.
-2. **See it spawn:** director audit or a staged spawn proves the new kind
-   actually appears (a kind that never spawns is the classic silent failure —
-   check the `addT` line), and a natural-path run proves anything
-   timer-driven (events at tick 5400, boss at tick 10800).
-3. **Determinism:** run the headless digest twice — identical. Compare with
-   the previous baseline: unchanged for view-only work; a **new** baseline
-   for sim work, recorded in `PLAN.md`.
-4. **Net stamp:** if the digest moved, bump `CFG.net.build`
-   (`AB-NET-2` → `AB-NET-3`, …) in `game.js` **and** in the single file, so
-   old and new builds refuse to pair instead of desyncing mid-run.
-5. **Combat invariants:** attack cadence still 31 steps dry / 36 in combat;
-   the settled numbers (swing 0.625 s, hit at 0.25 s, range 3.2 m, arc
-   130°) unchanged unless the change is deliberately about them.
-6. **Mirror:** the same edits land in `lego-revised.html` (single-file
-   phone build) — verify its digest equals the project's.
-7. **Deploy:** copy the project files into the `deploy-lego/` clone of
-   `mattpenny/lego` at repo root, commit, push, then curl the live
-   `src/game.js` and compare size/markers.
+1. **Gate:** `npm run content:check` — 17 checks: schema, no content literals
+   in `game.js`, cross-references, figure reproduction, `SIM_CONTENT` hash,
+   digests, boot, DOM, single-file build, helpers. Then load the page in a
+   real browser with zero console errors.
+2. **See it spawn:** prove the new kind actually appears (a kind that never
+   spawns is the classic silent failure — check its `fill` block), and prove
+   timer-driven things on the natural path (events at tick 5400, boss at tick
+   10800).
+3. **Determinism:** `npm run digest:check`. Unchanged for view-only work. For
+   deliberate sim work: `npm run content:baseline` to re-record, then bump the
+   net stamp.
+4. **Net stamp:** if the digest moved, bump `RULES.net.build`
+   (`AB-NET-2` → `AB-NET-3`, …). Old and new builds then refuse to pair
+   instead of desyncing mid-run.
+5. **Combat invariants:** attack cadence 31 steps dry / 36 in combat; swing
+   0.625 s, hit at 0.25 s, range 3.2 m, arc 130° — unchanged unless the change
+   is deliberately about them.
+6. **Phone build:** `npm run single:build` (then `npm run single:smoke`).
+   `content:check` fails if `dist-single/aetherblade.html` is stale or its
+   inlined bundle does not boot.
+7. **Deploy:** copy the project into the `deploy-lego/` clone of
+   `mattpenny/lego`, commit, push, then curl the live `src/game.js` and
+   compare size/markers.
 8. **Record:** dated entry in `PLAN.md` (what changed, new digest, new net
    stamp), and refresh `aetherblade-refactor.zip`.
-9. **Phone check is the final word:** desktop/headless proof does not
-   replace opening it on a real phone — layout, touch and feel verdicts
-   belong to the device.
+9. **Phone check is the final word:** desktop/headless proof does not replace
+   opening it on a real phone.
 
 *Golden rule, learned the hard way on this project: verify through the real
 input path and the natural timer path — a passing staged test is not proof.*
+
+> **Workspace note (2026-11-13):** `PLAN.md`, `lego-revised.html`,
+> `deploy-lego/` and `aetherblade-refactor.zip` are **not present** in this
+> checkout. Checklist items 7–8 could not be performed here. The single-file
+> phone build now lives at `dist-single/aetherblade.html` and is generated by
+> `npm run single:build`.
+
+---
+
+## 6. Registry tooling
+
+### Layout
+
+```
+src/content/
+  schema.js              pure-data validation + deepFreeze + assertRegistry
+  rules.js               RULES: cross-cutting sim tuning + net stamp
+  index.js               REGISTRY + SIM_CONTENT + every derived table
+  heroes/<id>.js         one per skin        + index.js derives costs/tips/ids
+  figures/<id>.js        one per visual design + index.js derives TINTS/scales
+  enemies/<id>.js        one per kind        + index.js derives cfg/caps/wave/pool
+  enemies/bosses/<id>.js one per chapter boss + shared.js holds BOSS_CFG/PHASE2
+  items/<id>.js          one per pickup      + index.js derives drop table
+  props/<id>.js          one per prop family + index.js derives collider radii
+  maps/<chapter>.js      one per chapter     + index.js derives palettes/configs
+  upgrades/<id>.js       one per card        + index.js derives the ordered list
+  palettes.js            DEPRECATED shim → maps/index.js
+  upgrades.js            DEPRECATED shim → upgrades/index.js
+scripts/
+  content-check.mjs      the 17-check gate
+  content-summary.mjs    traceability report: id -> source file -> sim values
+  digest-harness.mjs     pure-sim VM slice + deterministic digests
+  content-baseline.json  recorded digests + SIM_CONTENT hash
+  extract-figures.mjs    regenerates figures/ from figures-legacy.txt
+  build-single.mjs       single-file phone build (custom ESM bundler)
+  single-smoke.mjs       executes the inlined bundle headlessly
+  sync-dom.mjs           index.html <- src/game.dom.html
+  boot-smoke.mjs         real module graph boots without a browser
+```
+
+### Commands
+
+| Command | What it does |
+| --- | --- |
+| `npm run content:check` | **Run before every commit.** All 17 checks. |
+| `npm run content:summary` | Report every content id, its source file and its sim values. |
+| `npm run boot:smoke` | Boots the module graph in Node with inert engine/DOM stubs; asserts `window.__GAME`, the baseline digest, net build, that `CFG.enemy/caps/wave/heal/boss/events/meta` really came from descriptors, and that a 120-step run starts. |
+| `npm run digest:check` | Determinism vs `scripts/content-baseline.json`. |
+| `npm run content:baseline` | **Deliberate sim changes only** — re-record digests + `SIM_CONTENT` hash. |
+| `npm run figures:check` | Prove the figure descriptors still reproduce the legacy rig. |
+| `npm run dom:sync` | Regenerate `index.html` from `src/game.dom.html`. |
+| `npm run single:build` | Build `dist-single/aetherblade.html`. |
+| `npm run single:smoke` | Execute the inlined phone bundle headlessly. |
+
+### What `content:check` enforces
+
+1. all 8 descriptor tables satisfy `schema.js`, with expected counts
+2. `src/game.js` contains **no** content literal (TINTS, rigParts, palettes,
+   upgrades, boss names, prop geometry, fill pool, scales) and the obsolete
+   mirrors are shims
+3. every cross-type reference resolves (hero/enemy/boss → figure,
+   map → boss, chapter → map) and load-bearing orders are sorted
+4. the 9 figures still reproduce the legacy rig
+5. `SIM_CONTENT` hash matches the baseline — changing **any** simulation
+   number in **any** descriptor fails until the baseline is re-recorded
+6. the deterministic digests, combined hash, net stamp and hero costs match
+7. the real ES module graph boots
+8. `index.html` is generated from `src/game.dom.html`
+9. the phone build is current **and** its inlined bundle boots
+10. `safeHero` / `heroName` / `HERO_COSTS` are consistent
+
+### Digest-safe vs digest-moving
+
+`SIM_CONTENT` (in `src/content/index.js`) is the exact projection of
+simulation input: rules, hero costs/tips, enemy cfg/caps/wave/fill order,
+boss cfg, item drops, collider radii, map configs, event packs and the upgrade
+order. It is hashed with sorted keys.
+
+**Excluded on purpose:** figure tints, part lists and mesh scales; prop `view`
+blocks; map `palette` blocks; upgrade labels. Editing those is provably
+view-only — the digests will not move.
+
+**Included:** anything the sim reads. A change there moves the hash, so the
+gate fails until you re-record the baseline and bump `RULES.net.build`.
+
+### Load-bearing orders
+
+Three arrays consume `sim.rng` or decide outcomes, and are hashed by
+`SIM_CONTENT` so a silent reorder cannot slip through:
+
+- **`FILL_POOL`** — weighted enemy pool, ordered by `fill.order`
+  (`soldier → brute → runner → ranger → archer`).
+- **`UPGRADE_LIST`** — level-up cards, in descriptor order
+  (`hide → edge → tempo → reach → boots → reflex → magnet → crit → siphon`).
+- **`MAP_CONFIGS`** — chapters in key order; each carries its own seed.
+
+`SCHEDULED_ELITES` is ordered by `wave.priority` (knight, then sorcerer) and is
+checked to stay sorted.
+
+### Adding a *new kind* of content (a 9th table)
+
+1. Create the folder + one file per id + an `index.js` barrel.
+2. Add a `check<Type>` function and a `CONTENT_TYPES` entry in `schema.js`.
+3. Add the table to `REGISTRY` in `src/content/index.js`.
+4. Add its simulation fields to `SIM_CONTENT` if the sim reads them.
+5. Add `game.js` wiring and a `content:check` assertion.
+
+### History: why the digest did not move
+
+The whole transform (Steps 0–5) changed **no simulation behaviour**. Every
+derived table reproduces the old literal exactly — proven by
+`figures:check`, by the digest harness (all five digests unchanged) and by
+`boot:smoke`. `combined` is still
+`8ba246d908e892342f25d37bc2b5d606b7fe8451b96026eb1392f5237a60961b`, fresh
+`3211ebe328fd195f`, net build still `AB-NET-2` — no stamp bump needed.
+
+The one architectural leak was also closed: the five `FXSHAKE()` calls in
+PART 2 (pure sim) now emit `emit('shake', {v})`, consumed by
+`consumeEvents()` in PART 3. `EV` is drained by `runHeadless()` and never
+hashed, so the digests are unaffected and the sim region is pure again.

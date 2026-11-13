@@ -1,4 +1,31 @@
 
+/* ---- content registry (pure data — safe for the deterministic sim) ----
+   Imports must sit OUTSIDE the IIFE: ES module imports are only legal at
+   module top level. The IIFE below closes over these bindings. The single-
+   file phone build therefore needs a bundle/inline step (npm run single:build).
+
+   NOTHING below this line hard-codes a hero, figure, enemy, boss, item,
+   prop, map or upgrade number. Every one of them is traced back to its own
+   descriptor file under src/content/. See CONTENT-GUIDE.md section 6. */
+import {
+  RULES, REGISTRY, SIM_CONTENT, contentSummary, assertRegistry,
+  HEROES, HERO_COSTS, HERO_SLASH_TIPS, heroName, safeHero,
+  FIGURES, FIGURE_INK, TINTS, FIGURE_SCALES,
+  ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL, SCHEDULED_ELITES, OPENER_KIND,
+  ENEMIES,
+  BOSS_CFG, BOSS_PHASE2, BOSS_NAMES,
+  ITEM_DROPS, HEAL_CFG, POTION_CFG, ELITE_KINDS, GEM_SCORE,
+  PROPS, PLACE_RADII, BLOCK_R, BLOCK_FALLBACK_R,
+  WALL_KIND, WALL_HALF_LENGTH, WALL_RADIUS, POND_PAD, FENCE_RADIUS, TORCH_RADIUS,
+  PALETTES, MAP_CONFIGS, EVENT_PACKS,
+  UPGRADE_LIST,
+} from './content/index.js';
+
+/* Fail loudly at boot on an invalid content descriptor. A missing figure,
+   a dangling cross-reference or a missing spawn entry would otherwise
+   render an invisible character or silently never appear. */
+assertRegistry(REGISTRY);
+
 (function(){ 'use strict';
 /* =====================================================================
    AETHERBLADE — 3D ARENA SURVIVOR
@@ -27,68 +54,25 @@ const DEG = Math.PI/180;
 const ARENA_R = 40;          // movement boundary; rocky hills begin right here
 const HERO_R = 0.42;
 
-/* ---- exact combat spec numbers. Do not "improve" these. ---- */
-const CFG = {
+/* ---- exact combat spec numbers, ALL DERIVED FROM THE CONTENT REGISTRY.
+   RULES holds the cross-cutting global tuning (src/content/rules.js);
+   every per-kind / per-item / per-map number comes from its own file.
+   Do not "improve" these: changing one moves simDigest() and desyncs co-op. */
+const CFG = Object.assign({}, RULES, {
   fixed: FIXED,
-  waveSeconds: 180,
-  hero: {
-    hp:100, runSpeed:6.2, walkSpeed:3.1,
-    runTilt:0.55,            // full run from 55% joystick tilt (LINEAR, never squared)
-    accelTau:20,             // ~0.15 s to near-top speed
-    stopTau:34,              // crisp stop
-    swingDur:0.625, hitAt:0.25, // hit at 40% of 0.625 s
-    swingCd:0.5, range:3.2, arcDeg:130, lunge:0.65,
-    rollDur:0.45, rollDist:3.5, rollCd:1.0,
-    dmg:34
-  },
-  enemy: {
-    telegraph:0.55, strikeRange:1.8, strikeArcDeg:120, recovery:0.5,
-    brute:{hp:76, speed:2.35, dmg:18, radius:0.62, score:120},
-    runner:{hp:42, speed:4.65, dmg:10, radius:0.40, score:100},
-    ranger:{hp:38, speed:3.25, dmg:13, radius:0.42, score:160,
-            minRange:7, maxRange:11, volley:2.3, projSpeed:10.5, projR:0.38},
-    /* ---- wave additions: numbers below are the spec, not tuning knobs ----
-       soldier  : spear reach 2.2 m (brute needs 1.8), two sword hits to kill
-       archer   : fast, weak arrows; holds further back than the ranger
-       sorcerer : slow fragile caster, 0.95 s charge, 10 dmg + 1.5 m splash
-       knight   : armoured mini-boss, 5 sword hits, uninterruptible wind-up */
-    soldier:{hp:52,  speed:2.15, dmg:14, radius:0.46, score:110,
-             reach:2.2, arcDeg:110, tele:0.50, recovery:0.42, cd:0.55},
-    archer: {hp:34,  speed:3.55, dmg:8,  radius:0.40, score:150,
-             minRange:9, maxRange:13, volley:1.5, projSpeed:14.0, projR:0.30,
-             tele:0.42, recovery:0.38},
-    sorcerer:{hp:60, speed:2.10, dmg:10, radius:0.50, score:240,
-             minRange:8.5, maxRange:13.5, volley:3.6, projSpeed:7.5, projR:0.52,
-             splash:1.5, tele:0.95, recovery:0.55},
-    knight: {hp:168, speed:2.60, dmg:20, radius:0.66, score:320,
-             reach:2.0, arcDeg:120, tele:0.95, recovery:0.60, cd:0.70, poise:true}
-  },
-  caps:{ enemies:8, rangers:3, archers:2, sorcerers:1, knights:1 },
-  /* Wave director schedule: `from` gates first appearance, `cap` is the
-     per-type alive limit, `w` the fill weight once unlocked. The 8-alive
-     cap is global and applies to all seven kinds together. */
-  wave:{ soldier:{from:0,  cap:4, w:34},
-         archer: {from:30, cap:2, w:18},
-         sorcerer:{from:100,cap:1, w:0,  every:45},
-         knight: {from:130,cap:1, w:0,  every:35} },
-
-  heal:{ chance:0.30, amount:20 },
-  boss:{ hp:300, spawnMin:26, spawnMax:30, speed:7.4, chargeSpeed:16.0,
-         chargeTele:0.7, chargeDur:0.55, chargeCd:3.0, chargeRange:6.5,
-         slamTele:0.55, slamRange:2.3, slamDmg:22, chargeDmg:20,
-         radius:1.15, score:1500 },
-  magic:{ perKill:1, cost:20, dmg:60, radius:14, potionChance:0.25, potionGain:10, stopMs:250 },
-  events:{ at:90, pack:{ 1:['knight'], 2:['sorcerer','archer','archer'], 3:['knight','sorcerer'] } },
-  boss2:{ hpFrac:0.30, speedMul:1.15, slamBonus:4, summonAt:0.50, summonCount:2, summonKind:'soldier' },
-  meta:{ costs:[40,80,140,220,320], hpPer:8, dmgPer:2, spdPer:0.15,
-         clearBonus:50, victoryBonus:200,
-         heroCosts:{ soldier:150, archer:200, sorcerer:250, knight:300 } },
-  hitStopMs:{ hit:80, kill:120, bossSlam:150, bossKill:250 },
-  maxEntities:16,
-  net:{ delay:6, checkpoint:600, stallMs:250,
-        relay:'wss://dragon-alley-relay.ccac-church.workers.dev/ws',
-        build:'AB-NET-2', graceMs:60000 }
-};
+  enemy: ENEMY_CFG,            // melee defaults + one entry per enemy descriptor
+  caps: ENEMY_CAPS,            // global 8-alive cap + per-kind caps
+  wave: WAVE_RULES,            // scheduled elite / fill-pool gating
+  heal: HEAL_CFG,              // src/content/items/heal.js
+  magic: Object.assign({}, RULES.magic, {
+    potionChance: POTION_CFG.chance,
+    potionGain: POTION_CFG.gain,
+  }),
+  events: { at: RULES.eventAt, pack: EVENT_PACKS },
+  boss: BOSS_CFG,              // src/content/enemies/bosses/shared.js
+  boss2: BOSS_PHASE2,
+  meta: Object.assign({}, RULES.meta, { heroCosts: HERO_COSTS }),
+});
 
 /* ---- deterministic integer RNG (xorshift32). Sim owns ONE state. ---- */
 function nextU32(x){
@@ -109,25 +93,16 @@ function angDiff(a,b){ let d=(a-b)%TAU; if(d>Math.PI)d-=TAU; if(d<-Math.PI)d+=TA
 /* =====================================================================
    MAP DATA — pure deterministic function of chapter index. It lives in
    SIM state because colliders affect movement; render only READS it.
+   PALETTES, MAP_CONFIGS and every collider radius come from
+   src/content/maps/<chapter>.js and src/content/props/<id>.js.
    ===================================================================== */
-const PALETTES = [
-  { name:'GRASSLAND', sky:0x8ec7f0, fog:0xa4cda6, ground:'#4da337', ground2:'#66bb47',
-    path:'#c7ab6d', pond:0x2fa3dd, tree:0x35a047, trunk:0x7d5c39, rock:0x9aa294,
-    hill:0x86a374, accent:0xffd98a, light:0xfff0d0, hemi:0xbcd8ff, amb:1.02 },
-  { name:'GRAVEYARD FOREST', sky:0x5a7396, fog:0x64807a, ground:'#40604b', ground2:'#4f7358',
-    path:'#92927f', pond:0x43a89e, tree:0x406652, trunk:0x615244, rock:0x939e97,
-    hill:0x6d7d78, accent:0xc2ecdc, light:0xbcd0ff, hemi:0x9db9e2, amb:0.95 },
-  { name:'VOLCANO CASTLE', sky:0x7a3a30, fog:0x84452f, ground:'#4d3638', ground2:'#63453a',
-    path:'#7d5a44', pond:0xff7030, tree:0x5c3d2d, trunk:0x4d3630, rock:0x745854,
-    hill:0x654a3e, accent:0xffa657, light:0xffb070, hemi:0xc97f66, amb:0.92 }
-];
-
 function buildMapData(chapter){
-  const R = mkRng(9701 + chapter*7919);
+  const M = MAP_CONFIGS[chapter-1] || MAP_CONFIGS[0];
+  const R = mkRng(M.seed);
   const d = { chapter, colliders:[], trunk:[], canopy:[], rock:[], pillar:[], post:[],
               fence:[], stone:[], hill:[], block:[], torch:[], lava:[], reeds:[],
-              pond:{x:chapter===1?-15:chapter===2?17:-19, z:chapter===1?14:chapter===2?-16:12, r:chapter===3?4.6:5.2},
-              landmark:{x:chapter===1?-20:chapter===2?18:20, z:-18} };
+              pond:{x:M.pond.x, z:M.pond.z, r:M.pond.r},
+              landmark:{x:M.landmark.x, z:M.landmark.z} };
   const colliders = d.colliders;
   function tryPlace(count, minR, maxR, minGap, bodyR, cb){
     let placed=0, guard=0;
@@ -145,29 +120,26 @@ function buildMapData(chapter){
       cb(x,z,placed++);
     }
   }
-  const isForest=chapter===2, isVolcano=chapter===3;
-  const trees = chapter===1?38:chapter===2?34:12;
   // Trunk-sized colliders: the hero stops at the bark instead of an invisible
   // wall a metre out, and can still walk under the canopy.
-  tryPlace(trees, 7, 37, 2.6, 0.50, (x,z,i)=>{
+  tryPlace(M.trees, 7, 37, 2.6, PLACE_RADII.trunk, (x,z,i)=>{
     const s=0.8+R()*0.7;
     d.trunk.push({x,z,s,rot:R()*TAU});
-    d.canopy.push({x,z,s:s*(isForest?1.0:1.25),rot:R()*TAU,
-      kind:isForest?1:isVolcano?2:0});
+    d.canopy.push({x,z,s:s*M.canopyScale,rot:R()*TAU, kind:M.canopyKind});
   });
-  tryPlace(chapter===3?30:24, 6, 38, 1.9, 1.0, (x,z)=>{
+  tryPlace(M.rocks, 6, 38, 1.9, PLACE_RADII.rock, (x,z)=>{
     d.rock.push({x,z,s:0.55+R()*1.0,rot:R()*TAU});
   });
-  tryPlace(chapter===3?18:chapter===2?12:8, 9, 36, 2.2, 0.70, (x,z)=>{
+  tryPlace(M.pillars, 9, 36, 2.2, PLACE_RADII.pillar, (x,z)=>{
     d.pillar.push({x,z,s:0.8+R()*0.7,rot:R()*TAU});
   });
-  if(chapter===2){
-    tryPlace(30, 6, 36, 1.2, 0.38, (x,z)=>{
+  if(M.stones){
+    tryPlace(M.stones, 6, 36, 1.2, PLACE_RADII.stone, (x,z)=>{
       d.stone.push({x,z,s:0.8+R()*0.5,rot:(R()-0.5)*0.5});
     });
   }
   // fence runs: posts + rails, and a matching SEGMENT collider for the whole run
-  for(let f=0;f<6;f++){
+  for(let f=0;f<M.fenceRuns;f++){
     const a=R()*TAU, rr=12+R()*22, cx=Math.cos(a)*rr, cz=Math.sin(a)*rr;
     const dir=R()*TAU, len=6+R()*7, n=Math.max(3,Math.floor(len/1.4));
     for(let i=0;i<n;i++){
@@ -178,36 +150,33 @@ function buildMapData(chapter){
     d.fence.push({ax:cx-hx,az:cz-hz,bx:cx+hx,bz:cz+hz});
   }
   // visible terrain edge: a continuous ring of rocky hills / mountains
-  for(let i=0;i<64;i++){
-    const a=i/64*TAU + (R()-0.5)*0.04;
+  for(let i=0;i<M.hills;i++){
+    const a=i/M.hills*TAU + (R()-0.5)*0.04;
     const rr=45+R()*6, s=6+R()*8;
     d.hill.push({x:Math.cos(a)*rr, z:Math.sin(a)*rr, s, rot:R()*TAU});
   }
-  // landmark + dressing blocks
+  // landmark + dressing blocks (style comes from the chapter map descriptor)
   const L=d.landmark;
-  if(chapter===1){
+  if(M.landmarkStyle==='windmill'){
     d.block.push({x:L.x,z:L.z,s:1,rot:0,kind:0});       // windmill tower
     for(let i=0;i<4;i++)d.block.push({x:L.x+(i-1.5)*2.4,z:L.z+7,s:0.45,rot:0,kind:1});
-  }else if(chapter===2){
+  }else if(M.landmarkStyle==='crypt'){
     d.block.push({x:L.x,z:L.z,s:1,rot:0,kind:2});       // crypt
     for(let i=0;i<4;i++)d.block.push({x:L.x+(i%2?2.6:-2.6),z:L.z+(i<2?3.4:-3.4),s:0.8,rot:0,kind:3});
   }else{
     for(let i=0;i<6;i++)d.block.push({x:L.x+Math.cos(i/6*TAU)*6,z:L.z+Math.sin(i/6*TAU)*6,s:1,rot:i/6*TAU,kind:4});
     d.block.push({x:L.x,z:L.z,s:1,rot:0,kind:5});       // keep
   }
-  // torches / lava pools
-  for(let i=0;i<12;i++){
+  // torches / lava pools / pond reeds
+  for(let i=0;i<M.torches;i++){
     const a=R()*TAU, rr=8+R()*28;
     d.torch.push({x:Math.cos(a)*rr,z:Math.sin(a)*rr,s:0.8+R()*0.5,rot:R()*TAU});
   }
-  if(isVolcano){
-    for(let i=0;i<9;i++){
-      const a=R()*TAU, rr=8+R()*30;
-      d.lava.push({x:Math.cos(a)*rr,z:Math.sin(a)*rr,s:1.2+R()*2.1,rot:R()*TAU});
-    }
+  for(let i=0;i<M.lavaPools;i++){
+    const a=R()*TAU, rr=8+R()*30;
+    d.lava.push({x:Math.cos(a)*rr,z:Math.sin(a)*rr,s:1.2+R()*2.1,rot:R()*TAU});
   }
-  // pond reeds
-  for(let i=0;i<18;i++){
+  for(let i=0;i<M.reeds;i++){
     const a=R()*TAU, rr=d.pond.r+0.4+R()*1.1;
     d.reeds.push({x:d.pond.x+Math.cos(a)*rr,z:d.pond.z+Math.sin(a)*rr,s:0.6+R()*0.7,rot:R()*TAU});
   }
@@ -218,41 +187,33 @@ function buildMapData(chapter){
      buildings, gravestones, fence runs and torches are added here. Radii
      follow the visible footprint so there is no invisible wall.
      A collider with seg:1 is a capsule from (ax,az) to (bx,bz). */
-  colliders.push({x:d.pond.x,z:d.pond.z,r:d.pond.r+0.10});        // water is solid
-  const BLOCK_R=[1.7,1.2,2.7,0.55,2.7,3.7];
+  colliders.push({x:d.pond.x,z:d.pond.z,r:d.pond.r+POND_PAD});      // water is solid
   for(let i=0;i<d.block.length;i++){
     const b=d.block[i];
-    if(b.kind===4){                     // castle wall = long thin box, not a disc
-      const hx=Math.cos(b.rot)*2.7, hz=-Math.sin(b.rot)*2.7;
-      colliders.push({seg:1,ax:b.x-hx,az:b.z-hz,bx:b.x+hx,bz:b.z+hz,r:0.70});
+    if(b.kind===WALL_KIND){             // castle wall = long thin box, not a disc
+      const hx=Math.cos(b.rot)*WALL_HALF_LENGTH, hz=-Math.sin(b.rot)*WALL_HALF_LENGTH;
+      colliders.push({seg:1,ax:b.x-hx,az:b.z-hz,bx:b.x+hx,bz:b.z+hz,r:WALL_RADIUS});
     }else{
-      colliders.push({x:b.x,z:b.z,r:BLOCK_R[b.kind]||1.5});
+      colliders.push({x:b.x,z:b.z,r:BLOCK_R[b.kind]||BLOCK_FALLBACK_R});
     }
   }
   for(let i=0;i<d.fence.length;i++){
     const f=d.fence[i];
-    colliders.push({seg:1,ax:f.ax,az:f.az,bx:f.bx,bz:f.bz,r:0.16});
+    colliders.push({seg:1,ax:f.ax,az:f.az,bx:f.bx,bz:f.bz,r:FENCE_RADIUS});
   }
   // (gravestones already got a collider from tryPlace, so they are not repeated here)
   for(let i=0;i<d.torch.length;i++){
     const t=d.torch[i];
-    colliders.push({x:t.x,z:t.z,r:0.24});
+    colliders.push({x:t.x,z:t.z,r:TORCH_RADIUS});
   }
   return d;
 }
 
-/* ---- upgrades ---- */
-const UPGRADES = [
-  {id:'hide',  ic:'♥', name:'IRON HIDE',   ds:'+25 max HP and heal 25.', apply(s){ for(const h of s.heroes){ h.maxHp+=25; h.hp=Math.min(h.maxHp,h.hp+25); } }},
-  {id:'edge',  ic:'⚔', name:'HONED EDGE',  ds:'+20% sword damage.',       apply(s){ s.up.edge++; }},
-  {id:'tempo', ic:'»', name:'QUICK TEMPO', ds:'-12% attack cooldown.',    apply(s){ s.up.tempo++; }},
-  {id:'reach', ic:'↗', name:'LONG REACH',  ds:'+0.5 m range, +10° arc.',  apply(s){ s.up.reach++; }},
-  {id:'boots', ic:'⇢', name:'SWIFT BOOTS', ds:'+8% move speed.',          apply(s){ s.up.boots++; }},
-  {id:'reflex',ic:'↺', name:'REFLEXES',    ds:'-20% roll cooldown.',      apply(s){ s.up.reflex++; }},
-  {id:'magnet',ic:'◈', name:'GEM MAGNET',  ds:'+0.9 m pickup radius.',    apply(s){ s.up.magnet++; }},
-  {id:'crit',  ic:'✦', name:'KEEN EYE',    ds:'+15% critical chance.',    apply(s){ s.up.crit++; }},
-  {id:'siphon',ic:'✚', name:'BLOOD SIPHON',ds:'Heal 3 HP on every kill.', apply(s){ s.up.siphon++; }}
-];
+/* ---- level-up cards: one descriptor file per card (src/content/upgrades/) ----
+   ORDER IS LOAD-BEARING. pickChoices() rolls rndI(s, UPGRADES.length) over
+   this array; reordering the descriptors changes which cards appear and
+   therefore moves simDigest() and desyncs co-op. */
+const UPGRADES = UPGRADE_LIST;
 function heroStats(s,h){
   const u=s.up, C=CFG.hero;
   const md=(h&&h.mods)||s.mods||{hp:0,dmg:0,spd:0};
@@ -377,7 +338,7 @@ function hurtHero(s,h,dmg,kind){
   h.hp=Math.max(0,h.hp-dmg);
   h.state='hurt'; h.st=0; h.invuln=0.45;
   emit('hurt',{x:h.x,z:h.z,dmg,kind});
-  FXSHAKE(0.55);
+  emit('shake',{v:0.55});
   if(kind==='boss')addHitStop(s,CFG.hitStopMs.bossSlam);
   if(h.hp<=0){
     const other=s.heroes.find(o=>o!==h&&!o.downed);
@@ -393,15 +354,19 @@ function killEnemy(s,e){
   e.dead=true;
   s.kills++; s.score+=CFG.enemy[e.type].score;
   s.magic=Math.min(CFG.magic.cost,s.magic+CFG.magic.perKill);
-  s.gems.push({id:s.nextId++,x:e.x,z:e.z,v:1});
-  if(rnd(s)<CFG.heal.chance)s.heals.push({id:s.nextId++,x:e.x+0.35,z:e.z-0.25});
-  if((e.type==='sorcerer'||e.type==='knight')&&rnd(s)<CFG.magic.potionChance)
-    s.potions.push({id:s.nextId++,x:e.x-0.35,z:e.z+0.25});
+  /* Drop table: src/content/items/{gem,heal,potion}.js. Offsets, gem value
+     and the elite-kind list all live in descriptors. RNG call ORDER is
+     unchanged (heal roll always, potion roll only for elite kinds). */
+  const GD=ITEM_DROPS.gem, HD=ITEM_DROPS.heal, PD=ITEM_DROPS.potion;
+  s.gems.push({id:s.nextId++,x:e.x+GD.offset[0],z:e.z+GD.offset[1],v:GD.xp});
+  if(rnd(s)<HD.chance)s.heals.push({id:s.nextId++,x:e.x+HD.offset[0],z:e.z+HD.offset[1]});
+  if(ELITE_KINDS.includes(e.type)&&rnd(s)<PD.chance)
+    s.potions.push({id:s.nextId++,x:e.x+PD.offset[0],z:e.z+PD.offset[1]});
   if(s.up.siphon>0)for(const hh of s.heroes)if(!hh.downed)hh.hp=Math.min(hh.maxHp,hh.hp+3*s.up.siphon);
   emit('kill',{x:e.x,z:e.z,type:e.type});
   emit('splat',{x:e.x,z:e.z,type:e.type});
   addHitStop(s,CFG.hitStopMs.kill);
-  FXSHAKE(0.30);
+  emit('shake',{v:0.30});
 }
 
 function damageEnemy(s,e,dmg,crit){
@@ -416,7 +381,7 @@ function damageEnemy(s,e,dmg,crit){
   e.hp-=dmg; e.hitFlash=1;
   emit('hit',{x:e.x,z:e.z,y:1.35,dmg:Math.round(dmg),crit,type:e.type});
   addHitStop(s,CFG.hitStopMs.hit);
-  FXSHAKE(crit?0.34:0.20);
+  emit('shake',{v:crit?0.34:0.20});
   if(e.hp<=0)killEnemy(s,e);
 }
 
@@ -425,7 +390,7 @@ function damageBoss(s,b,dmg,crit){
   b.hp=Math.max(0,b.hp-dmg); b.hitFlash=1;   // NOT interrupted: no state change
   emit('hit',{x:b.x,z:b.z,y:2.4,dmg:Math.round(dmg),crit,type:'boss'});
   addHitStop(s,CFG.hitStopMs.hit);
-  FXSHAKE(0.28);
+  emit('shake',{v:0.28});
   if(s.bossHits===0)s.bossFirstHitTick=s.tick;
   s.bossHits++;
   if(!b.summoned&&b.hp>0&&b.hp<=CFG.boss2.summonAt*b.maxHp){
@@ -441,7 +406,7 @@ function damageBoss(s,b,dmg,crit){
     s.score+=CFG.boss.score;
     emit('bossDeath',{x:b.x,z:b.z});
     addHitStop(s,CFG.hitStopMs.bossKill);
-    FXSHAKE(1.0);
+    emit('shake',{v:1.0});
     s.phase='clear'; s.chapterClearTimer=1.6;
   }
 }
@@ -657,7 +622,7 @@ function updateProjectiles(s,dt){
     }
     if(land){
       if(p.splash){
-        emit('projBlast',{x:p.x,z:p.z,r:p.splash});
+        emit('projBlast',{x:p.x,z:p.z,r:p.splash,type:p.unit});
         for(const hh of s.heroes){ if(hh.downed)continue;
           const hd=Math.sqrt((hh.x-p.x)*(hh.x-p.x)+(hh.z-p.z)*(hh.z-p.z));
           if(hd<=p.splash){
@@ -768,7 +733,7 @@ function collectPickups(s){
   for(let i=0;i<s.gems.length;i++){
     const g=s.gems[i];
     if(s.heroes.some(hh=>!hh.downed&&dist2(hh.x,hh.z,g.x,g.z)<=pr2)){
-      s.xp+=g.v; s.score+=10; emit('gem',{x:g.x,z:g.z});
+      s.xp+=g.v; s.score+=GEM_SCORE; emit('gem',{x:g.x,z:g.z});
       if(s.xp>=s.xpNeed){
         s.xp-=s.xpNeed; s.level++; s.xpNeed=8+(s.level-1)*6;
         s.resume=s.phase; s.phase='levelup'; s.choices=pickChoices(s);
@@ -820,36 +785,37 @@ function spawnEnemy(s){
   const by=aliveByType(s);
   const elapsed=CFG.waveSeconds-s.waveLeft;
   const W=CFG.wave, CAP=CFG.caps;
-  const capOf=t=>{
-    if(t==='ranger')return CAP.rangers;
-    if(t==='archer')return CAP.archers;
-    if(t==='sorcerer')return CAP.sorcerers;
-    if(t==='knight')return CAP.knights;
-    return W[t]?W[t].cap:99;
-  };
+  /* Per-kind alive caps now come from each enemy descriptor
+     (src/content/enemies/<kind>.js -> ENEMY_CAPS). No plural aliases and
+     no hard-coded kind list any more. W[t].cap stays as a fallback. */
+  const capOf=t=>CAP[t]!==undefined?CAP[t]:(W[t]?W[t].cap:99);
   let type=null;
-  /* ---- 1. scheduled elites: one at a time, on their own clock ---- */
-  if(elapsed>=W.knight.from && !(by.knight||0) && elapsed>=(s.knightNextAt||0)){
-    type='knight'; s.knightNextAt=elapsed+W.knight.every;
-  }else if(elapsed>=W.sorcerer.from && !(by.sorcerer||0) && elapsed>=(s.sorcererNextAt||0)){
-    type='sorcerer'; s.sorcererNextAt=elapsed+W.sorcerer.every;
+  /* ---- 1. scheduled elites: one at a time, each on its own clock.
+     The list (and its priority order) comes from the enemy descriptors'
+     `wave.every` entries — no hard-coded knight-then-sorcerer if/else. ---- */
+  for(const k of SCHEDULED_ELITES){
+    const w=W[k];
+    if(elapsed>=w.from && !(by[k]||0) && elapsed>=(s[k+'NextAt']||0)){
+      type=k; s[k+'NextAt']=elapsed+w.every; break;
+    }
   }
   /* ---- 2. weighted fill: only unlocked types, never over their cap ---- */
   if(!type){
+    /* FILL_POOL is derived from the enemy descriptors. ORDER IS LOAD-BEARING:
+       it fixes how the weighted roll below consumes sim.rng. */
     const pool=[];
-    const addT=(t,w)=>{ if((by[t]||0)>=capOf(t))return; pool.push({t,w}); };
-    addT('soldier', W.soldier.w);
-    addT('brute',   26);
-    addT('runner',  22);
-    addT('ranger',  18+elapsed*0.05);
-    if(elapsed>=W.archer.from)addT('archer', W.archer.w);
+    for(const f of FILL_POOL){
+      if(elapsed<f.from)continue;
+      if((by[f.kind]||0)>=capOf(f.kind))continue;
+      pool.push({t:f.kind,w:f.weight+elapsed*f.ramp});
+    }
     if(!pool.length)return;                        // every kind at its cap
     let total=0; for(const p of pool)total+=p.w;
     let roll=rnd(s)*total;
     type=pool[pool.length-1].t;
     for(const p of pool){ roll-=p.w; if(roll<0){ type=p.t; break; } }
-    /* The soldier opens the fight: the very first spawn is always one. */
-    if(s.kills===0 && elapsed<3 && !(by.soldier||0))type='soldier';
+    /* The descriptor flagged `opensFight` always spawns first. */
+    if(s.kills===0 && elapsed<3 && !(by[OPENER_KIND]||0))type=OPENER_KIND;
   }
   const a=rnd(s)*TAU, rr=rndR(s,17,29);
   const ah=anchorHero(s); let x=ah.x+Math.sin(a)*rr, z=ah.z+Math.cos(a)*rr;
@@ -1016,37 +982,38 @@ let skyMesh=null, groundMesh=null;
 
 /* ---------- procedural ground texture ---------- */
 function groundTexture(ch){
-  const P=PALETTES[ch-1], R=mkRng(4400+ch*313);
-  const c=document.createElement('canvas'); c.width=c.height=512;
+  const P=PALETTES[ch-1], G=PROPS.ground.view, S=G.textureSize;
+  const R=mkRng(G.textureSeedBase+ch*G.textureSeedStep);
+  const c=document.createElement('canvas'); c.width=c.height=S;
   const g=c.getContext('2d');
-  g.fillStyle=P.ground; g.fillRect(0,0,512,512);
+  g.fillStyle=P.ground; g.fillRect(0,0,S,S);
   // mottling
   for(let i=0;i<1500;i++){
-    const x=R()*512,y=R()*512,r=2+R()*15;
+    const x=R()*S,y=R()*S,r=2+R()*15;
     g.fillStyle=R()<0.5?P.ground2:'rgba(0,0,0,0.055)';
     g.globalAlpha=0.10+R()*0.16;
     g.beginPath();g.ellipse(x,y,r,r*(0.5+R()*0.7),R()*3,0,TAU);g.fill();
   }
   g.globalAlpha=1;
-  // winding path
+  // winding path — normalised against the texture size
   g.lineCap='round';g.lineJoin='round';
-  g.strokeStyle=P.path;g.globalAlpha=0.78;g.lineWidth=44;
-  g.beginPath();g.moveTo(-30,410);
-  g.bezierCurveTo(120,360,150,250,250,250);
-  g.bezierCurveTo(360,250,360,120,540,60);g.stroke();
-  g.globalAlpha=0.30;g.lineWidth=20;g.strokeStyle='rgba(255,255,255,.25)';g.stroke();
+  g.strokeStyle=P.path;g.globalAlpha=0.78;g.lineWidth=44*S/512;
+  g.beginPath();g.moveTo(-30*S/512,410*S/512);
+  g.bezierCurveTo(120*S/512,360*S/512,150*S/512,250*S/512,250*S/512,250*S/512);
+  g.bezierCurveTo(360*S/512,250*S/512,360*S/512,120*S/512,540*S/512,60*S/512);g.stroke();
+  g.globalAlpha=0.30;g.lineWidth=20*S/512;g.strokeStyle='rgba(255,255,255,.25)';g.stroke();
   g.globalAlpha=1;
   // speckles / cracks
   for(let i=0;i<900;i++){
-    const x=R()*512,y=R()*512;
+    const x=R()*S,y=R()*S;
     g.fillStyle=ch===3&&R()<0.35?'rgba(255,110,40,.45)':R()<0.5?'rgba(255,255,255,.10)':'rgba(0,0,0,.14)';
     g.fillRect(x,y,1+R()*3,1+R()*2);
   }
   if(ch===3){
-    g.strokeStyle='rgba(255,105,35,.55)';g.lineWidth=2;g.globalAlpha=.8;
+    g.strokeStyle='rgba(255,105,35,.55)';g.lineWidth=2*S/512;g.globalAlpha=.8;
     for(let i=0;i<26;i++){
-      const x=R()*512,y=R()*512;g.beginPath();g.moveTo(x,y);
-      for(let k=0;k<4;k++)g.lineTo(x+(R()-0.5)*70,y+(R()-0.5)*70);g.stroke();
+      const x=R()*S,y=R()*S;g.beginPath();g.moveTo(x,y);
+      for(let k=0;k<4;k++)g.lineTo(x+(R()-0.5)*70*S/512,y+(R()-0.5)*70*S/512);g.stroke();
     }
     g.globalAlpha=1;
   }
@@ -1058,16 +1025,16 @@ function groundTexture(ch){
 
 /* ---------- sky dome ---------- */
 function setSky(ch){
-  const P=PALETTES[ch-1];
+  const P=PALETTES[ch-1], K=PROPS.sky.view, RAD=K.radius;
   scene.background=new T.Color(P.sky);
-  scene.fog=new T.Fog(P.fog,48,150);
+  scene.fog=new T.Fog(P.fog,K.fogNear,K.fogFar);
   hemi.color.setHex(P.hemi); hemi.intensity=P.amb;
   sun.color.setHex(P.light); sun.intensity=ch===3?1.30:1.45;
   if(!skyMesh){
-    const g=new T.SphereGeometry(190,16,12);
+    const g=new T.SphereGeometry(RAD,K.widthSegments,K.heightSegments);
     const cols=[]; const pos=g.getAttribute('position');
     for(let i=0;i<pos.count;i++){
-      const y=pos.getY(i)/190;
+      const y=pos.getY(i)/RAD;
       const t=clamp((y+0.12)/0.8,0,1);
       cols.push(lerp(0.16,0.05,t),lerp(0.20,0.09,t),lerp(0.28,0.18,t));
     }
@@ -1078,7 +1045,7 @@ function setSky(ch){
   const top=new T.Color(P.sky), low=new T.Color(P.fog);
   const col=skyMesh.geometry.getAttribute('color');
   for(let i=0;i<col.count;i++){
-    const y=skyMesh.geometry.getAttribute('position').getY(i)/190;
+    const y=skyMesh.geometry.getAttribute('position').getY(i)/RAD;
     const t=clamp((y+0.25)/1.1,0,1);
     col.setXYZ(i,lerp(low.r*0.80,top.r*0.68,t),lerp(low.g*0.80,top.g*0.68,t),lerp(low.b*0.80,top.b*0.68,t));
   }
@@ -1110,91 +1077,105 @@ const MAT=(color,opts)=>new T.MeshLambertMaterial(Object.assign({color},opts||{}
 function buildMapMeshes(sim){
   disposeGroup(mapGroup);
   mapGroup=new T.Group(); scene.add(mapGroup);
-  const ch=sim.chapter,P=PALETTES[ch-1],d=sim.map;
+  const ch=sim.chapter,P=PALETTES[ch-1],d=sim.map,V=PROPS;
   setSky(ch);
   const gt=groundTexture(ch);
-  groundMesh=new T.Mesh(new T.PlaneGeometry(150,150),new T.MeshLambertMaterial({map:gt}));
+  groundMesh=new T.Mesh(new T.PlaneGeometry(V.ground.view.width,V.ground.view.height),
+    new T.MeshLambertMaterial({map:gt}));
   groundMesh.rotation.x=-Math.PI/2; groundMesh.position.y=-0.02;
   mapGroup.add(groundMesh);
-  // pond
-  const pond=new T.Mesh(new T.CircleGeometry(d.pond.r,28),
-    new T.MeshLambertMaterial({color:P.pond,transparent:true,opacity:ch===3?0.92:0.82,
-      emissive:ch===3?0xff4a10:0x000000,emissiveIntensity:ch===3?0.7:0}));
+
+  /* ---- pond + rim: src/content/props/pond.js ---- */
+  const PW=V.pond.view;
+  const lavaWater=ch===3;
+  const pond=new T.Mesh(new T.CircleGeometry(d.pond.r,PW.segments),
+    new T.MeshLambertMaterial({color:P.pond,transparent:true,opacity:PW.opacityByChapter[ch],
+      emissive:lavaWater?PW.emissiveColor:0x000000,
+      emissiveIntensity:lavaWater?PW.emissiveIntensity:0}));
   pond.rotation.x=-Math.PI/2; pond.position.set(d.pond.x,0.015,d.pond.z);
   mapGroup.add(pond);
-  const rim=new T.Mesh(new T.RingGeometry(d.pond.r,d.pond.r+0.35,28),
-    new T.MeshLambertMaterial({color:ch===3?0x57382f:0x68735c,side:T.DoubleSide}));
+  const rim=new T.Mesh(new T.RingGeometry(d.pond.r,d.pond.r+PW.rim,PW.segments),
+    new T.MeshLambertMaterial({color:PW.rimColorByChapter[ch],side:T.DoubleSide}));
   rim.rotation.x=-Math.PI/2;rim.position.set(d.pond.x,0.02,d.pond.z);mapGroup.add(rim);
 
   const cTree=new T.Color(P.tree),cTrunk=new T.Color(P.trunk),
         cRock=new T.Color(P.rock),cHill=new T.Color(P.hill);
-  // tree trunks
-  inst(new T.CylinderGeometry(0.5,0.62,1,6),MAT(0xffffff),d.trunk,(o,p)=>{
-    o.position.set(p.x,1.55*p.s,p.z);o.rotation.set(0,p.rot,0);
-    o.scale.set(0.55*p.s,3.1*p.s,0.55*p.s);
+  /* ---- tree trunks ---- */
+  const TV=V.trunk.view;
+  inst(new T.CylinderGeometry(TV.radiusTop,TV.radiusBottom,1,TV.segments),MAT(0xffffff),d.trunk,(o,p)=>{
+    o.position.set(p.x,TV.offsetY*p.s,p.z);o.rotation.set(0,p.rot,0);
+    o.scale.set(TV.scale[0]*p.s,TV.scale[1]*p.s,TV.scale[2]*p.s);
   },()=>cTrunk);
-  // canopies / dead branches / burnt crowns
-  inst(new T.ConeGeometry(0.5,1,7),MAT(0xffffff),d.canopy,(o,p)=>{
+  /* ---- canopies / dead branches / burnt crowns ---- */
+  const CV=V.canopy.view;
+  inst(new T.ConeGeometry(0.5,1,CV.segments),MAT(0xffffff),d.canopy,(o,p)=>{
     const dead=p.kind===1, burnt=p.kind===2;
-    // Canopy lifted so the hero can walk UNDER the leaves up to the trunk.
-    o.position.set(p.x,(dead?3.4:4.4)*p.s,p.z);o.rotation.set(0,p.rot,0);
-    o.scale.set((dead?1.5:2.5)*p.s,(dead?1.6:3.2)*p.s,(dead?1.5:2.5)*p.s);
-  },p=>p.kind===2?new T.Color(0x4a322b):(p.kind===1?new T.Color(0x51654e):cTree));
-  // rocks
+    const sc=dead?CV.scaleDead:CV.scaleNormal;
+    o.position.set(p.x,(dead?CV.liftDead:CV.liftNormal)*p.s,p.z);o.rotation.set(0,p.rot,0);
+    o.scale.set(sc[0]*p.s,sc[1]*p.s,sc[2]*p.s);
+  },p=>p.kind===2?new T.Color(CV.burntColor):(p.kind===1?new T.Color(CV.deadColor):cTree));
+  /* ---- rocks ---- */
+  const RV=V.rock.view;
   inst(new T.DodecahedronGeometry(0.5,0),MAT(0xffffff),d.rock,(o,p)=>{
-    o.position.set(p.x,0.46*p.s,p.z);o.rotation.set(p.rot*0.2,p.rot,p.rot*0.3);
-    o.scale.set(1.7*p.s,1.1*p.s,1.5*p.s);
+    o.position.set(p.x,RV.offsetY*p.s,p.z);o.rotation.set(p.rot*0.2,p.rot,p.rot*0.3);
+    o.scale.set(RV.scale[0]*p.s,RV.scale[1]*p.s,RV.scale[2]*p.s);
   },()=>cRock);
-  // pillars (physical blockers)
-  inst(new T.CylinderGeometry(0.5,0.55,1,8),MAT(0xffffff),d.pillar,(o,p)=>{
-    o.position.set(p.x,1.7*p.s,p.z);o.rotation.set(0,p.rot,0);
-    o.scale.set(1.05*p.s,3.4*p.s,1.05*p.s);
+  /* ---- pillars (physical blockers) ---- */
+  const LV=V.pillar.view;
+  inst(new T.CylinderGeometry(LV.radiusTop,LV.radiusBottom,1,LV.segments),MAT(0xffffff),d.pillar,(o,p)=>{
+    o.position.set(p.x,LV.offsetY*p.s,p.z);o.rotation.set(0,p.rot,0);
+    o.scale.set(LV.scale[0]*p.s,LV.scale[1]*p.s,LV.scale[2]*p.s);
   },()=>cRock);
-  // fence posts + rails
-  inst(new T.BoxGeometry(1,1,1),MAT(ch===2?0x49525a:0x8a6a44),d.post,(o,p)=>{
-    o.position.set(p.x,0.55*p.s,p.z);o.rotation.set(0,p.rot,0);
-    o.scale.set(0.18,1.1*p.s,0.18);
+  /* ---- fence posts + rails ---- */
+  const FV=V.fence.view;
+  inst(new T.BoxGeometry(1,1,1),MAT(FV.postColorByChapter[ch]),d.post,(o,p)=>{
+    o.position.set(p.x,FV.postOffsetY*p.s,p.z);o.rotation.set(0,p.rot,0);
+    o.scale.set(FV.postScale[0],FV.postScale[1]*p.s,FV.postScale[2]);
   });
-  inst(new T.BoxGeometry(1,1,1),MAT(ch===2?0x4e585e:0x96754c),d.post,(o,p)=>{
-    o.position.set(p.x,0.80*p.s,p.z);o.rotation.set(0,p.rot,0);
-    o.scale.set(0.09,0.09,1.5);
+  inst(new T.BoxGeometry(1,1,1),MAT(FV.railColorByChapter[ch]),d.post,(o,p)=>{
+    o.position.set(p.x,FV.railOffsetY*p.s,p.z);o.rotation.set(0,p.rot,0);
+    o.scale.set(FV.railScale[0],FV.railScale[1],FV.railScale[2]);
   });
-  // gravestones
-  inst(new T.BoxGeometry(1,1,1),MAT(0x99a29a),d.stone,(o,p)=>{
-    o.position.set(p.x,0.42*p.s,p.z);o.rotation.set(0,p.rot,0);
-    o.scale.set(0.62*p.s,0.85*p.s,0.17*p.s);
+  /* ---- gravestones ---- */
+  const SV=V.stone.view;
+  inst(new T.BoxGeometry(1,1,1),MAT(SV.color),d.stone,(o,p)=>{
+    o.position.set(p.x,SV.offsetY*p.s,p.z);o.rotation.set(0,p.rot,0);
+    o.scale.set(SV.scale[0]*p.s,SV.scale[1]*p.s,SV.scale[2]*p.s);
   });
-  // mountains / hills — the VISIBLE edge of the map
+  /* ---- mountains / hills — the VISIBLE edge of the map ---- */
+  const HV=V.hill.view;
   inst(new T.DodecahedronGeometry(0.5,0),MAT(0xffffff),d.hill,(o,p)=>{
-    o.position.set(p.x,p.s*0.32,p.z);o.rotation.set(0.15,p.rot,0.1);
-    o.scale.set(p.s,p.s*1.35,p.s*0.85);
+    o.position.set(p.x,p.s*HV.offsetY,p.z);
+    o.rotation.set(HV.rotation[0],p.rot,HV.rotation[2]);
+    o.scale.set(p.s*HV.scale[0],p.s*HV.scale[1],p.s*HV.scale[2]);
   },()=>cHill);
-  // landmark blocks
-  inst(new T.BoxGeometry(1,1,1),MAT(ch===3?0x59423f:0x8f8a76),d.block,(o,p)=>{
-    let sx=3,sy=7,sz=3,y=3.5;
-    if(p.kind===1){sx=2.2;sy=2.0;sz=2.2;y=1.0;}
-    if(p.kind===2){sx=5;sy=3.2;sz=4;y=1.6;}
-    if(p.kind===3){sx=0.8;sy=2.3;sz=0.8;y=1.15;}
-    if(p.kind===4){sx=5.4;sy=5.0;sz=1.3;y=2.5;}
-    if(p.kind===5){sx=7;sy=10;sz=7;y=5;}
-    o.position.set(p.x,y,p.z);o.rotation.set(0,p.rot,0);o.scale.set(sx,sy,sz);
+  /* ---- landmark blocks ---- */
+  const BV=V.block.view;
+  inst(new T.BoxGeometry(1,1,1),MAT(BV.colorByChapter[ch]),d.block,(o,p)=>{
+    const q=BV.shapes[p.kind]||BV.shapes[0];
+    o.position.set(p.x,q[3],p.z);o.rotation.set(0,p.rot,0);o.scale.set(q[0],q[1],q[2]);
   });
-  // torches / braziers
-  inst(new T.CylinderGeometry(0.5,0.5,1,6),MAT(0x54443a),d.torch,(o,p)=>{
-    o.position.set(p.x,0.8*p.s,p.z);o.rotation.set(0,0,0);o.scale.set(0.18,1.6*p.s,0.18);
+  /* ---- torches / braziers ---- */
+  const WV=V.torch.view;
+  inst(new T.CylinderGeometry(WV.radius,WV.radius,1,WV.segments),MAT(WV.color),d.torch,(o,p)=>{
+    o.position.set(p.x,WV.postOffsetY*p.s,p.z);o.rotation.set(0,0,0);
+    o.scale.set(WV.postScale[0],WV.postScale[1]*p.s,WV.postScale[2]);
   });
-  inst(new T.SphereGeometry(0.5,7,5),
-    new T.MeshBasicMaterial({color:ch===3?0xff7a28:0xffc46a}),d.torch,(o,p)=>{
-    o.position.set(p.x,1.65*p.s,p.z);o.rotation.set(0,0,0);o.scale.setScalar(0.38*p.s);
+  inst(new T.SphereGeometry(WV.flameRadius,WV.flameSegments[0],WV.flameSegments[1]),
+    new T.MeshBasicMaterial({color:WV.flameColorByChapter[ch]}),d.torch,(o,p)=>{
+    o.position.set(p.x,WV.flameOffsetY*p.s,p.z);o.rotation.set(0,0,0);o.scale.setScalar(WV.flameScale*p.s);
   });
-  // lava pools
-  inst(new T.CircleGeometry(1,14),new T.MeshBasicMaterial({color:0xff5a18,transparent:true,opacity:.9,
+  /* ---- lava pools ---- */
+  const AV=V.lava.view;
+  inst(new T.CircleGeometry(1,AV.segments),new T.MeshBasicMaterial({color:AV.color,transparent:true,opacity:AV.opacity,
     side:T.DoubleSide,depthWrite:false}),d.lava,(o,p)=>{
     o.position.set(p.x,0.03,p.z);o.rotation.set(-Math.PI/2,0,p.rot);o.scale.setScalar(p.s);
   });
-  // pond reeds
-  inst(new T.ConeGeometry(0.5,1,5),MAT(ch===1?0x5f9c4a:0x64766b),d.reeds,(o,p)=>{
-    o.position.set(p.x,0.42*p.s,p.z);o.rotation.set(0,p.rot,0);o.scale.set(0.25,0.9*p.s,0.25);
+  /* ---- pond reeds ---- */
+  const RD=V.reeds.view;
+  inst(new T.ConeGeometry(0.5,1,RD.segments),MAT(RD.colorByChapter[ch]),d.reeds,(o,p)=>{
+    o.position.set(p.x,RD.offsetY*p.s,p.z);o.rotation.set(0,p.rot,0);
+    o.scale.set(RD.scale[0],RD.scale[1]*p.s,RD.scale[2]);
   });
 }
 
@@ -1222,34 +1203,6 @@ const ORIG=[]; JOINTS.forEach((j,i)=>{const b=j.p>=0?ORIG[j.p]:[0,0,0];
 
 /* Brick-minifigure palette: every unit has a moulded "skin" head/hands colour
    (classic ABS yellow for the hero) plus its own torso/leg plastic colour. */
-const TINTS={
-  /* hero = classic blue lion knight */
-  hero:   {armor:[0.055,0.165,0.575],trim:[0.780,0.470,0.060],metal:[0.520,0.560,0.610],
-           cloth:[0.440,0.030,0.030],skin:[0.960,0.760,0.180],blade:[0.720,0.760,0.840],
-           dark:[0.090,0.100,0.130],glow:[0.380,0.750,1.000]},
-  /* elite knight — plate + crest */
-  knight: {armor:[0.460,0.480,0.520],trim:[0.700,0.480,0.090],cloth:[0.360,0.035,0.040],
-           skin:[0.940,0.750,0.160],blade:[0.760,0.800,0.860],dark:[0.090,0.090,0.100],
-           glow:[0.960,0.820,0.420]},
-  /* soldier — kettle helm + chainmail */
-  soldier:{armor:[0.315,0.330,0.345],trim:[0.550,0.575,0.600],cloth:[0.480,0.030,0.030],
-           skin:[0.960,0.780,0.160],blade:[0.540,0.580,0.620],dark:[0.070,0.070,0.080],
-           glow:[1.000,0.460,0.180]},
-  brute:  {armor:[0.520,0.210,0.140],trim:[0.340,0.140,0.100],cloth:[0.420,0.170,0.120],
-           skin:[0.930,0.580,0.170],blade:[0.500,0.280,0.220],dark:[0.140,0.070,0.060],glow:[0.880,0.260,0.130]},
-  runner: {armor:[0.330,0.460,0.370],trim:[0.160,0.220,0.180],cloth:[0.270,0.360,0.300],
-           skin:[0.740,0.880,0.420],blade:[0.540,0.600,0.520],dark:[0.090,0.130,0.110],glow:[0.580,0.850,0.440]},
-  ranger: {armor:[0.440,0.240,0.650],trim:[0.190,0.100,0.310],cloth:[0.340,0.180,0.520],
-           skin:[0.840,0.720,1.000],blade:[0.640,0.420,0.840],dark:[0.110,0.060,0.180],glow:[0.820,0.380,1.000]},
-  archer: {armor:[0.340,0.200,0.100],trim:[0.460,0.310,0.130],cloth:[0.170,0.360,0.190],
-           skin:[0.960,0.770,0.150],blade:[0.330,0.210,0.080],dark:[0.070,0.055,0.035],glow:[0.320,0.920,0.370]},
-  sorcerer:{armor:[0.140,0.110,0.210],trim:[0.440,0.420,0.550],cloth:[0.240,0.130,0.420],
-           skin:[0.740,0.700,0.640],blade:[0.200,0.140,0.080],dark:[0.020,0.020,0.030],glow:[0.680,0.320,1.000]},
-  /* boss = blackened plate + ember glow */
-  boss:   {armor:[0.095,0.090,0.086],trim:[0.380,0.385,0.400],metal:[0.440,0.455,0.480],
-           cloth:[0.280,0.035,0.040],skin:[0.920,0.700,0.120],blade:[0.110,0.110,0.120],
-           dark:[0.010,0.010,0.015],glow:[0.980,0.220,0.060]}
-};
 const GEO_CACHE={};
 function prim(kind){
   if(GEO_CACHE[kind])return GEO_CACHE[kind];
@@ -1268,348 +1221,17 @@ function prim(kind){
    printed face, a stepped trapezoid torso, C-clamp hands and flat feet.
    Nothing is a third-party asset — it is all boxes/cylinders in code.
    --------------------------------------------------------------------- */
+/* ---- FIGURE GEOMETRY — now pure data in src/content/figures/<id>.js ----
+   Each figure descriptor owns its palette AND its complete moulded part list
+   (extracted verbatim from the legacy rig by scripts/extract-figures.mjs).
+   A part's `c` is a tint-slot name; 'INK' is the shared face-print colour.
+   Adding a visual character design = one descriptor + one barrel line. */
 function rigParts(kind){
-  const c=TINTS[kind], P=[];
-  const add=(j,g,off,sc,col,rot)=>P.push({j,g,o:off,s:sc,c:col,r:rot||[0,0,0]});
-  const INK=[0.045,0.045,0.055];
-
-  /* ─────────────────────────  HERO — blue lion knight  ───────────────────────── */
-  if(kind==='hero'){
-    /* hips — one clean LEGO pelvis brick */
-    add(0,'box',[0, 0.00,0],[0.58,0.22,0.34],c.armor);
-    add(0,'box',[0,-0.11,0],[0.50,0.08,0.30],c.dark);
-    add(0,'cyl12',[ 0.26, 0.00,0],[0.10,0.06,0.10],c.dark,[0,0,Math.PI/2]);
-    add(0,'cyl12',[-0.26, 0.00,0],[0.10,0.06,0.10],c.dark,[0,0,Math.PI/2]);
-
-    /* torso — two stacked bricks (waist narrower, chest wider) + belt */
-    add(1,'box',[0, 0.09,0],[0.58,0.26,0.38],c.armor);
-    add(1,'box',[0, 0.35,0],[0.86,0.28,0.44],c.armor);
-    add(1,'box',[0, 0.52,0],[0.90,0.06,0.46],c.metal);        // collar
-    add(1,'box',[0,-0.03,0],[0.62,0.08,0.40],c.dark);         // belt
-    add(1,'box',[0,-0.03,0.21],[0.14,0.07,0.02],c.trim);      // buckle
-
-    /* torso print — ONE flat gold panel + simple gold lion (3 bars) */
-    add(1,'box',[0, 0.30,0.23],[0.52,0.34,0.02],c.armor);     // print backing
-    add(1,'box',[ 0.04,0.31,0.25],[0.20,0.14,0.02],c.trim);   // lion body
-    add(1,'box',[ 0.08,0.42,0.25],[0.10,0.09,0.02],c.trim);   // lion head
-    add(1,'box',[ 0.01,0.20,0.25],[0.05,0.13,0.02],c.trim);   // front leg
-    add(1,'box',[-0.08,0.21,0.25],[0.05,0.11,0.02],c.trim);   // hind leg
-
-    /* cape — TWO angled planes, one large one flared */
-    add(1,'box',[0, 0.18,-0.24],[0.56,0.72,0.04],c.cloth,[0.16,0,0]);
-    add(1,'box',[0,-0.18,-0.29],[0.64,0.30,0.04],c.cloth,[0.30,0,0]);
-
-    add(1,'cyl12',[0,0.56,0],[0.30,0.08,0.30],c.skin);        // neck
-
-    /* head — LEGO-yellow face, eyes, smile */
-    add(2,'cyl12',[0, 0.13,0],[0.66,0.44,0.66],c.skin);
-    add(2,'box',[ 0.115,0.16,0.31],[0.075,0.075,0.03],INK);
-    add(2,'box',[-0.115,0.16,0.31],[0.075,0.075,0.03],INK);
-    add(2,'box',[ 0.000,0.04,0.31],[0.17,0.03,0.02],INK);
-    add(2,'box',[ 0.090,0.06,0.31],[0.03,0.03,0.02],INK);
-    add(2,'box',[-0.090,0.06,0.31],[0.03,0.03,0.02],INK);
-
-    /* GREAT HELM — three clean cylinders + one visor panel */
-    add(2,'cyl12',[0, 0.22,0],[0.74,0.07,0.74],c.metal);       // brim
-    add(2,'cyl12',[0, 0.30,0],[0.68,0.12,0.68],c.metal);       // helm skirt
-    add(2,'cyl12',[0, 0.44,0],[0.66,0.20,0.66],c.metal);       // helm body
-    add(2,'sph',  [0, 0.54,0],[0.66,0.20,0.66],c.metal);       // dome
-    /* visor panel + eye slit + breaths */
-    add(2,'box',[0, 0.37,0.31],[0.56,0.24,0.06],c.metal);
-    add(2,'box',[0, 0.42,0.345],[0.46,0.045,0.02],INK);       // eye slit
-    add(2,'box',[ 0.08,0.30,0.345],[0.03,0.03,0.02],INK);
-    add(2,'box',[ 0.00,0.30,0.345],[0.03,0.03,0.02],INK);
-    add(2,'box',[-0.08,0.30,0.345],[0.03,0.03,0.02],INK);
-    add(2,'box',[0, 0.20,-0.28],[0.48,0.16,0.06],c.metal);    // neck guard
-
-    /* red crest — 3 fin blocks, big + bold */
-    add(2,'box',[0, 0.64, 0.06],[0.09,0.18,0.34],c.cloth,[0.30,0,0]);
-    add(2,'box',[0, 0.74,-0.08],[0.09,0.22,0.22],c.cloth,[0.85,0,0]);
-    add(2,'box',[0, 0.66,-0.24],[0.09,0.24,0.14],c.cloth,[1.35,0,0]);
-
-    /* LEFT arm — rounded pauldron + sleeve + clamp hand */
-    add(3,'sph',  [0, 0.04,0],[0.42,0.38,0.42],c.armor);      // pauldron
-    add(3,'cyl12',[0,-0.20,0],[0.22,0.40,0.22],c.armor);      // upper sleeve
-    add(4,'cyl12',[0,-0.17,0],[0.20,0.34,0.20],c.armor);      // forearm
-    add(5,'cyl12',[0,-0.05,0],[0.26,0.11,0.26],c.skin,[Math.PI/2,0,0]);
-    add(5,'box',  [0,-0.12,0.05],[0.10,0.10,0.14],c.skin);
-
-    /* ROUND SHIELD — one big disc, gold rim, cobalt field, gold lion, boss */
-    add(5,'cyl12',[0.04,-0.14,0.14],[0.72,0.07,0.72],c.trim, [Math.PI/2,0,0]); // rim
-    add(5,'cyl12',[0.04,-0.14,0.18],[0.60,0.07,0.60],c.armor,[Math.PI/2,0,0]); // field
-    add(5,'box',  [ 0.08,-0.14,0.22],[0.16,0.13,0.02],c.trim);                 // lion body
-    add(5,'box',  [ 0.14,-0.05,0.22],[0.07,0.07,0.02],c.trim);                 // lion head
-    add(5,'box',  [ 0.02,-0.22,0.22],[0.04,0.09,0.02],c.trim);                 // leg
-    add(5,'cyl12',[0.04,-0.14,0.235],[0.10,0.04,0.10],c.metal,[Math.PI/2,0,0]);// boss
-
-    /* RIGHT arm + SWORD */
-    add(6,'sph',  [0, 0.04,0],[0.42,0.38,0.42],c.armor);
-    add(6,'cyl12',[0,-0.20,0],[0.22,0.40,0.22],c.armor);
-    add(7,'cyl12',[0,-0.17,0],[0.20,0.34,0.20],c.armor);
-    add(8,'cyl12',[0,-0.05,0],[0.26,0.11,0.26],c.skin,[Math.PI/2,0,0]);
-    add(8,'box',  [0,-0.12,0.05],[0.10,0.10,0.14],c.skin);
-    /* sword */
-    add(8,'cyl',  [0,-0.05,0],[0.09,0.22,0.09],c.dark);       // grip
-    add(8,'sph',  [0,-0.18,0],[0.11,0.11,0.11],c.trim);       // pommel
-    add(8,'box',  [0,-0.21,0],[0.44,0.07,0.12],c.trim);       // crossguard
-    add(8,'box',  [0,-0.48,0],[0.16,0.50,0.05],c.blade);      // blade
-    add(8,'box',  [0,-0.48,0.028],[0.035,0.44,0.012],c.dark); // fuller
-    add(8,'cone', [0,-0.77,0],[0.16,0.12,0.05],c.blade,[Math.PI,0,0]);
-
-    /* LEGS — thigh / shin / foot, knee joint */
-    add(9, 'box',[0,-0.23,0],[0.30,0.48,0.34],c.armor);
-    add(10,'box',[0,-0.21,0],[0.28,0.40,0.32],c.armor);
-    add(10,'box',[0,-0.40,0.08],[0.32,0.13,0.44],c.armor);
-    add(10,'cyl12',[0,-0.02,0],[0.28,0.08,0.28],c.dark,[Math.PI/2,0,0]);
-    add(11,'box',[0,-0.23,0],[0.30,0.48,0.34],c.armor);
-    add(12,'box',[0,-0.21,0],[0.28,0.40,0.32],c.armor);
-    add(12,'box',[0,-0.40,0.08],[0.32,0.13,0.44],c.armor);
-    add(12,'cyl12',[0,-0.02,0],[0.28,0.08,0.28],c.dark,[Math.PI/2,0,0]);
-
-    return P;
-  }
-
-  /* ─────────────────────────  KNIGHT — great-helm elite  ───────────────────────── */
-  if(kind==='knight'){
-    bodyParts(add,c,INK);
-
-    /* tabard + emblem on chest */
-    add(1,'box',[0, 0.30,0.235],[0.34,0.32,0.02],c.cloth);
-    add(1,'box',[0, 0.32,0.248],[0.15,0.15,0.02],c.trim,[0,0,0.78]);
-    add(1,'box',[0, 0.32,0.248],[0.15,0.15,0.02],c.trim,[0,0,-0.78]);
-
-    /* GREAT HELM — plain cylinder + slit + red crest */
-    add(2,'box',[0, 0.34,0.00],[0.74,0.44,0.74],c.armor);
-    add(2,'box',[0, 0.18,0.34],[0.56,0.055,0.05],c.dark);     // visor slit
-    add(2,'box',[0, 0.02,0.34],[0.30,0.035,0.04],c.dark);     // breaths
-    add(2,'box',[0, 0.57,0.00],[0.10,0.32,0.52],c.cloth,[0.16,0,0]); // crest
-    add(2,'box',[0, 0.48,0.34],[0.13,0.10,0.05],c.trim);      // crest base
-
-    /* rounded pauldrons */
-    add(3,'sph',[0, 0.04,0],[0.44,0.30,0.44],c.armor);
-    add(6,'sph',[0, 0.04,0],[0.44,0.30,0.44],c.armor);
-
-    /* heater shield — big disc + rim + heraldry */
-    add(5,'cyl12',[0.03,-0.14,0.15],[0.80,0.10,0.80],c.trim,[Math.PI/2,0,0]);
-    add(5,'cyl12',[0.03,-0.14,0.19],[0.66,0.10,0.66],c.cloth,[Math.PI/2,0,0]);
-    add(5,'box',  [0.03,-0.14,0.25],[0.17,0.17,0.02],c.trim,[0,0,0.78]);
-    add(5,'cyl12',[0.03,-0.14,0.255],[0.13,0.04,0.13],c.trim,[Math.PI/2,0,0]);
-
-    /* longsword */
-    add(8,'cyl',[0,-0.05,0],[0.10,0.22,0.10],c.dark);
-    add(8,'sph',[0,-0.18,0],[0.12,0.12,0.12],c.trim);
-    add(8,'box',[0,-0.21,0],[0.46,0.07,0.13],c.trim);
-    add(8,'box',[0,-0.50,0],[0.17,0.56,0.05],c.blade);
-    add(8,'box',[0,-0.50,0.028],[0.03,0.50,0.012],c.trim);
-    add(8,'cone',[0,-0.82,0],[0.17,0.13,0.05],c.blade,[Math.PI,0,0]);
-    return P;
-  }
-
-  /* ─────────────────────────  SOLDIER — kettle-helm infantry  ───────────────────────── */
-  if(kind==='soldier'){
-    bodyParts(add,c,INK);
-
-    /* chainmail print + red scarf */
-    add(1,'box',[0, 0.30,0.232],[0.36,0.30,0.02],c.trim);
-    add(1,'box',[0, 0.380,0.246],[0.36,0.028,0.02],c.dark);
-    add(1,'box',[0, 0.320,0.246],[0.36,0.028,0.02],c.dark);
-    add(1,'box',[0, 0.260,0.246],[0.36,0.028,0.02],c.dark);
-    add(1,'box',[0, 0.545,0],[0.90,0.10,0.50],c.cloth);
-    add(1,'box',[0, 0.30,-0.245],[0.24,0.42,0.05],c.cloth,[0.12,0,0]);
-
-    /* KETTLE HELM — dome + wide brim + cheek guards */
-    add(2,'sph',  [0, 0.42,0],[0.66,0.26,0.66],c.trim);       // dome
-    add(2,'cyl12',[0, 0.22,0],[0.86,0.05,0.86],c.trim);       // brim
-    add(2,'box',  [0, 0.22,0.355],[0.56,0.04,0.05],c.trim);   // brim lip
-    add(2,'cyl12',[ 0.33,0.15,0.04],[0.09,0.28,0.09],c.trim);// cheek
-    add(2,'cyl12',[-0.33,0.15,0.04],[0.09,0.28,0.09],c.trim);
-
-    /* spear */
-    add(8,'cyl',[0, 0.10,0],[0.055,1.70,0.055],c.blade);
-    add(8,'box',[0, 0.98,0],[0.14,0.06,0.06],c.dark);
-    add(8,'cone',[0, 1.09,0],[0.10,0.26,0.10],c.trim);
-
-    /* small round shield */
-    add(5,'cyl12',[0.02,-0.115,0.15],[0.60,0.09,0.60],c.trim,[Math.PI/2,0,0]);
-    add(5,'cyl12',[0.02,-0.115,0.19],[0.50,0.09,0.50],c.armor,[Math.PI/2,0,0]);
-    add(5,'cyl12',[0.02,-0.115,0.235],[0.10,0.04,0.10],c.dark,[Math.PI/2,0,0]);
-    return P;
-  }
-
-  /* ─────────────────────────  BOSS — horned warlord  ───────────────────────── */
-  if(kind==='boss'){
-    /* hips + plate skirt */
-    add(0,'box',[0, 0.00,0],[0.62,0.24,0.36],c.armor);
-    add(0,'box',[0,-0.11,0],[0.56,0.10,0.31],c.trim);
-    add(0,'box',[0, 0.02,0.19],[0.22,0.15,0.03],c.trim);
-
-    /* torso — layered black plate + silver trim + skull breastplate */
-    add(1,'box',[0, 0.09,0],[0.64,0.30,0.40],c.armor);
-    add(1,'box',[0, 0.35,0],[0.88,0.30,0.46],c.armor);
-    add(1,'box',[0, 0.52,0],[0.94,0.07,0.48],c.trim);
-    add(1,'box',[0, 0.30,0.233],[0.46,0.28,0.02],c.dark);
-    add(1,'box',[ 0.15,0.335,0.244],[0.05,0.22,0.02],c.trim,[0,0, 0.30]);
-    add(1,'box',[-0.15,0.335,0.244],[0.05,0.22,0.02],c.trim,[0,0,-0.30]);
-    add(1,'box',[0, 0.30,0.25],[0.18,0.14,0.03],c.trim);      // skull
-    add(1,'box',[ 0.04,0.32,0.268],[0.05,0.05,0.02],c.dark);
-    add(1,'box',[-0.04,0.32,0.268],[0.05,0.05,0.02],c.dark);
-    add(1,'box',[0, 0.18,-0.24],[0.58,0.76,0.05],c.cloth,[0.10,0,0]); // cape
-    add(1,'cyl12',[0,0.56,0],[0.30,0.08,0.30],c.skin);
-
-    /* head — yellow face + horned black helm */
-    add(2,'cyl12',[0, 0.13,0],[0.66,0.44,0.66],c.skin);
-    add(2,'box',[ 0.115,0.16,0.31],[0.085,0.06,0.03],INK);
-    add(2,'box',[-0.115,0.16,0.31],[0.085,0.06,0.03],INK);
-    add(2,'box',[ 0.12,0.21,0.31],[0.15,0.034,0.03],INK,[0,0,-0.42]);
-    add(2,'box',[-0.12,0.21,0.31],[0.15,0.034,0.03],INK,[0,0, 0.42]);
-    add(2,'box',[0, 0.03,0.31],[0.13,0.03,0.02],INK);
-    add(2,'box',[0, 0.42,0.00],[0.78,0.24,0.78],c.armor);
-    add(2,'box',[0, 0.24,-0.26],[0.74,0.30,0.30],c.armor);
-    add(2,'box',[0, 0.25,0.30],[0.76,0.10,0.12],c.armor);
-    add(2,'box',[0, 0.34,0.32],[0.20,0.22,0.05],c.trim);
-    add(2,'box',[ 0.34,0.09,0.02],[0.06,0.28,0.34],c.armor);
-    add(2,'box',[-0.34,0.09,0.02],[0.06,0.28,0.34],c.armor);
-    add(2,'box',[ 0.35,0.14,0.31],[0.05,0.30,0.03],c.trim);
-    add(2,'box',[-0.35,0.14,0.31],[0.05,0.30,0.03],c.trim);
-    /* horns — 3 cones each side, big and clear */
-    add(2,'cone',[ 0.33,0.47,0.02],[0.26,0.40,0.26],c.armor,[0,0,-0.45]);
-    add(2,'cone',[ 0.46,0.69,0.00],[0.20,0.32,0.20],c.armor,[0,0,-0.75]);
-    add(2,'cone',[ 0.60,0.86,-0.03],[0.15,0.26,0.15],c.armor,[0,0,-0.15]);
-    add(2,'cone',[-0.33,0.47,0.02],[0.26,0.40,0.26],c.armor,[0,0, 0.45]);
-    add(2,'cone',[-0.46,0.69,0.00],[0.20,0.32,0.20],c.armor,[0,0, 0.75]);
-    add(2,'cone',[-0.60,0.86,-0.03],[0.15,0.26,0.15],c.armor,[0,0, 0.15]);
-
-    /* arms + greatsword */
-    add(3,'sph',  [0, 0.05,0],[0.44,0.34,0.44],c.armor);
-    add(3,'box',  [0, 0.15,0],[0.46,0.08,0.46],c.trim);
-    add(3,'cone', [ 0.20,0.24,0],[0.10,0.26,0.10],c.trim,[0,0,-0.55]);
-    add(3,'cone', [ 0.08,0.26,-0.16],[0.09,0.22,0.09],c.trim,[0.45,0,-0.25]);
-    add(3,'cyl12',[0,-0.20,0],[0.24,0.44,0.24],c.armor);
-    add(4,'cyl12',[0,-0.17,0],[0.22,0.34,0.22],c.armor);
-    add(5,'cyl12',[0,-0.05,0],[0.26,0.11,0.26],c.skin,[Math.PI/2,0,0]);
-    add(5,'box',  [0,-0.12,0.05],[0.10,0.10,0.14],c.skin);
-
-    add(6,'sph',  [0, 0.05,0],[0.44,0.34,0.44],c.armor);
-    add(6,'box',  [0, 0.15,0],[0.46,0.08,0.46],c.trim);
-    add(6,'cyl12',[0,-0.20,0],[0.24,0.44,0.24],c.armor);
-    add(7,'cyl12',[0,-0.17,0],[0.22,0.34,0.22],c.armor);
-    add(8,'cyl12',[0,-0.05,0],[0.26,0.11,0.26],c.skin,[Math.PI/2,0,0]);
-    add(8,'box',  [0,-0.12,0.05],[0.10,0.10,0.14],c.skin);
-    add(8,'cyl',  [0,-0.05,0],[0.11,0.26,0.11],c.dark);
-    add(8,'box',  [0,-0.21,0],[0.50,0.09,0.16],c.trim);
-    add(8,'box',  [0,-0.21,0.07],[0.16,0.13,0.03],c.armor);
-    add(8,'box',  [0,-0.48,0],[0.22,0.52,0.07],c.blade);
-    add(8,'box',  [ 0.15,-0.42,0],[0.09,0.17,0.05],c.blade,[0,0, 0.55]);
-    add(8,'box',  [-0.15,-0.42,0],[0.09,0.17,0.05],c.blade,[0,0,-0.55]);
-    add(8,'box',  [ 0.13,-0.60,0],[0.07,0.14,0.05],c.blade,[0,0, 0.70]);
-    add(8,'box',  [-0.13,-0.60,0],[0.07,0.14,0.05],c.blade,[0,0,-0.70]);
-    add(8,'cone', [0,-0.78,0],[0.22,0.16,0.07],c.blade,[Math.PI,0,0]);
-    add(8,'box',  [0,-0.48,0.04],[0.045,0.48,0.012],c.glow);
-
-    /* legs */
-    add(9, 'box',[0,-0.23,0],[0.32,0.52,0.36],c.armor);
-    add(10,'box',[0,-0.21,0],[0.29,0.44,0.33],c.armor);
-    add(10,'box',[0,-0.30,0.175],[0.24,0.14,0.03],c.trim);
-    add(10,'box',[0,-0.42,0.10],[0.33,0.16,0.48],c.trim);
-    add(11,'box',[0,-0.23,0],[0.32,0.52,0.36],c.armor);
-    add(12,'box',[0,-0.21,0],[0.29,0.44,0.33],c.armor);
-    add(12,'box',[0,-0.30,0.175],[0.24,0.14,0.03],c.trim);
-    add(12,'box',[0,-0.42,0.10],[0.33,0.16,0.48],c.trim);
-    return P;
-  }
-
-  /* ─────────────────────────  every other kind: shared brick body  ───────────────────────── */
-  bodyParts(add,c,INK);
-
-  if(kind==='brute'||kind==='runner'||kind==='ranger'){
-    /* simple round shield + short sword */
-    add(5,'cyl12',[0.02,-0.115,0.14],[0.56,0.08,0.56],c.trim, [Math.PI/2,0,0]);
-    add(5,'cyl12',[0.02,-0.115,0.18],[0.46,0.08,0.46],c.armor,[Math.PI/2,0,0]);
-    add(5,'box',  [0.02,-0.115,0.22],[0.14,0.38,0.03],c.trim);
-    add(8,'cyl',  [0,-0.05,0],[0.09,0.20,0.09],c.dark);
-    add(8,'box',  [0,-0.19,0],[0.42,0.07,0.12],c.trim);
-    add(8,'box',  [0,-0.46,0],[0.16,0.50,0.05],c.blade);
-    add(8,'cone', [0,-0.74,0],[0.16,0.11,0.05],c.blade,[Math.PI,0,0]);
-    return P;
-  }
-  if(kind==='archer'){
-    /* hood + quiver + bow */
-    add(2,'cyl12',[0, 0.33,0],[0.72,0.34,0.72],c.cloth);
-    add(2,'box',  [0, 0.24,0.30],[0.64,0.06,0.12],c.cloth,[0.18,0,0]);
-    add(2,'box',  [0, 0.18,-0.30],[0.62,0.42,0.20],c.cloth);
-    add(1,'cyl12',[-0.18,0.36,-0.32],[0.16,0.62,0.16],c.blade,[0.22,0,0.18]);
-    add(1,'cyl',  [-0.23,0.70,-0.40],[0.035,0.22,0.035],c.dark);
-    add(1,'cyl',  [-0.18,0.70,-0.39],[0.035,0.22,0.035],c.dark);
-    add(1,'cyl',  [-0.13,0.70,-0.38],[0.035,0.22,0.035],c.dark);
-    add(5,'box',  [0.02,-0.10,0.23],[0.05,0.66,0.05],c.blade);
-    add(5,'box',  [0.02, 0.25,0.26],[0.05,0.20,0.05],c.blade,[0.55,0,0]);
-    add(5,'box',  [0.02,-0.45,0.26],[0.05,0.20,0.05],c.blade,[-0.55,0,0]);
-    add(5,'box',  [0.02,-0.10,0.20],[0.02,0.70,0.012],c.trim);
-    add(8,'cyl',  [0,-0.03,0],[0.07,0.20,0.07],c.cloth);
-    return P;
-  }
-  if(kind==='sorcerer'){
-    /* robe + pointed hat + orb staff */
-    add(0,'box',[0, 0.01,0],[0.64,0.42,0.42],c.armor);
-    add(0,'box',[0,-0.30,0],[0.72,0.34,0.48],c.armor);
-    add(0,'box',[0,-0.47,0],[0.78,0.10,0.52],c.trim);
-    add(1,'box',[0, 0.30,-0.24],[0.30,0.50,0.05],c.armor,[0.10,0,0]);
-    add(2,'cyl12',[0, 0.24,0],[0.90,0.05,0.90],c.armor);
-    add(2,'cone', [0, 0.47,0],[0.62,0.52,0.62],c.armor,[0,0.25,0]);
-    add(2,'cyl12',[0, 0.28,0],[0.66,0.07,0.66],c.trim);
-    add(8,'cyl',  [0, 0.05,0],[0.055,1.55,0.055],c.blade);
-    add(8,'cyl12',[0, 0.86,0],[0.12,0.10,0.12],c.trim);
-    add(8,'sph',  [0, 1.01,0],[0.44,0.44,0.44],c.glow);
-    return P;
-  }
-  return P;
-}
-
-/* The shared moulded body: pelvis, torso, head, C-clamp arms, brick legs. */
-function bodyParts(add,c,INK){
-  /* ---- hips: moulded pelvis brick with two leg sockets ---- */
-  add(0,'box',[0, 0.01,0],[0.58,0.22,0.34],c.armor);
-  add(0,'box',[0,-0.12,0],[0.50,0.09,0.29],c.dark);
-  add(0,'cyl12',[ 0.25,-0.02,0],[0.09,0.07,0.09],c.dark,[0,0,Math.PI/2]);
-  add(0,'cyl12',[-0.25,-0.02,0],[0.09,0.07,0.09],c.dark,[0,0,Math.PI/2]);
-
-  /* ---- torso: two stacked bricks, wider at the shoulders ---- */
-  add(1,'box',[0, 0.10,0],[0.60,0.28,0.38],c.armor);
-  add(1,'box',[0, 0.36,0],[0.84,0.30,0.44],c.armor);
-  add(1,'box',[0, 0.535,0],[0.90,0.06,0.46],c.trim);          // collar plate
-  add(1,'box',[0, 0.30,0.225],[0.24,0.22,0.03],c.trim);       // printed chest
-  add(1,'box',[0, 0.30,0.243],[0.10,0.10,0.02],c.glow);
-  add(1,'box',[0, 0.18,-0.235],[0.56,0.74,0.05],c.cloth,[0.10,0,0]); // cape
-  add(1,'cyl12',[0,0.575,0],[0.30,0.08,0.30],c.skin);         // neck
-
-  /* ---- head: cylinder + top stud + printed face ---- */
-  add(2,'cyl12',[0, 0.13,0],[0.66,0.44,0.66],c.skin);
-  add(2,'cyl12',[0, 0.375,0],[0.32,0.09,0.32],c.skin);        // stud
-  add(2,'box',[ 0.115,0.16,0.305],[0.075,0.075,0.03],INK);    // eyes
-  add(2,'box',[-0.115,0.16,0.305],[0.075,0.075,0.03],INK);
-  add(2,'box',[0, 0.035,0.305],[0.19,0.032,0.02],INK);        // mouth
-
-  /* ---- left arm: shoulder brick, C-clamp hand ---- */
-  add(3,'cyl12',[0, 0.03,0],[0.34,0.20,0.34],c.armor);
-  add(3,'box',[0,-0.20,0],[0.22,0.44,0.24],c.armor);
-  add(4,'box',[0,-0.17,0],[0.20,0.34,0.22],c.armor);
-  add(5,'cyl12',[0,-0.04,0],[0.26,0.12,0.26],c.skin,[Math.PI/2,0,0]);
-  add(5,'box',[0,-0.12,0.05],[0.10,0.11,0.14],c.skin);        // fingers
-
-  /* ---- right arm: shoulder brick, C-clamp hand ---- */
-  add(6,'cyl12',[0, 0.03,0],[0.34,0.20,0.34],c.armor);
-  add(6,'box',[0,-0.20,0],[0.22,0.44,0.24],c.armor);
-  add(7,'box',[0,-0.17,0],[0.20,0.34,0.22],c.armor);
-  add(8,'cyl12',[0,-0.04,0],[0.26,0.12,0.26],c.skin,[Math.PI/2,0,0]);
-  add(8,'box',[0,-0.12,0.05],[0.10,0.11,0.14],c.skin);
-
-  /* ---- legs: brick thigh, shin and a flat moulded foot ---- */
-  add(9, 'box',[0,-0.23,0],[0.30,0.50,0.34],c.armor);
-  add(10,'box',[0,-0.20,0],[0.27,0.42,0.31],c.dark);
-  add(10,'box',[0,-0.42,0.09],[0.31,0.15,0.46],c.armor);
-  add(11,'box',[0,-0.23,0],[0.30,0.50,0.34],c.armor);
-  add(12,'box',[0,-0.20,0],[0.27,0.42,0.31],c.dark);
-  add(12,'box',[0,-0.42,0.09],[0.31,0.15,0.46],c.armor);
+  const f=FIGURES[kind]||FIGURES.hero, tint=f.tint;
+  return f.parts.map(p=>({
+    j:p.j, g:p.g, o:p.o, s:p.s, r:p.r||[0,0,0],
+    c:p.c==='INK'?FIGURE_INK:(tint[p.c]||tint.armor),
+  }));
 }
 const RIG_GEO={};
 function rigGeometry(kind){
@@ -1737,13 +1359,8 @@ function makeView(kind,id){
   mesh.frustumCulled=false;
   // YXZ: yaw first, then pitch about the YAWED X axis -> a true forward somersault
   mesh.rotation.order='YXZ';
-  if(kind==='boss')mesh.scale.setScalar(1.65);
-  else if(kind==='brute')mesh.scale.setScalar(1.18);
-  else if(kind==='runner')mesh.scale.setScalar(0.90);
-  else if(kind==='knight')mesh.scale.setScalar(1.28);
-  else if(kind==='soldier')mesh.scale.setScalar(1.00);
-  else if(kind==='archer')mesh.scale.setScalar(0.95);
-  else if(kind==='sorcerer')mesh.scale.setScalar(1.02);
+  // View scale comes from the figure descriptor (src/content/figures/<id>.js).
+  mesh.scale.setScalar(FIGURE_SCALES[kind]||1);
   scene.add(mesh);
   const v={kind,id,mesh,bones,baseScale:mesh.scale.x,
     anim:{cur:'idle',prev:null,t:0,prevT:0,blend:1,weightSum:1},lastClip:'idle'};
@@ -1776,7 +1393,7 @@ function clipFor(kind,st,speed){
   if(st==='attack'||st==='strike'||st==='slam')return 'attack';
   if(st==='hurt')return 'hurt';
   if(st==='dead')return 'death';
-  if(st==='telegraph')return (kind==='ranger'||kind==='archer'||kind==='sorcerer')?'cast':'telegraph';
+  if(st==='telegraph')return (ENEMIES[kind]&&ENEMIES[kind].cls==='ranged')?'cast':'telegraph';
   if(st==='chargeTele')return 'charge';
   if(st==='charge')return 'run';
   if(st==='recovery'||st==='recover'||st==='slamTele')return 'telegraph';
@@ -1788,7 +1405,7 @@ function syncViews(s,dt){
   for(let hi=0;hi<s.heroes.length;hi++){
     const h=s.heroes[hi], vid=hi===0?0:-1;
     let hv=VIEWS.get(vid);
-    const skin=HERO_SKINS[hi]||'hero';
+    const skin=safeHero(HERO_SKINS[hi]);  // unknown id from an old save/peer -> default figure
     if(hv&&hv.kind!==skin){ scene.remove(hv.mesh); hv.mesh.material.dispose(); VIEWS.delete(vid); hv=null; }
     if(!hv)hv=makeView(skin,vid);
     seen.add(vid);
@@ -2096,9 +1713,10 @@ const slashSlots=[];
 const swingSeen=[{id:-1},{id:-1}];   // per-hero attackId tracking (slash FX)
 const TRAIL_N=30;
 let trailPts=[], trailFade=0;
-const SLASH_TIP={ hero:{b:8,o:[0,-0.86,0]}, knight:{b:8,o:[0,-0.92,0]},
-  soldier:{b:8,o:[0,1.26,0]}, sorcerer:{b:8,o:[0,1.30,0]},
-  archer:{b:5,o:[0.02,0.40,0.27]} };
+/* One weapon-tip anchor per playable skin, derived from the hero registry.
+   Adding a skin file automatically adds its tip here; the lookup below
+   still falls back to the default hero tip for an unknown kind. */
+const SLASH_TIP = HERO_SLASH_TIPS;
 const _tipV=new T.Vector3(), _baseV=new T.Vector3(), _dirV=new T.Vector3(), _innV=new T.Vector3();
 function setupSlashFX(){
   slashDummy=new T.Object3D(); slashDummy.rotation.order='YXZ';
@@ -2283,6 +1901,11 @@ function consumeEvents(){
   for(let i=0;i<EV.length;i++){
     const e=EV[i];
     switch(e.type){
+      /* Camera shake used to call the render-layer FXSHAKE() directly from
+         PART 2. The sim now only emits a cosmetic event; the view applies it
+         here. EV is drained by runHeadless() and never hashed by simDigest,
+         so the deterministic baseline is unchanged. */
+      case 'shake': FXSHAKE(e.v); break;
       case 'swing': Audio.whoosh(); break;
       case 'hit': {
         const col=e.unit==='boss'?[1,.45,.2]:[1,.55,.35];
@@ -2301,7 +1924,7 @@ function consumeEvents(){
       case 'projBlast': {
         const r=e.r||1.5;
         burst(e.x,0.9,e.z,[.75,.45,1],Math.round(10+r*6),2.4+r*1.6);
-        splatAt(e.x,e.z,'sorcerer',SIM.hero.yaw);break; }
+        splatAt(e.x,e.z,e.unit||'sorcerer',SIM.hero.yaw);break; }
       case 'bossSpawn': Audio.boss();break;
       case 'bossCharge': Audio.whoosh(1.3);break;
       case 'bossSlam': burst(e.x,0.6,e.z,[1,.4,.15],22,5.5);break;
@@ -2399,7 +2022,7 @@ const Audio=(function(){
    ===================================================================== */
 setupPickupMeshes(); setupVFX(); buildMapMeshes(SIM);
 
-const BOSS_NAMES=['ASHEN WARDEN','GRAVE SOVEREIGN','MAGMA TYRANT'];
+/* BOSS_NAMES is derived from src/content/enemies/bosses/*.js (chapter order). */
 const UI={tiltX:0,tiltY:0,stickActive:false,stickId:null,attack:false,atkBuf:0,
           rollLatch:false,magicLatch:false,upgradeLatch:-1,keys:Object.create(null)};
 /* A tap shorter than one rendered frame used to vanish between two sim steps
@@ -2619,14 +2242,14 @@ function loadMeta(){
           best:{1:0,2:0,3:0},bestTotal:0,cleared:{1:false,2:false,3:false},hints:{},rev:0};
 }
 let META=loadMeta();
-let HERO_SKIN=META.heroSkin||'hero';
+let HERO_SKIN=safeHero(META.heroSkin);
 let HERO_SKINS=[HERO_SKIN];   // per-player hero skins (index = player number)
 let LOCAL_IDX=0;              // hero the camera / HUD / hints follow
 function localHero(s){ return s.heroes[LOCAL_IDX]||s.heroes[0]; }
 let SETTLED={ch:{},ended:false};
 function saveMeta(){ try{ localStorage.setItem(META_KEY,JSON.stringify(META)); }catch(e){} }
 function buyTrack(id){
-  const lv=META.tracks[id]; if(lv>=5)return;
+  const lv=META.tracks[id]; if(lv>=CFG.meta.steps)return;
   const c=CFG.meta.costs[lv]; if(META.gold<c)return;
   META.gold-=c; META.tracks[id]++; META.rev++; saveMeta(); Audio.init();
 }
@@ -2639,17 +2262,21 @@ function heroBtn(k){
   META.heroSkin=(META.heroSkin===k?'hero':k);
   META.rev++; saveMeta(); Audio.init();
 }
-function trackBtn(id,label,per){
-  const lv=META.tracks[id];
-  if(lv>=5)return {label:label+' · LV 5/5 · MAX',fn:()=>{}};
-  return {label:label+' +'+per+' · LV '+lv+'/5 · '+CFG.meta.costs[lv]+' G',fn:()=>buyTrack(id)};
+function trackBtn(t){
+  const lv=META.tracks[t.id], max=CFG.meta.steps;
+  if(lv>=max)return {label:t.name+' · LV '+max+'/'+max+' · MAX',fn:()=>{}};
+  return {label:t.name+' +'+t.per+' · LV '+lv+'/'+max+' · '+CFG.meta.costs[lv]+' G',fn:()=>buyTrack(t.id)};
 }
 function metaButtons(){
-  const bs=[trackBtn('hp','ARMOUR HP',CFG.meta.hpPer),
-    trackBtn('dmg','EDGE DMG',CFG.meta.dmgPer),
-    trackBtn('spd','BOOTS SPD',CFG.meta.spdPer)];
-  for(const k of ['soldier','archer','sorcerer','knight']){
-    const nm=k.toUpperCase();
+  /* Track labels, per-step values and button order all come from
+     src/content/rules.js -> RULES.meta.tracks. */
+  const bs=CFG.meta.tracks.map(trackBtn);
+  /* Generated from the hero registry: a new <id>.js in content/heroes/
+     automatically gets an UNLOCK/USE button. The old hard-coded four-id
+     list silently hid any newly added skin. */
+  for(const k of Object.keys(HEROES)){
+    if(HEROES[k].default)continue;      // the free default hero is never sold
+    const nm=heroName(k);
     if(META.heroes[k])bs.push({label:(META.heroSkin===k?'\u2713 HERO: ':'USE HERO: ')+nm,fn:()=>heroBtn(k)});
     else bs.push({label:'UNLOCK HERO: '+nm+' \u00B7 '+CFG.meta.heroCosts[k]+' G',fn:()=>heroBtn(k)});
   }
@@ -2664,7 +2291,7 @@ function closeArmoury(){ armouryOpen=false;
 function armouryBodyHTML(){
   return '<div>\u{1FA99} GOLD <span class="k">'+META.gold+'</span> &nbsp;\u00B7&nbsp; BEST '+META.bestTotal+
     ' &nbsp;\u00B7&nbsp; '+[1,2,3].map(c=>(META.cleared[c]?'\u2605':'\u2606')+' CH'+c+(META.best[c]?' \u00B7 '+META.best[c]:'')).join(' &nbsp; ')+
-    ' &nbsp;\u00B7&nbsp; HERO: '+esc((META.heroSkin||'hero').toUpperCase())+'</div>'+
+    ' &nbsp;\u00B7&nbsp; HERO: '+esc(heroName(safeHero(META.heroSkin)))+'</div>'+
   '<div>Spend gold below: permanent upgrades and hero skins carry across every run. Magic: fill the meter with kills, then unleash 60 damage on everything near.</div>';
 }
 function renderArmoury(){
@@ -2705,7 +2332,7 @@ function startRun(){
   SIM.mods={hp:META.tracks.hp*CFG.meta.hpPer, dmg:META.tracks.dmg*CFG.meta.dmgPer, spd:META.tracks.spd*CFG.meta.spdPer};
   SIM.heroes[0].mods={hp:SIM.mods.hp,dmg:SIM.mods.dmg,spd:SIM.mods.spd};
   SIM.hero.maxHp=CFG.hero.hp+SIM.mods.hp; SIM.hero.hp=SIM.hero.maxHp;
-  HERO_SKIN=META.heroSkin||'hero';
+  HERO_SKIN=safeHero(META.heroSkin);
   HERO_SKINS=[HERO_SKIN]; LOCAL_IDX=0;
   const hv0=VIEWS.get(0);
   if(hv0&&hv0.kind!==HERO_SKIN){ scene.remove(hv0.mesh); hv0.mesh.material.dispose(); VIEWS.delete(0); }
@@ -2737,14 +2364,14 @@ function syncOverlay(){
       null,null,'');
   }else if(s.phase==='dead'){
     if(!SETTLED.ended){ SETTLED.ended=true;
-      META.gold+=Math.floor(s.score/10);
+      META.gold+=Math.floor(s.score/CFG.meta.scoreGoldDivisor);
       if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); }
     setOverlay(key,'RUN ENDED','YOU FELL','CHAPTER '+s.chapter,
       '<div style="text-align:center">Score '+s.score+' &nbsp;·&nbsp; Kills '+s.kills+' &nbsp;·&nbsp; Level '+s.level+'</div>',
       null,(NET&&NET.active)?[{label:'END RUN',fn:()=>netTeardown(true)}]:[{label:'RETRY',fn:startRun}],'');
   }else if(s.phase==='victory'){
     if(!SETTLED.ended){ SETTLED.ended=true;
-      META.gold+=Math.floor(s.score/10)+CFG.meta.victoryBonus;
+      META.gold+=Math.floor(s.score/CFG.meta.scoreGoldDivisor)+CFG.meta.victoryBonus;
       if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); }
     setOverlay(key,'ALL THREE CHAPTERS CLEARED','VICTORY','AETHERBLADE',
       '<div style="text-align:center">Final score '+s.score+' &nbsp;·&nbsp; '+s.kills+' kills &nbsp;·&nbsp; Level '+s.level+'</div>',
@@ -2836,7 +2463,7 @@ function netConnect(sess,resume){
 }
 function netSendHello(sess){
   sess.send({type:'hello',game:'aetherblade',build:CFG.net.build,code:sess.code,
-    sid:sess.sid,skin:META.heroSkin||'hero',mods:netMods(),name:'P2'});
+    sid:sess.sid,skin:safeHero(META.heroSkin),mods:netMods(),name:'P2'});
 }
 function netRelayEvent(sess,ev){
   if(ev==='guest-joined'){ if(sess.role==='host'&&!sess.started)sess.status='paired'; }
@@ -2871,7 +2498,7 @@ function netOnMsg(sess,m){
     if(m.build!==CFG.net.build){
       sess.send({type:'reject',why:'VERSION MISMATCH'}); sess.status='mismatch'; return;
     }
-    sess.players=[{skin:META.heroSkin||'hero',mods:netMods()},
+    sess.players=[{skin:safeHero(META.heroSkin),mods:netMods()},
                   {skin:m.skin||'hero',mods:m.mods||{hp:0,dmg:0,spd:0}}];
     sess.seed=(((Date.now()^((performance.now()*1000)|0))>>>0)||0x51A7E);
     sess.send({type:'start',seed:sess.seed,skin:sess.players[0].skin,mods:sess.players[0].mods});
@@ -2883,7 +2510,7 @@ function netOnMsg(sess,m){
       sess.status='mismatch'; return;      // not an AETHERBLADE host payload
     }
     sess.players=[{skin:m.skin||'hero',mods:m.mods},
-                  {skin:META.heroSkin||'hero',mods:netMods()}];
+                  {skin:safeHero(META.heroSkin),mods:netMods()}];
     sess.seed=m.seed>>>0;
     sess.status='starting'; sess.startAt=performance.now()+1200;
   }
@@ -3074,7 +2701,7 @@ function netTeardown(toTitle){
     try{ sess.ws.close(); }catch(e){} sess.ws=null; }
   NET=null;
   if(toTitle){
-    SIM=newSim(0x51A7E); LOCAL_IDX=0; HERO_SKINS=[META.heroSkin||'hero'];
+    SIM=newSim(0x51A7E); LOCAL_IDX=0; HERO_SKINS=[safeHero(META.heroSkin)];
     buildMapMeshes(SIM);
   }
   closeCoop();
@@ -3083,7 +2710,7 @@ function netContinueSolo(){
   const sess=NET; if(!sess)return;
   const lh=SIM.heroes[sess.myIdx];
   if(!lh||lh.downed)return;
-  const skin=HERO_SKINS[sess.myIdx];
+  const skin=safeHero(HERO_SKINS[sess.myIdx]);
   const vid=sess.myIdx===0?-1:0;
   SIM.heroes=[lh]; SIM.players=1; LOCAL_IDX=0; HERO_SKINS=[skin];
   const v=VIEWS.get(vid);
@@ -3340,7 +2967,10 @@ function frame(now){
 
 /* ---------- verification hooks (read-only except explicit test helpers) ---------- */
 window.__GAME={
-  CFG, PALETTES, UPGRADES, CLIPS,
+  CFG, PALETTES, UPGRADES, CLIPS, BOSS_NAMES, SLASH_TIP,
+  /* Read-only handles for QA / tooling: every content table is traceable at
+     runtime, not just at build time. REGISTRY is deep-frozen by the schema. */
+  REGISTRY, SIM_CONTENT, contentSummary,
   get sim(){return SIM;},
   get input(){return {mx:LAST_IN.mx,my:LAST_IN.my,sx:LAST_IN.sx,sy:LAST_IN.sy,
     tiltX:UI.tiltX,tiltY:UI.tiltY,attack:UI.attack,stickActive:UI.stickActive};},
