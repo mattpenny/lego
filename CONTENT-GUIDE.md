@@ -538,3 +538,45 @@ The one architectural leak was also closed: the five `FXSHAKE()` calls in
 PART 2 (pure sim) now emit `emit('shake', {v})`, consumed by
 `consumeEvents()` in PART 3. `EV` is drained by `runHeadless()` and never
 hashed, so the digests are unaffected and the sim region is pure again.
+
+## 7. Multiplayer — up to 4 players (AB-NET-9) + player-count scaling
+
+**Rooms hold 1 host + up to 3 guests.** The lobby is roster-based: guests
+`hello` with their hero snapshot, the host broadcasts the `roster`, and the
+host presses **START RUN** with 2–4 present — the roster locks at start (no
+mid-run joins) and the `start` message (seed + roster) is the agreed state
+every client builds the sim from. Player indices are roster order; relay
+slot numbers ride along in each snapshot.
+
+**Transport:** the room relay has two generations. On the **v5 relay** the
+game runs a 2-player room exactly as it did at AB-NET-8 (no slot events;
+the sender is simply "the other player"). **3–4 players need relay v6**
+(standalone project `aetherblade-relay-v6/` next to this repo — same worker
+name and URL, deployed by Matt; AB rooms are namespaced by the `0` second
+character of the room code, and v6 stamps every forwarded message with the
+sender's slot as `from`). A 3rd joiner on a v5 relay just sees ROOM IS
+FULL; the lobby copy says so honestly.
+
+**Lockstep** is the 2P machinery generalised: a tick runs when EVERY
+roster frame exists; digest checkpoints (every 600 ticks) are compared
+across ALL players; any mismatch is the same hard desync stop. **Drops:**
+a dropped slot is held for the 60 s resume window and a rejoin replays to
+the agreed tick exactly as in 2P. In **3–4P**, if the window lapses the
+remaining players agree a removal step (min of their first-missing steps
+for that slot) and that hero is removed there on every client — the run
+continues, and **level-up picking passes to the lowest-numbered remaining
+player**. In 2P the legacy flow is untouched (PARTNER LEFT → continue
+solo).
+
+**Player-count difficulty (`RULES.playerScaling`, in `SIM_CONTENT`)** —
+Matt's proportions, one table, tuned in `src/content/rules.js`: HP for
+enemies AND bosses is `N × (1 + 0.1 × (N−1))` (×1.0 / ×2.2 / ×3.6 / ×5.2,
+one `Math.round` at spawn); damage to heroes is ×1.0 / ×1.1 / ×1.2 / ×1.3
+(one extra round per application, after the existing per-source
+rounding); alive cap 8 / 8 / 10 / 12. N is the roster size **locked at
+run start** — a mid-run removal does NOT rescale. The N=1 row is exactly
+the pre-scaling game, so solo digests are the regression anchor. STATS.md
+renders this table ("Multiplayer scaling") — it is the adjustment
+surface. Baseline note for AB-NET-9: the table landing moved ONLY the
+`coop1200` digest (N=2 enemies now spawn at ×2.2 HP); the four solo
+digests are bit-identical to AB-NET-8.

@@ -182,5 +182,29 @@ L.push('');
 L.push(`Hero unlock costs are in the Heroes table above (Source: each descriptor's \`price\`, mirrored in \`src/content/rules.js\`-derived hero costs).`);
 L.push('');
 
+/* ---------------- Multiplayer scaling ---------------- */
+L.push('## Multiplayer scaling — player-count difficulty (co-op)');
+L.push('');
+L.push('Co-op runs scale with the roster size **N locked at run start** (a mid-run departure does not rescale). One HP rule covers regular enemies AND bosses:');
+L.push('');
+L.push('> **HP multiplier = N × (1 + 0.1 × (N−1))** — each extra player adds their full share plus 10%, because more players land proportionally more hits per second (focus fire, N magic meters, N interrupts). Applied once at spawn: `Math.round(base HP × hpMul)`.');
+L.push('>');
+L.push('> **Damage** dealt TO heroes grows gently instead (+10% per extra player — incoming damage lands per-hero while outgoing damage is pooled): one extra `Math.round` at each damage application, on top of the existing per-source rounding (boss `dmgMul` first, phase-2 slam bonus added before both). The **alive cap** widens at N=3/4 so four heroes do not face an emptier field. Nothing else scales (speeds, ranges, telegraphs, %-based phase thresholds, XP, drops).');
+L.push('');
+L.push('| Players (N) | Enemy + boss HP | Damage to heroes | Alive cap | Brute HP (base 76) | Emerald Drake HP (base 396) | Source |');
+L.push('|---|---|---|---|---|---|---|');
+{
+  const PS = RULES.playerScaling;
+  const bruteHp = (ENEMY_CFG.brute || {}).hp;
+  const drakeHp = (BOSS_CFG_BY_CHAPTER[1] || {}).hp;
+  for (let n = 1; n <= 4; n++) {
+    const r = PS[n];
+    L.push(`| ${n} | ×${fmt(r.hpMul)} | ×${fmt(r.dmgMul)} | ${r.aliveCap} | ${Math.round(bruteHp * r.hpMul)} | ${Math.round(drakeHp * r.hpMul)} | \`src/content/rules.js · playerScaling[${n}]\` |`);
+  }
+}
+L.push('');
+L.push('Tune the proportions in `src/content/rules.js · playerScaling` — this table is generated from that single source. The N=1 row is exactly the solo game (all ×1.0, cap 8).');
+L.push('');
+
 writeFileSync(join(ROOT, 'STATS.md'), L.join('\n'));
 console.log('wrote STATS.md —', L.length, 'lines');

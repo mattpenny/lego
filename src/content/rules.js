@@ -54,9 +54,35 @@ export const RULES = deepFreeze({
     relay: 'wss://dragon-alley-relay.ccac-church.workers.dev/ws',
     /* LOAD-BEARING: co-op peers must agree. Bump ONLY when sim behaviour
        actually changes. A view-only content edit must NOT bump this. */
-    build: 'AB-NET-8',
+    build: 'AB-NET-9',
     graceMs: 60000,
   },
+
+  /* PLAYER-COUNT DIFFICULTY SCALING (AB-NET-9) — Matt: "more players
+     stronger the enemies and boss. Make good proportion for it." and,
+     for the HP rule, "since more players more chance to hit the enemies
+     or boss": N heroes land roughly N times the hits per second (focus
+     fire, N magic meters, N interrupts), so total HP grows FASTER than
+     the headcount would suggest but slower than N squared would give.
+       hpMul  = N x (1 + 0.1 x (N-1))   →  1.0 / 2.2 / 3.6 / 5.2
+     One HP rule covers regular enemies AND bosses (spawn-time,
+     Math.round(base x hpMul)). Damage grows gently instead — incoming
+     damage lands per-hero while outgoing damage is pooled — +10% per
+     extra player, applied as ONE Math.round at each damage application
+     on top of the existing per-source rounding (boss dmgMul etc.).
+     The alive cap widens at N=3/4 so four heroes do not face an emptier
+     field. N is the roster size LOCKED at run start (handshake-agreed);
+     a mid-run departure does NOT rescale. The N=1 row is exactly the
+     pre-scaling game: every multiplier 1.0 and the solo cap 8, so solo
+     digests are bit-identical. Tune the proportions HERE — this table
+     is the single adjustment surface (STATS.md renders it). */
+  playerScaling: [
+    null,   // index by roster size N (1..4); slot 0 unused
+    { hpMul: 1.0, dmgMul: 1.0, aliveCap: 8  },
+    { hpMul: 2.2, dmgMul: 1.1, aliveCap: 8  },
+    { hpMul: 3.6, dmgMul: 1.2, aliveCap: 10 },
+    { hpMul: 5.2, dmgMul: 1.3, aliveCap: 12 },
+  ],
 });
 
 export default RULES;

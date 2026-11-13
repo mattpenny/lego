@@ -126,3 +126,20 @@ Cost per level (all tracks): **40 / 80 / 140 / 220 / 320 G** for levels 1–5. G
 | BOOTS SPD | +0.15 move speed | +0.75 move speed | `src/content/rules.js · meta.tracks` |
 
 Hero unlock costs are in the Heroes table above (Source: each descriptor's `price`, mirrored in `src/content/rules.js`-derived hero costs).
+
+## Multiplayer scaling — player-count difficulty (co-op)
+
+Co-op runs scale with the roster size **N locked at run start** (a mid-run departure does not rescale). One HP rule covers regular enemies AND bosses:
+
+> **HP multiplier = N × (1 + 0.1 × (N−1))** — each extra player adds their full share plus 10%, because more players land proportionally more hits per second (focus fire, N magic meters, N interrupts). Applied once at spawn: `Math.round(base HP × hpMul)`.
+>
+> **Damage** dealt TO heroes grows gently instead (+10% per extra player — incoming damage lands per-hero while outgoing damage is pooled): one extra `Math.round` at each damage application, on top of the existing per-source rounding (boss `dmgMul` first, phase-2 slam bonus added before both). The **alive cap** widens at N=3/4 so four heroes do not face an emptier field. Nothing else scales (speeds, ranges, telegraphs, %-based phase thresholds, XP, drops).
+
+| Players (N) | Enemy + boss HP | Damage to heroes | Alive cap | Brute HP (base 76) | Emerald Drake HP (base 396) | Source |
+|---|---|---|---|---|---|---|
+| 1 | ×1 | ×1 | 8 | 76 | 396 | `src/content/rules.js · playerScaling[1]` |
+| 2 | ×2.2 | ×1.1 | 8 | 167 | 871 | `src/content/rules.js · playerScaling[2]` |
+| 3 | ×3.6 | ×1.2 | 10 | 274 | 1426 | `src/content/rules.js · playerScaling[3]` |
+| 4 | ×5.2 | ×1.3 | 12 | 395 | 2059 | `src/content/rules.js · playerScaling[4]` |
+
+Tune the proportions in `src/content/rules.js · playerScaling` — this table is generated from that single source. The N=1 row is exactly the solo game (all ×1.0, cap 8).

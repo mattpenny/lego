@@ -219,6 +219,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 #coopBody .ccode{font-size:calc(40px*var(--u));font-weight:bold;letter-spacing:.3em;
   color:#6e4a10;margin:calc(6px*var(--u)) 0;text-indent:.3em}
 #coopBody .cstat{font-size:calc(13px*var(--u));letter-spacing:.14em;color:#8a5a08;font-weight:bold}
+#coopBody .croster{font-size:calc(13px*var(--u));letter-spacing:.06em;line-height:1.7;color:#4a3205}
 #coopJoin{display:none;gap:calc(8px*var(--u));justify-content:center;align-items:center;
   margin:calc(10px*var(--u)) auto}
 #coopJoin.on{display:flex}
@@ -355,7 +356,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 </div></div>
 <div id="netStat"><i id="netDot"></i><span id="netTxt"></span></div>
 <div id="netBanner"></div>
-<div id="tagP1" class="ptag">P1</div><div id="tagP2" class="ptag">P2</div>
+<div id="tagP1" class="ptag">P1</div><div id="tagP2" class="ptag">P2</div><div id="tagP3" class="ptag">P3</div><div id="tagP4" class="ptag">P4</div>
 <div id="banner"></div>
 <div id="hint2"></div>
 <div id="rotate">ROTATE YOUR PHONE TO LANDSCAPE<br><small style="font-size:11px;letter-spacing:0;color:#9fb6d0">AETHERBLADE is built for landscape play</small></div>
@@ -55424,9 +55425,35 @@ const RULES = deepFreeze({
     relay: 'wss://dragon-alley-relay.ccac-church.workers.dev/ws',
     /* LOAD-BEARING: co-op peers must agree. Bump ONLY when sim behaviour
        actually changes. A view-only content edit must NOT bump this. */
-    build: 'AB-NET-8',
+    build: 'AB-NET-9',
     graceMs: 60000,
   },
+
+  /* PLAYER-COUNT DIFFICULTY SCALING (AB-NET-9) — Matt: "more players
+     stronger the enemies and boss. Make good proportion for it." and,
+     for the HP rule, "since more players more chance to hit the enemies
+     or boss": N heroes land roughly N times the hits per second (focus
+     fire, N magic meters, N interrupts), so total HP grows FASTER than
+     the headcount would suggest but slower than N squared would give.
+       hpMul  = N x (1 + 0.1 x (N-1))   →  1.0 / 2.2 / 3.6 / 5.2
+     One HP rule covers regular enemies AND bosses (spawn-time,
+     Math.round(base x hpMul)). Damage grows gently instead — incoming
+     damage lands per-hero while outgoing damage is pooled — +10% per
+     extra player, applied as ONE Math.round at each damage application
+     on top of the existing per-source rounding (boss dmgMul etc.).
+     The alive cap widens at N=3/4 so four heroes do not face an emptier
+     field. N is the roster size LOCKED at run start (handshake-agreed);
+     a mid-run departure does NOT rescale. The N=1 row is exactly the
+     pre-scaling game: every multiplier 1.0 and the solo cap 8, so solo
+     digests are bit-identical. Tune the proportions HERE — this table
+     is the single adjustment surface (STATS.md renders it). */
+  playerScaling: [
+    null,   // index by roster size N (1..4); slot 0 unused
+    { hpMul: 1.0, dmgMul: 1.0, aliveCap: 8  },
+    { hpMul: 2.2, dmgMul: 1.1, aliveCap: 8  },
+    { hpMul: 3.6, dmgMul: 1.2, aliveCap: 10 },
+    { hpMul: 5.2, dmgMul: 1.3, aliveCap: 12 },
+  ],
 });
 
 
@@ -60474,8 +60501,19 @@ function heroStats(s,h){
 }
 
 /* ---- fresh deterministic simulation ---- */
-function mkHero(i,two){
-  return { x:two?(i===1?1.4:-1.4):0, z:0, yaw:0, vx:0, vz:0,
+/* Hero spawn formation by roster size. The N=1 (0,0) and N=2 (±1.4)
+   rows are the pre-4P positions, byte-for-byte; N=3/4 add the two
+   vertical slots. Used at run start AND at chapter transitions. */
+function heroSpawnPos(i,n){
+  if(n<=1)return [0,0];
+  if(i===0)return [-1.4,0];
+  if(i===1)return [1.4,0];
+  if(i===2)return [0,1.7];
+  return [0,-1.7];
+}
+function mkHero(i,n){
+  const sp=heroSpawnPos(i,n);
+  return { x:sp[0], z:sp[1], yaw:0, vx:0, vz:0,
            hp:CFG.hero.hp, maxHp:CFG.hero.hp,
            state:'idle', st:0, atkCd:0, rollCd:0, invuln:0,
            hitDone:false, attackId:0, rollX:0, rollZ:0,
@@ -60523,8 +60561,14 @@ function newSim(seed,players){
     magic:0, potions:[], eventDone:false, eventQueue:[],
     mods:{hp:0,dmg:0,spd:0}
   };
-  s.players=(players===2)?2:1;
-  for(let i=0;i<s.players;i++)s.heroes.push(mkHero(i,s.players===2));
+  s.players=(players>=1&&players<=4)?(players|0):1;
+  /* Player-count difficulty scaling (RULES.playerScaling, in
+     SIM_CONTENT): the row is a pure function of the roster size locked
+     at run start, so every client derives identical numbers from the
+     handshake alone. N=1 is exactly the pre-scaling game (all 1.0). */
+  const SC=CFG.playerScaling[s.players]||CFG.playerScaling[1];
+  s.hpScale=SC.hpMul; s.dmgScale=SC.dmgMul; s.aliveCap=SC.aliveCap;
+  for(let i=0;i<s.players;i++)s.heroes.push(mkHero(i,s.players));
   Object.defineProperty(s,'hero',{enumerable:true,
     get(){ return this.heroes[0]; }, set(v){ this.heroes[0]=v; }});
   s.map=buildMapData(1);
@@ -60932,11 +60976,11 @@ function strikeEnemy(s,e){
       const dx=h.x-e.x, dz=h.z-e.z, m=Math.sqrt(dx*dx+dz*dz)||1;
       s.projectiles.push({id:s.nextId++,unit:e.type,x:e.x+fx*0.8,z:e.z+fz*0.8,
         vx:dx/m*cfg.projSpeed,vz:dz/m*cfg.projSpeed,tx:h.x,tz:h.z,lob:1,
-        life:3.2,dmg:cfg.dmg,r:cfg.projR,splash:cfg.splash});
+        life:3.2,dmg:Math.round(cfg.dmg*s.dmgScale),r:cfg.projR,splash:cfg.splash});
     }else{
       s.projectiles.push({id:s.nextId++,unit:e.type,x:e.x+fx*0.8,z:e.z+fz*0.8,
         vx:fx*cfg.projSpeed,vz:fz*cfg.projSpeed,
-        life:2.6,dmg:cfg.dmg,r:cfg.projR});
+        life:2.6,dmg:Math.round(cfg.dmg*s.dmgScale),r:cfg.projR});
     }
     emit('shot',{x:e.x,z:e.z,unit:e.type});
     return;
@@ -60949,7 +60993,7 @@ function strikeEnemy(s,e){
     const fx=Math.sin(e.lockYaw), fz=Math.cos(e.lockYaw);
     if(d<0.001 || (dx*fx+dz*fz)/d>=Math.cos(arcDeg*0.5*DEG))landed=true;
   }
-  if(landed)hurtHero(s,h,cfg.dmg,e.type);
+  if(landed)hurtHero(s,h,Math.round(cfg.dmg*s.dmgScale),e.type);
   emit('enemyStrike',{x:e.x,z:e.z,landed,type:e.type});
 }
 
@@ -61045,8 +61089,10 @@ function updateProjectiles(s,dt){
 function breathDamage(s,b,B){
   const BR=B.breath;
   /* cfg.dmgMul scales the tick ONCE (rounded per tick, never
-     accumulated): tickDmg 9 x 1.1 = 10 per 0.2 s tick. */
-  const tickDmg=Math.round(BR.tickDmg*(B.dmgMul||1));
+     accumulated): tickDmg 9 x 1.1 = 10 per 0.2 s tick. The player-count
+     damage scale then rounds that result once more (two-stage, the
+     same composition as slam/charge): at N=1 both stages are identity. */
+  const tickDmg=Math.round(Math.round(BR.tickDmg*(B.dmgMul||1))*s.dmgScale);
   const fx=Math.sin(b.lockYaw), fz=Math.cos(b.lockYaw);
   const hx=b.x+fx*BR.headDist, hz=b.z+fz*BR.headDist;
   const cosHalf=Math.cos(BR.halfAngleDeg*DEG);
@@ -61129,7 +61175,7 @@ function updateBoss(s,dt){
     const dd=Math.sqrt((h.x-b.x)*(h.x-b.x)+(h.z-b.z)*(h.z-b.z));
     if(dd<B.radius+HERO_R+0.55 && !b.chargeHit){
       b.chargeHit=true; b.pursuit=0;
-      if(hurtHero(s,h,Math.round(B.chargeDmg*(B.dmgMul||1)),'boss'))emit('bossSlam',{x:h.x,z:h.z});
+      if(hurtHero(s,h,Math.round(Math.round(B.chargeDmg*(B.dmgMul||1))*s.dmgScale),'boss'))emit('bossSlam',{x:h.x,z:h.z});
     }
     if(b.timer<=0){ b.state='recover'; b.timer=0.75; b.cd=B.chargeCd/tempo; b.slamCd=0.7/tempo; b.chargeHit=false; }
   }else if(b.state==='slamTele'){
@@ -61145,7 +61191,7 @@ function updateBoss(s,dt){
       const inArc=dd<1.2 || (ddx*Math.sin(b.lockYaw)+ddz*Math.cos(b.lockYaw))/dd>=Math.cos(70*DEG);
       if(dd<=B.slamRange && inArc){
         b.pursuit=0;
-        if(hurtHero(s,h,Math.round((B.slamDmg+(b.enraged?CFG.boss2.slamBonus:0))*(B.dmgMul||1)),'boss'))emit('bossSlam',{x:h.x,z:h.z});
+        if(hurtHero(s,h,Math.round(Math.round((B.slamDmg+(b.enraged?CFG.boss2.slamBonus:0))*(B.dmgMul||1))*s.dmgScale),'boss'))emit('bossSlam',{x:h.x,z:h.z});
       }
       emit('bossSlamFx',{x:b.x,z:b.z});
     }
@@ -61241,7 +61287,7 @@ function aliveByType(s){
 function spawnEventNext(s){
   if(!s.eventQueue||!s.eventQueue.length)return false;
   let aliveN=0; for(const e of s.enemies)if(!e.dead)aliveN++;
-  if(aliveN>=CFG.caps.enemies)return true;   // event holds this slot; spawn when one frees
+  if(aliveN>=s.aliveCap)return true;   // event holds this slot; spawn when one frees
   const t=s.eventQueue.shift(), a=rnd(s)*TAU, rr=rndR(s,17,29);
   const ah=anchorHero(s); let x=ah.x+Math.sin(a)*rr, z=ah.z+Math.cos(a)*rr;
   const dd=Math.sqrt(x*x+z*z);
@@ -61251,7 +61297,7 @@ function spawnEventNext(s){
 }
 function spawnEnemy(s){
   const alive=s.enemies.filter(e=>!e.dead);
-  if(alive.length>=CFG.caps.enemies)return;          // ONE global 8-alive cap
+  if(alive.length>=s.aliveCap)return;          // ONE global alive cap (8/8/10/12 by roster size)
   const by=aliveByType(s);
   const elapsed=CFG.waveSeconds-s.waveLeft;
   const W=CFG.wave, CAP=CFG.caps;
@@ -61296,8 +61342,9 @@ function spawnEnemy(s){
 }
 function makeEnemy(s,type,x,z,cd){
   const C=CFG.enemy[type];
+  const shp=Math.round(C.hp*s.hpScale);   // player-count HP scaling (spawn-time, one round)
   const e={id:s.nextId++,type,x,z,yaw:Math.atan2(anchorHero(s).x-x,anchorHero(s).z-z),
-    lockYaw:0,hp:C.hp,maxHp:C.hp,state:'chase',timer:0,cd:cd||0.5,
+    lockYaw:0,hp:shp,maxHp:shp,state:'chase',timer:0,cd:cd||0.5,
     slamCd:0,attackKind:'melee',vx:0,vz:0,hitFlash:0,cancelFlash:0,dead:false,frozen:0};
   s.enemies.push(e);return e;
 }
@@ -61319,8 +61366,9 @@ function spawnBoss(s){
     x=ah.x-ah.x/hr*rr; z=ah.z-ah.z/hr*rr;
   }
   s.enemies=[]; s.projectiles=[];
+  const bhp=Math.round(BC.hp*s.hpScale);   // bosses share the enemy HP scaling rule
   s.boss={id:s.nextId++,x,z,yaw:Math.atan2(ah.x-x,ah.z-z),lockYaw:0,
-    hp:BC.hp,maxHp:BC.hp,state:'approach',timer:0,cd:2.2,slamCd:0,
+    hp:bhp,maxHp:bhp,state:'approach',timer:0,cd:2.2,slamCd:0,
     chargeVX:0,chargeVZ:0,chargeHit:false,pursuit:0,hitFlash:0,vx:0,vz:0,frozen:0,
     brCd:BC.breath?BC.breath.firstCd:0,brTick:0};
   s.bossSpawned=true; s.bossSpawnTick=s.tick; s.phase='boss';
@@ -61331,11 +61379,21 @@ function simStep(raw){
   /* Input routing: a co-op frame is {p1,p2}; anything else is the solo
      input, applied to the (single) hero through the same code path. */
   let inps;
-  if(raw&&raw.p1){ inps=[normInput(raw.p1),normInput(raw.p2)]; }
+  if(raw&&raw.list){ inps=s.heroes.map((h,i)=>normInput(raw.list[i])); }
+  else if(raw&&raw.p1){ inps=[normInput(raw.p1),normInput(raw.p2)]; }
   else { const one=normInput(raw); inps=s.heroes.map(()=>one); }
   const inp=inps[0];
   if(s.hitStop>0){ s.hitStop--; return; }         // frozen world, deterministic step consumed
-  if(s.phase==='levelup'){ if(inp.upgrade>=0)applyUpgrade(s,inp.upgrade); return; }
+  if(s.phase==='levelup'){
+    /* Only the designated picker stamps a choice (the net layer locks
+       every other player's frames to -1, as it always has for the 2P
+       guest), so scanning in roster order finds exactly that choice.
+       Solo/harness frames behave as before: hero 0's frame is the
+       only one that ever carries one. */
+    const pick=inps.find(x=>x.upgrade>=0);
+    if(pick)applyUpgrade(s,pick.upgrade);
+    return;
+  }
   if(s.phase==='clear'){
     s.chapterClearTimer-=FIXED;
     if(s.chapterClearTimer<=0){
@@ -61345,10 +61403,17 @@ function simStep(raw){
         s.enemies=[]; s.projectiles=[]; s.arrows=[]; s.gems=[]; s.heals=[]; s.potions=[];
         s.eventDone=false; s.eventQueue=[];
         s.heroes.forEach((h,i)=>{
-          h.x=s.players>1?(i===1?1.4:-1.4):0; h.z=0; h.vx=0; h.vz=0;
-          h.state='idle'; h.st=0;
-          if(h.downed){ h.downed=false; h.hp=Math.round(h.maxHp*0.5); }
-          else h.hp=Math.min(h.maxHp,h.hp+30);
+          const sp=heroSpawnPos(i,s.players);
+          h.x=sp[0]; h.z=sp[1]; h.vx=0; h.vz=0;
+          if(h.state==='gone'){
+            /* A player whose slot was removed after the resume window
+               lapsed stays OUT of the run: no revive, no heal. */
+            h.st=0;
+          }else{
+            h.state='idle'; h.st=0;
+            if(h.downed){ h.downed=false; h.hp=Math.round(h.maxHp*0.5); }
+            else h.hp=Math.min(h.maxHp,h.hp+30);
+          }
         });
         s.spawnTimer=1.0;
         s.phase='play'; emit('chapter',{chapter:s.chapter});
@@ -61902,7 +61967,9 @@ function clipFor(kind,st,speed){
 function syncViews(s,dt){
   const seen=new Set();
   for(let hi=0;hi<s.heroes.length;hi++){
-    const h=s.heroes[hi], vid=hi===0?0:-1;
+    const h=s.heroes[hi];
+    if(h.state==='gone')continue;   // removed player: no view (reaped via seen)
+    const vid=hi===0?0:-hi;
     let hv=VIEWS.get(vid);
     const skin=safeHero(HERO_SKINS[hi]);  // unknown id from an old save/peer -> default figure
     if(hv&&hv.kind!==skin){ scene.remove(hv.mesh); hv.mesh.material.dispose(); VIEWS.delete(vid); hv=null; }
@@ -62753,7 +62820,7 @@ const slashSlots=[];
    luminous original, or the hero's own id when its descriptor carries
    a slashTint (the dwarf's pale-red hammer arc). */
 function slashKeyFor(heroId){ return HERO_SLASH_TINTS[heroId]?heroId:'default'; }
-const swingSeen=[{id:-1},{id:-1}];   // per-hero attackId tracking (slash FX)
+const swingSeen=[{id:-1},{id:-1},{id:-1},{id:-1}];   // per-hero attackId tracking (slash FX), up to 4 heroes
 const TRAIL_N=30;
 let trailPts=[], trailFade=0;
 /* One weapon-tip anchor per playable skin, derived from the hero registry.
@@ -62857,7 +62924,7 @@ function updateSlashFX(s,dt){
     e.mesh.visible=any;
   }
   /* --- blade trail: ribbon for the LOCAL hero's weapon only --- */
-  const h=localHero(s), hv=VIEWS.get(LOCAL_IDX===0?0:-1);
+  const h=localHero(s), hv=VIEWS.get(LOCAL_IDX===0?0:-LOCAL_IDX);
   const swinging=h.state==='attack'&&h.st<=0.46&&hv&&(HERO_ATTACK[h.heroId]||{}).kind!=='arrow';
   if(swinging){
     hv.mesh.updateMatrixWorld(true);
@@ -63677,7 +63744,13 @@ function syncOverlay(){
        {label:'ARMOURY',fn:openArmoury,ghost:true}],'');
   }else if(s.phase==='levelup'){
     const cards=s.choices.map(id=>UPGRADES.find(u=>u.id===id)).filter(Boolean);
-    setOverlay(key,'LEVEL '+s.level,'CHOOSE AN UPGRADE',(NET&&NET.active&&NET.role==='guest')?'The host is choosing for the party.':'The arena is paused.',
+    let pickNote='The arena is paused.';
+    if(NET&&NET.active){
+      if(NET.players&&NET.players.length>2)
+        pickNote=(NET.mySlot===NET.pickerSlot)?'You are choosing for the party.':('P'+(NET.pickerSlot+1)+' is choosing for the party.');
+      else if(NET.role==='guest')pickNote='The host is choosing for the party.';
+    }
+    setOverlay(key,'LEVEL '+s.level,'CHOOSE AN UPGRADE',pickNote,
       '<div style="text-align:center">Upgrades and score carry across all three chapters.</div>',
       cards,null,'');
   }else if(s.phase==='clear'){
@@ -63711,26 +63784,43 @@ function syncOverlay(){
 
 
 /* =====================================================================
-   CO-OP — 2-player online lockstep, Dragon Alley rules, relay transport.
-   One deterministic sim, two heroes; P1 = host, P2 = guest. Transport is
-   the WSS room forwarder (the deployed Dragon Alley worker): one room per
-   6-char code, sid-based 60 s slot reservation (&sid=…&resume=1), a clean
-   {"type":"bye"} frees the code at once.
+   CO-OP — up to 4-player online lockstep, Dragon Alley rules, relay
+   transport. One deterministic sim, N heroes in roster (slot) order;
+   slot 0 = host. Transport is the WSS room forwarder (the deployed
+   Dragon Alley worker): one room per 6-char code, per-slot sid-based
+   60 s reservation (&sid=…&resume=1), a clean {"type":"bye"} frees the
+   slot at once. Relay v6 gives AB rooms 4 slots and stamps every
+   forwarded message with the sender's slot (`from`); on the v5 relay
+   the same code runs a 2-player room exactly as before (no slot
+   events, sender = the other player). 3–4 players require v6.
    NAMESPACE: AETHERBLADE codes ALWAYS carry '0' as the 2nd character
    (e.g. K0PXQ2). Dragon Alley's code alphabet has no 0/1, so a Dragon
-   Alley session can never hold one of our codes; and the hello handshake
-   (game tag + build string) refuses any peer that is not this build —
-   a build mismatch shows VERSION MISMATCH instead of desyncing later.
+   Alley session can never hold one of our codes; and the hello
+   handshake (game tag + build string) refuses any peer that is not
+   this build — a build mismatch shows VERSION MISMATCH instead of
+   desyncing later.
+   LOBBY: guests hello with their hero snapshot; the host broadcasts
+   the roster; the host STARTs with 2–4 present and the roster locks
+   (no mid-run joins). The start message carries seed + the agreed
+   roster, so every client derives the same sim — including the
+   player-count difficulty row (RULES.playerScaling, keyed by roster
+   size) — before tick 0.
    LOCKSTEP: fixed 60 ticks/s, per-tick frames {t,mx,my,atk,rol,mag,upg}
-   (move quantized int8), input delay 6, a tick runs only when BOTH frames
-   exist, inputs sampled in EVERY state (the v16 lesson), digest
-   checkpoint exchange every 600 ticks; a mismatch is a hard stop.
-   RESUME: both sides freeze at the drop; the rejoin (same sid, worker
-   grace window) exchanges executed-step counts, both rebuild the sim
-   from the seed and REPLAY the exchanged input log to the agreed tick,
-   then re-run the 6-tick input-delay runway with empty frames. No state
-   serialization — determinism is the snapshot. Past the window the
-   remaining player may finish solo (partner hero despawns, XP stays).
+   (move quantized int8), input delay 6, a tick runs only when EVERY
+   roster frame exists, inputs sampled in EVERY state (the v16
+   lesson), digest checkpoint exchange every 600 ticks compared
+   across ALL players; a mismatch is a hard stop.
+   RESUME: all sides freeze at the drop; the rejoin (same sid, worker
+   grace window) triggers an executed-step exchange, everyone rebuilds
+   the sim from the seed and REPLAYS the exchanged input log to the
+   agreed tick, then re-runs the 6-tick input-delay runway with empty
+   frames. No state serialization — determinism is the snapshot.
+   DROPS (3–4P): past the window the remaining players agree a removal
+   step (min of their first-missing steps for that slot) and the hero
+   is removed there on every client; the run continues, and level-up
+   picking passes to the lowest-numbered remaining player. In 2P the
+   legacy flow is unchanged: past the window the remaining player may
+   finish solo (partner hero despawns, XP stays).
    ===================================================================== */
 let NET=null;
 const NET_ALPHABET='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -63754,13 +63844,44 @@ function netFrameInput(f){ return {mx:f.mx/127,my:f.my/127,attack:!!f.atk,
   roll:!!f.rol,magic:!!f.mag,upgrade:(typeof f.upg==='number'?f.upg:-1)}; }
 function netMods(){ return { hp:META.tracks.hp*CFG.meta.hpPer,
   dmg:META.tracks.dmg*CFG.meta.dmgPer, spd:META.tracks.spd*CFG.meta.spdPer }; }
+function netMySnap(){ return {skin:safeHero(META.heroSkin),mods:netMods()}; }
 function newNetSession(role,code){
   return { role, myIdx:role==='host'?0:1, code, sid:netNewSid(),
+    mySlot:role==='host'?0:1, slotSeen:false,
     ws:null, send:null, active:false, started:false, startAt:0, seed:0,
-    step:0, nextSend:0, recs:[{},{}], hashMine:{}, hashTheirs:{},
-    players:null, desync:false, dropped:false, dropAt:0, retryAt:0, attempts:0,
-    partnerLeft:false, closing:false, status:'menu', tries:0,
-    resumeExec:-1, resumeAck:-1, lastStepAt:0 };
+    step:0, nextSend:0, recs:[{},{},{},{}], hashMine:{}, hashTheirs:{},
+    lobby:{}, players:null, pickerSlot:0,
+    droppedSlots:{}, removed:{}, removedApplied:{}, pendingDrop:null,
+    execWait:null, bannerTxt:'', bannerUntil:0, removedSelf:false,
+    desync:false, dropped:false, dropAt:0, retryAt:0, attempts:0,
+    partnerLeft:false, selfLeft:false, closing:false, status:'menu', tries:0,
+    lastStepAt:0 };
+}
+/* The sender's relay slot: relay v6 stamps `from` on every forwarded
+   game message. On the v5 relay there is no stamp — the sender is
+   simply "the other player", which is exact for a 2-player room. */
+function netSenderSlot(sess,m){
+  if(m&&typeof m.from==='number')return m.from;
+  if(sess.players&&sess.players.length===2)
+    return sess.players[1-sess.myIdx].slot;
+  return sess.role==='host'?1:0;
+}
+function netSlotIdx(sess,slot){
+  if(!sess.players)return -1;
+  for(let i=0;i<sess.players.length;i++)if(sess.players[i].slot===slot)return i;
+  return -1;
+}
+function netPickerSlot(sess){
+  if(!sess.players)return 0;
+  let best=0,found=false;
+  for(const p of sess.players){
+    if(sess.removed[p.slot]!=null)continue;
+    if(!found||p.slot<best){ best=p.slot; found=true; }
+  }
+  return best;
+}
+function netRemovedList(sess){
+  return Object.keys(sess.removed).map(k=>({slot:+k,step:sess.removed[k]}));
 }
 function netConnect(sess,resume){
   const url=RELAY_URL+'?room='+encodeURIComponent(sess.code)+'&role='+sess.role+
@@ -63772,12 +63893,14 @@ function netConnect(sess,resume){
     if(sess!==NET)return;
     if(sess.dropped){ sess.status='resuming'; }
     else if(sess.role==='guest'&&!sess.started){ netSendHello(sess); sess.status='finding'; }
-    else if(sess.role==='host'&&!sess.started){ sess.status='waiting'; }
+    else if(sess.role==='host'&&!sess.started){
+      sess.lobby[0]=netMySnap(); sess.status='waiting'; netSendRoster(sess);
+    }
   };
   ws.onmessage=ev=>{
     if(sess!==NET||sess.ws!==ws)return;
     let m; try{ m=JSON.parse(ev.data); }catch(e){ return; }
-    if(m&&m.type==='__relay')netRelayEvent(sess,m.event);
+    if(m&&m.type==='__relay')netRelayEvent(sess,m);
     else netOnMsg(sess,m);
   };
   ws.onclose=()=>{
@@ -63790,24 +63913,43 @@ function netConnect(sess,resume){
 }
 function netSendHello(sess){
   sess.send({type:'hello',game:'aetherblade',build:CFG.net.build,code:sess.code,
-    sid:sess.sid,skin:safeHero(META.heroSkin),mods:netMods(),name:'P2'});
+    sid:sess.sid,slot:sess.mySlot,skin:safeHero(META.heroSkin),mods:netMods(),name:'P'+(sess.mySlot+1)});
 }
-function netRelayEvent(sess,ev){
-  if(ev==='guest-joined'){ if(sess.role==='host'&&!sess.started)sess.status='paired'; }
+function netSendRoster(sess){
+  if(sess.role!=='host')return;
+  const players=Object.keys(sess.lobby).map(Number).sort((a,b)=>a-b)
+    .map(sl=>({slot:sl,skin:sess.lobby[sl].skin,mods:sess.lobby[sl].mods}));
+  sess.send({type:'roster',players});
+}
+function netRelayEvent(sess,m){
+  const ev=m.event;
+  if(ev==='slot'){
+    sess.mySlot=m.slot; sess.slotSeen=true;
+    /* v6 tells the reclaimer its own slot: that is my cue to start the
+       resume exchange (v5 has no slot event; there the returner is
+       woken by 'paired' / the peers' resume messages instead). */
+    if(sess.dropped&&sess.started)netBroadcastResume(sess);
+  }
+  else if(ev==='guest-joined'){ if(sess.role==='host'&&!sess.started)sess.status='paired'; }
+  else if(ev==='peer-joined'){ /* lobby data itself arrives via hello/roster */ }
+  else if(ev==='paired'){
+    if(sess.role==='guest'&&!sess.started){ netSendHello(sess); sess.status='finding'; }
+    else if(sess.started&&sess.dropped)netBroadcastResume(sess);
+  }
   else if(ev==='peer-resumed'){
-    if(sess.dropped&&sess.started){ sess.send({type:'resume',exec:sess.step}); }
+    if(sess.started){
+      let slot=(typeof m.slot==='number')?m.slot:null;
+      if(slot==null&&sess.players&&sess.players.length===2)
+        slot=sess.players[1-sess.myIdx].slot;         // v5 carries no slot
+      if(slot!=null)netOnPeerResumed(sess,slot);
+    }else if(sess.role==='guest'){ netSendHello(sess); }
   }
   else if(ev==='peer-left'){
-    if(sess.started&&!sess.dropped&&!sess.partnerLeft){
-      sess.dropped=true; sess.dropAt=performance.now(); sess.attempts=0;
-      sess.status='dropped'; openCoop();
-    }else if(!sess.started){ sess.status=sess.role==='host'?'waiting':'nohost'; }
+    netOnPeerGone(sess,(typeof m.slot==='number')?m.slot:null,false);
   }
   else if(ev==='waiting-host'){ if(!sess.started)sess.status='waitinghost';
     else if(sess.dropped)sess.status='resuming'; }
-  else if(ev==='no-host'){
-    if(!sess.started){ sess.status='nohost'; }
-  }
+  else if(ev==='no-host'){ if(!sess.started)sess.status='nohost'; }
   else if(ev==='room-full'){ if(!sess.started)sess.status='full'; }
   else if(ev==='room-taken'){
     if(sess.role==='host'&&!sess.started&&sess.tries<8){
@@ -63817,52 +63959,167 @@ function netRelayEvent(sess,ev){
     }else if(!sess.started){ sess.status='failed'; }
   }
 }
+/* A room member's socket is gone (ctl peer-left, or their clean bye).
+   Pre-start this is lobby bookkeeping; post-start it feeds the drop /
+   removal machinery (2-player rooms keep the exact legacy flow). */
+function netOnPeerGone(sess,slot,viaBye){
+  if(!sess.started){
+    if(sess.role==='host'){
+      if(slot==null){ for(const k of Object.keys(sess.lobby))if(+k!==0)delete sess.lobby[k]; }
+      else if(sess.lobby[slot])delete sess.lobby[slot];
+      sess.status=Object.keys(sess.lobby).length>1?'paired':'waiting';
+      netSendRoster(sess);
+    }else if(slot==null||slot===0){ sess.status='nohost'; }
+    return;
+  }
+  if(slot==null){
+    if(sess.players&&sess.players.length===2)slot=sess.players[1-sess.myIdx].slot;
+    else return;
+  }
+  if(slot===sess.mySlot||sess.removed[slot]!=null)return;
+  if(!sess.players||sess.players.length<=2){
+    /* Legacy 2P flow, unchanged: a bye ends it now; a drop holds the
+       slot for the grace window, then PARTNER LEFT. */
+    if(viaBye){
+      if(!sess.partnerLeft){ sess.partnerLeft=true; sess.dropped=false; sess.status='left'; openCoop(); }
+    }else if(!sess.dropped&&!sess.partnerLeft){
+      sess.dropped=true; sess.dropAt=performance.now(); sess.attempts=0;
+      sess.status='dropped'; openCoop();
+    }
+    return;
+  }
+  if(!sess.droppedSlots[slot])sess.droppedSlots[slot]={at:performance.now(),bye:!!viaBye};
+  if(viaBye)netStartDrop(sess,slot);   // a clean leave skips the grace wait
+}
+/* A dropped member reclaimed its slot inside the window: restart the
+   deterministic-replay resync with an exec exchange among everyone
+   still in the run. */
+function netOnPeerResumed(sess,slot){
+  if(sess.desync||sess.partnerLeft||sess.removedSelf)return;
+  if(sess.removed[slot]!=null)return;              // already out of the run
+  if(sess.droppedSlots[slot])delete sess.droppedSlots[slot];
+  if(sess.pendingDrop&&sess.pendingDrop.slot===slot)sess.pendingDrop=null;
+  netBroadcastResume(sess);
+}
+function netBroadcastResume(sess){
+  if(!sess.execWait)sess.execWait={reports:{}};
+  sess.execWait.reports[sess.mySlot]=sess.step;
+  sess.send({type:'resume',exec:sess.step,rm:netRemovedList(sess)});
+  netTryResume(sess);
+}
+function netAdoptRemoved(sess,list){
+  if(!Array.isArray(list))return;
+  for(const r of list){
+    if(!r||typeof r.slot!=='number'||typeof r.step!=='number')continue;
+    if(r.slot===sess.mySlot&&sess.started){
+      /* I was dropped past the window and removed while away. */
+      sess.removedSelf=true; sess.dropped=false; sess.execWait=null;
+      sess.status='removed'; openCoop(); return;
+    }
+    if(sess.removed[r.slot]==null)sess.removed[r.slot]=r.step;
+  }
+  sess.pickerSlot=netPickerSlot(sess);
+}
 function netOnMsg(sess,m){
   if(!m||!m.type)return;
   if(m.type==='hello'){
     if(sess.role!=='host'||sess.started)return;
     if(m.game!=='aetherblade'||m.code!==sess.code)return;   // not our game: ignore
+    const slot=netSenderSlot(sess,m);
     if(m.build!==CFG.net.build){
-      sess.send({type:'reject',why:'VERSION MISMATCH'}); sess.status='mismatch'; return;
+      sess.send({type:'reject',why:'VERSION MISMATCH',to:slot}); sess.status='mismatch'; return;
     }
-    sess.players=[{skin:safeHero(META.heroSkin),mods:netMods()},
-                  {skin:m.skin||'hero',mods:m.mods||{hp:0,dmg:0,spd:0}}];
-    sess.seed=(((Date.now()^((performance.now()*1000)|0))>>>0)||0x51A7E);
-    sess.send({type:'start',seed:sess.seed,skin:sess.players[0].skin,mods:sess.players[0].mods});
-    sess.status='starting'; sess.startAt=performance.now()+1200;
+    sess.lobby[slot]={skin:m.skin||'hero',mods:m.mods||{hp:0,dmg:0,spd:0}};
+    sess.status='paired';
+    netSendRoster(sess);
+  }
+  else if(m.type==='roster'){
+    if(sess.role!=='guest'||sess.started||!Array.isArray(m.players))return;
+    sess.lobby={};
+    for(const p of m.players)
+      sess.lobby[p.slot]={skin:p.skin||'hero',mods:p.mods||{hp:0,dmg:0,spd:0}};
+    if(sess.lobby[sess.mySlot]||sess.lobby[1])sess.status='lobby';
   }
   else if(m.type==='start'){
     if(sess.role!=='guest'||sess.started)return;
-    if(typeof m.seed!=='number'||!m.mods||typeof m.mods.hp!=='number'){
+    if(m.build!==CFG.net.build||typeof m.seed!=='number'||
+       !Array.isArray(m.players)||m.players.length<2||m.players.length>4){
       sess.status='mismatch'; return;      // not an AETHERBLADE host payload
     }
-    sess.players=[{skin:m.skin||'hero',mods:m.mods},
-                  {skin:safeHero(META.heroSkin),mods:netMods()}];
+    sess.players=m.players.map(p=>({slot:p.slot,skin:p.skin||'hero',
+      mods:p.mods||{hp:0,dmg:0,spd:0}})).sort((a,b)=>a.slot-b.slot);
+    sess.myIdx=netSlotIdx(sess,sess.mySlot);
+    if(sess.myIdx<0){ sess.status='mismatch'; return; }
     sess.seed=m.seed>>>0;
+    sess.pickerSlot=netPickerSlot(sess);
     sess.status='starting'; sess.startAt=performance.now()+1200;
   }
-  else if(m.type==='reject'){ if(!sess.started)sess.status='mismatch'; }
+  else if(m.type==='reject'){
+    if(m.to!=null&&m.to!==sess.mySlot)return;   // addressed to another guest
+    if(!sess.started)sess.status='mismatch';
+  }
   else if(m.type==='input'){
-    if(m.f&&typeof m.f.t==='number')sess.recs[1-sess.myIdx][m.f.t]=m.f;
+    if(!sess.players)return;
+    const idx=netSlotIdx(sess,netSenderSlot(sess,m));
+    if(idx<0)return;
+    if(m.f&&typeof m.f.t==='number')sess.recs[idx][m.f.t]=m.f;
   }
   else if(m.type==='hash'){
-    sess.hashTheirs[m.tick]=m.h; netCheckDesync(m.tick);
+    const slot=netSenderSlot(sess,m);
+    sess.hashTheirs[m.tick+':'+slot]=m.h;
+    netCheckDesync(m.tick);
   }
-  else if(m.type==='resume'){
-    if(!sess.dropped)return;
-    sess.resumeExec=m.exec;
-    sess.send({type:'resumeAck',exec:sess.step});
+  else if(m.type==='resume'||m.type==='resumeAck'){
+    if(!sess.started||sess.desync||sess.partnerLeft)return;
+    const slot=netSenderSlot(sess,m);
+    netAdoptRemoved(sess,m.rm);
+    if(sess.removedSelf)return;
+    if(sess.removed[slot]!=null)return;          // a removed player's reports don't count
+    if(!sess.execWait)sess.execWait={reports:{}};
+    if(sess.execWait.reports[sess.mySlot]==null)
+      sess.execWait.reports[sess.mySlot]=sess.step;
+    sess.execWait.reports[slot]=m.exec;
+    if(m.type==='resume')
+      sess.send({type:'resumeAck',exec:sess.step,rm:netRemovedList(sess)});
     netTryResume(sess);
   }
-  else if(m.type==='resumeAck'){
-    if(!sess.dropped)return;
-    sess.resumeAck=m.exec; netTryResume(sess);
+  else if(m.type==='drop'){
+    if(!sess.started||!sess.players||sess.players.length<=2)return;
+    const from=netSenderSlot(sess,m), slot=m.slot;
+    if(typeof slot!=='number'||sess.removed[slot]!=null||slot===sess.mySlot)return;
+    if(!sess.pendingDrop||sess.pendingDrop.slot!==slot){
+      sess.pendingDrop={slot,reports:{}};
+      sess.pendingDrop.reports[sess.mySlot]=netFirstMissing(sess,slot);
+      sess.send({type:'drop',slot,fm:sess.pendingDrop.reports[sess.mySlot]});
+    }
+    if(typeof m.fm==='number')sess.pendingDrop.reports[from]=m.fm;
+    netTryFinishDrop(sess);
+  }
+  else if(m.type==='dropFinal'){
+    if(!sess.started||!sess.players||sess.players.length<=2)return;
+    if(typeof m.slot!=='number'||typeof m.step!=='number')return;
+    if(sess.removed[m.slot]==null){
+      sess.removed[m.slot]=m.step;
+      if(sess.pendingDrop&&sess.pendingDrop.slot===m.slot)sess.pendingDrop=null;
+      delete sess.droppedSlots[m.slot];
+      sess.pickerSlot=netPickerSlot(sess);
+    }
   }
   else if(m.type==='bye'){
-    if(sess.started&&!sess.partnerLeft){
-      sess.partnerLeft=true; sess.dropped=false; sess.status='left'; openCoop();
-    }else if(!sess.started){ sess.status=sess.role==='host'?'waiting':'nohost'; }
+    netOnPeerGone(sess,netSenderSlot(sess,m),true);
   }
+}
+function hostStartRun(){
+  const sess=NET;
+  if(!sess||sess.role!=='host'||sess.started)return;
+  const slots=Object.keys(sess.lobby).map(Number).sort((a,b)=>a-b);
+  if(slots.length<2||slots.length>4)return;
+  sess.players=slots.map(sl=>({slot:sl,skin:sess.lobby[sl].skin,mods:sess.lobby[sl].mods}));
+  sess.myIdx=0;
+  sess.seed=(((Date.now()^((performance.now()*1000)|0))>>>0)||0x51A7E);
+  sess.pickerSlot=netPickerSlot(sess);
+  sess.send({type:'start',seed:sess.seed,build:CFG.net.build,players:sess.players});
+  sess.status='starting'; sess.startAt=performance.now()+1200;
 }
 function netOnSocketDown(sess){
   if(sess.started){
@@ -63877,12 +64134,19 @@ function netOnSocketDown(sess){
   }
 }
 function netCheckDesync(t){
-  const sess=NET; if(!sess||sess.desync)return;
-  const a=sess.hashMine[t], b=sess.hashTheirs[t];
-  if(a&&b&&a!==b){
-    sess.desync=true; sess.active=false; sess.status='desync';
-    try{ sess.send({type:'bye'}); }catch(e){}
-    openCoop();
+  const sess=NET; if(!sess||sess.desync||!sess.players)return;
+  const mine=sess.hashMine[t]; if(!mine)return;
+  for(const p of sess.players){
+    if(p.slot===sess.mySlot)continue;
+    if(sess.removed[p.slot]!=null)continue;
+    if(sess.droppedSlots[p.slot])return;      // resync resets hashes anyway
+    const th=sess.hashTheirs[t+':'+p.slot];
+    if(!th)return;                            // still waiting on this peer
+    if(th!==mine){
+      sess.desync=true; sess.active=false; sess.status='desync';
+      try{ sess.send({type:'bye'}); }catch(e){}
+      openCoop(); return;
+    }
   }
 }
 function netSample(){
@@ -63894,7 +64158,7 @@ function netSample(){
     const inp=readCoopInput(first); first=false;
     const f={t,mx:Math.round(clamp(inp.mx,-1,1)*127),my:Math.round(clamp(inp.my,-1,1)*127),
       atk:inp.attack?1:0,rol:inp.roll?1:0,mag:inp.magic?1:0,
-      upg:(sess.role==='host'?inp.upgrade:-1)};
+      upg:(sess.mySlot===sess.pickerSlot?inp.upgrade:-1)};
     recs[t]=f;
     sess.send({type:'input',f});
   }
@@ -63919,30 +64183,61 @@ function readCoopInput(first){
   if(first){ UI.rollLatch=false; UI.magicLatch=false; UI.upgradeLatch=-1; }
   return inp;
 }
+/* The frame a roster index contributes at tick t: a removed player's
+   frames are empty by protocol rule from its removal step on. */
+function netFrameFor(sess,idx,t){
+  const slot=sess.players[idx].slot;
+  if(sess.removed[slot]!=null&&t>=sess.removed[slot])return netEmptyFrame(t);
+  return sess.recs[idx][t];
+}
+function applyRemovalToSim(sess,slot){
+  const idx=netSlotIdx(sess,slot); if(idx<0)return;
+  const h=SIM.heroes[idx]; if(!h)return;
+  h.state='gone'; h.downed=true; h.hp=0; h.vx=0; h.vz=0; h.st=0;
+}
+function netApplyRemovalsAt(sess,t,live){
+  if(!sess.players)return;
+  for(const p of sess.players){
+    if(sess.removed[p.slot]===t&&!sess.removedApplied[p.slot]){
+      sess.removedApplied[p.slot]=1;
+      applyRemovalToSim(sess,p.slot);
+      if(live&&sess.players.length>2){
+        sess.bannerTxt='P'+(p.slot+1)+' LEFT THE RUN';
+        sess.bannerUntil=performance.now()+4000;
+      }
+    }
+  }
+}
 function netStepOnce(){
-  const sess=NET;
-  const a=sess.recs[0][sess.step], b=sess.recs[1][sess.step];
-  if(!a||!b)return false;
-  simStep({p1:netFrameInput(a),p2:netFrameInput(b)});
+  const sess=NET; if(!sess||!sess.players)return false;
+  netApplyRemovalsAt(sess,sess.step,true);
+  const list=[];
+  for(let i=0;i<sess.players.length;i++){
+    const f=netFrameFor(sess,i,sess.step);
+    if(!f)return false;
+    list.push(netFrameInput(f));
+  }
+  simStep({list});
   sess.step++;
   sess.lastStepAt=performance.now();
   if(sess.step%CFG.net.checkpoint===0){
     const h=simDigest(SIM);
     sess.hashMine[sess.step]=h;
-    sess.send({type:'hash',tick:sess.step,h});
+    sess.send({type:'hash',tick:sess.step,h,rm:netRemovedList(sess)});
     netCheckDesync(sess.step);
   }
   return true;
 }
 function netFrame(now){
   const sess=NET; if(!sess)return;
-  if(sess.desync||sess.partnerLeft)return;              // frozen end states
-  if(sess.dropped){ netReconnectTick(now); return; }
+  if(sess.desync||sess.partnerLeft||sess.removedSelf)return;   // frozen end states
   if(sess.startAt){
     if(now<sess.startAt)return;
     sess.startAt=0; startCoopRun(sess.seed);
   }
   if(!sess.active)return;
+  netDropTick(now);
+  if(sess.dropped){ netReconnectTick(now); return; }
   /* Interleaved sample/step: frames are produced by the real sampler and
      consumed by the real sim; on a fast link the pair advances several
      delay-windows per rAF, on phones it naturally runs at frame rate. */
@@ -63953,10 +64248,59 @@ function netFrame(now){
     if(!progressed)break;
   }
 }
+/* Per-slot grace bookkeeping for 3–4 player runs: when a dropped slot's
+   resume window lapses (or it left cleanly), the remaining players
+   negotiate the removal step. */
+function netDropTick(now){
+  const sess=NET; if(!sess||!sess.players||sess.players.length<=2)return;
+  for(const k of Object.keys(sess.droppedSlots)){
+    const slot=+k;
+    if(sess.removed[slot]!=null){ delete sess.droppedSlots[k]; continue; }
+    const d=sess.droppedSlots[k];
+    if(sess.ws&&!sess.dropped&&(d.bye||now-d.at>NET_GRACE_MS))netStartDrop(sess,slot);
+  }
+}
+function netFirstMissing(sess,slot){
+  const idx=netSlotIdx(sess,slot); if(idx<0)return sess.step;
+  const r=sess.recs[idx]; let t=0; while(r[t])t++;
+  return t;
+}
+function netStartDrop(sess,slot){
+  if(sess.removed[slot]!=null)return;
+  if(sess.pendingDrop){ if(sess.pendingDrop.slot!==slot)return; }
+  else{
+    sess.pendingDrop={slot,reports:{}};
+    sess.pendingDrop.reports[sess.mySlot]=netFirstMissing(sess,slot);
+    sess.send({type:'drop',slot,fm:sess.pendingDrop.reports[sess.mySlot]});
+  }
+  netTryFinishDrop(sess);
+}
+function netTryFinishDrop(sess){
+  const pd=sess.pendingDrop; if(!pd)return;
+  /* Participants: everyone still in the run except the dropped slot —
+     connected, not removed, and not dropped themselves. Their
+     first-missing steps are identical by construction (the relay fans
+     every frame out to all of them); R is the min for safety. */
+  const need=sess.players.filter(p=>p.slot!==pd.slot&&
+    sess.removed[p.slot]==null&&!sess.droppedSlots[p.slot]&&
+    !(p.slot===sess.mySlot&&sess.dropped)).map(p=>p.slot);
+  if(!need.length)return;
+  for(const sl of need)if(typeof pd.reports[sl]!=='number')return;
+  let R=Infinity; for(const sl of need)R=Math.min(R,pd.reports[sl]);
+  sess.removed[pd.slot]=R;
+  sess.pendingDrop=null;
+  delete sess.droppedSlots[pd.slot];
+  sess.pickerSlot=netPickerSlot(sess);
+  sess.send({type:'dropFinal',slot:pd.slot,step:R});
+}
 function netReconnectTick(now){
   const sess=NET; if(!sess||!sess.dropped)return;
   if(now-sess.dropAt>NET_GRACE_MS){
+    /* My own window lapsed (2P: the partner's did) — the run is over
+       for this client; in a 3–4P room the party removes my hero and
+       plays on without me. */
     sess.partnerLeft=true; sess.dropped=false; sess.status='left';
+    sess.selfLeft=!!(sess.players&&sess.players.length>2);
     if(sess.ws){ const w=sess.ws; sess.ws=null; try{ w.close(); }catch(e){} }
     openCoop(); return;
   }
@@ -63967,54 +64311,71 @@ function netReconnectTick(now){
   }
 }
 function netTryResume(sess){
-  if(sess.resumeExec<0||sess.resumeAck<0)return;
-  const T=Math.min(sess.step,sess.resumeExec);
+  const w=sess.execWait; if(!w||!sess.players)return;
+  const need=sess.players.filter(p=>sess.removed[p.slot]==null&&
+    !sess.droppedSlots[p.slot]).map(p=>p.slot);
+  if(!need.length)return;
+  for(const sl of need)if(typeof w.reports[sl]!=='number')return;
+  let T=Infinity; for(const sl of need)T=Math.min(T,w.reports[sl]);
+  sess.execWait=null;
   netResync(sess,T);
 }
 function netResync(sess,T){
   const seed=sess.seed, players=sess.players;
-  SIM=newSim(seed>>>0,2); SIM.phase='play';
+  SIM=newSim(seed>>>0,players.length); SIM.phase='play';
   players.forEach((p,i)=>{ const h=SIM.heroes[i];
     h.mods={hp:p.mods.hp||0,dmg:p.mods.dmg||0,spd:p.mods.spd||0};
     h.maxHp=CFG.hero.hp+h.mods.hp; h.hp=h.maxHp; h.heroId=safeHero(p.skin); });
   SIM.mods={hp:players[0].mods.hp,dmg:players[0].mods.dmg,spd:players[0].mods.spd};
-  HERO_SKINS=[players[0].skin,players[1].skin]; LOCAL_IDX=sess.myIdx;
+  HERO_SKINS=players.map(p=>p.skin); LOCAL_IDX=sess.myIdx;
+  sess.removedApplied={};
   for(let t=0;t<T;t++){
-    const a=sess.recs[0][t], b=sess.recs[1][t];
-    if(!a||!b)break;
-    simStep({p1:netFrameInput(a),p2:netFrameInput(b)});
+    netApplyRemovalsAt(sess,t,false);
+    const list=[]; let ok=true;
+    for(let i=0;i<players.length;i++){
+      const f=netFrameFor(sess,i,t);
+      if(!f){ ok=false; break; }
+      list.push(netFrameInput(f));
+    }
+    if(!ok)break;
+    simStep({list});
   }
   EV.length=0;                                   // replay is silent
   /* trim everything past T, re-run the delay runway on empty frames */
-  for(const k of Object.keys(sess.recs[0]))if(+k>=T)delete sess.recs[0][k];
-  for(const k of Object.keys(sess.recs[1]))if(+k>=T)delete sess.recs[1][k];
-  for(let t=0;t<CFG.net.delay;t++){
-    sess.recs[0][T+t]=netEmptyFrame(T+t); sess.recs[1][T+t]=netEmptyFrame(T+t);
+  for(let i=0;i<players.length;i++){
+    const r=sess.recs[i];
+    for(const k of Object.keys(r))if(+k>=T)delete r[k];
   }
+  for(let t=0;t<CFG.net.delay;t++)
+    for(let i=0;i<players.length;i++)sess.recs[i][T+t]=netEmptyFrame(T+t);
   sess.step=T; sess.nextSend=T+CFG.net.delay;
   sess.hashMine={}; sess.hashTheirs={};
-  sess.resumeExec=-1; sess.resumeAck=-1;
-  sess.dropped=false; sess.lastStepAt=performance.now(); sess.status='playing';
+  sess.dropped=false; sess.droppedSlots={}; sess.pendingDrop=null;
+  sess.lastStepAt=performance.now(); sess.status='playing';
   buildMapMeshes(SIM);
   closeCoop();
 }
 function startCoopRun(seed){
   if(hselOpen)closeHeroSelect();   // defensive: picker is closed before the lobby anyway
   const sess=NET; if(!sess||!sess.players)return;
-  SIM=newSim(seed>>>0,2); SIM.phase='play';
+  SIM=newSim(seed>>>0,sess.players.length); SIM.phase='play';
   sess.players.forEach((p,i)=>{ const h=SIM.heroes[i];
     h.mods={hp:p.mods.hp||0,dmg:p.mods.dmg||0,spd:p.mods.spd||0};
     h.maxHp=CFG.hero.hp+h.mods.hp; h.hp=h.maxHp; h.heroId=safeHero(p.skin); });
   SIM.mods={hp:sess.players[0].mods.hp,dmg:sess.players[0].mods.dmg,spd:sess.players[0].mods.spd};
-  HERO_SKINS=[sess.players[0].skin,sess.players[1].skin];
+  HERO_SKINS=sess.players.map(p=>p.skin);
   LOCAL_IDX=sess.myIdx;
   SETTLED={ch:{},ended:false};
   sess.step=0; sess.hashMine={}; sess.hashTheirs={};
-  /* keep remote frames that arrived before the local start fired — the
-     peer's sampler legitimately runs one delay-window ahead of us */
-  for(let t=0;t<CFG.net.delay;t++){
-    sess.recs[0][t]=netEmptyFrame(t); sess.recs[1][t]=netEmptyFrame(t);
-  }
+  sess.removed={}; sess.removedApplied={}; sess.droppedSlots={};
+  sess.pendingDrop=null; sess.execWait=null;
+  sess.pickerSlot=netPickerSlot(sess);
+  /* Keep remote frames that arrived before the local start fired — a
+     peer's sampler legitimately runs one delay-window ahead of us
+     (the 2P rule, now per roster index). The runway ticks themselves
+     are empty frames by protocol definition. */
+  for(let t=0;t<CFG.net.delay;t++)
+    for(let i=0;i<sess.players.length;i++)sess.recs[i][t]=netEmptyFrame(t);
   sess.nextSend=CFG.net.delay;
   sess.started=true; sess.active=true; sess.status='playing';
   sess.lastStepAt=performance.now();
@@ -64035,7 +64396,7 @@ function netTeardown(toTitle){
   closeCoop();
 }
 function netContinueSolo(){
-  const sess=NET; if(!sess)return;
+  const sess=NET; if(!sess||!sess.players||sess.players.length!==2)return;
   const lh=SIM.heroes[sess.myIdx];
   if(!lh||lh.downed)return;
   const skin=safeHero(HERO_SKINS[sess.myIdx]);
@@ -64074,6 +64435,21 @@ function coopJoin(){
 let coopFlashMsg='';
 function coopFlash(msg){ coopFlashMsg=msg; coopRev=''; renderCoop(); }
 function coopButtons(list){ fillBtns($('coopBtns'),list); }
+function rosterHTML(sess){
+  const rows=[];
+  const slots=sess.players? sess.players.map(p=>p.slot)
+    : Object.keys(sess.lobby).map(Number).sort((a,b)=>a-b);
+  for(const sl of slots){
+    const snap=sess.players? sess.players.find(p=>p.slot===sl) : sess.lobby[sl];
+    if(!snap)continue;
+    let state='';
+    if(sess.started)
+      state=sess.removed[sl]!=null?' · LEFT':(sess.droppedSlots[sl]?' · RECONNECTING…':' · IN RUN');
+    else state=' · READY';
+    rows.push('<div>P'+(sl+1)+' · '+esc(heroLabel(snap.skin))+(sl===sess.mySlot?' · YOU':'')+state+'</div>');
+  }
+  return rows.length?('<div class="croster">'+rows.join('')+'</div>'):'';
+}
 function renderCoop(){
   if(!coopOpen)return;
   const sess=NET;
@@ -64081,55 +64457,75 @@ function renderCoop(){
   const st=sess?sess.status:'menu';
   if(!sess||st==='menu'){
     key='menu';
-    body='<div>Two blades, one arena. Host a room, or join a friend&#39;s.</div>'+
-      '<div>Both players need the <span class="k">same build</span> — co-op is lockstep.</div>'+
+    body='<div>Up to four blades, one arena. Host a room, or join a friend&#39;s.</div>'+
+      '<div>All players need the <span class="k">same build</span> — co-op is lockstep.</div>'+
       (coopFlashMsg?'<div class="cstat">'+esc(coopFlashMsg)+'</div>':'');
     btns=[{label:'CREATE ROOM',fn:()=>{ coopFlashMsg=''; coopCreate(); }}];
     join=true; closeLabel='CLOSE'; closeFn=()=>closeCoop();
   }else if(sess.desync){
     key='desync';
     body='<div class="cstat">CONNECTION DESYNC — RUN ENDED</div>'+
-      '<div>The two blades drifted apart. Nothing was settled.</div>';
+      '<div>The blades drifted apart. Nothing was settled.</div>';
     btns=[{label:'END RUN',fn:()=>netTeardown(true)}];
-    closeLabel=''; 
+    closeLabel='';
+  }else if(sess.removedSelf){
+    key='removed';
+    body='<div class="cstat">YOU WERE REMOVED</div>'+
+      '<div>Your slot&#39;s window lapsed while you were away, and the party continued the run without your hero.</div>';
+    btns=[{label:'END RUN',fn:()=>netTeardown(true)}];
+    closeLabel='';
   }else if(sess.partnerLeft){
     key='left';
-    body='<div class="cstat">PARTNER LEFT</div>'+
-      '<div>Your partner&#39;s slot has closed. The arena keeps what you earned together.</div>';
-    const lh=SIM.heroes[sess.myIdx];
-    btns=[];
-    if(lh&&!lh.downed)btns.push({label:'CONTINUE SOLO',fn:netContinueSolo});
-    btns.push({label:'END RUN',fn:()=>netTeardown(true)});
+    if(sess.selfLeft){
+      body='<div class="cstat">CONNECTION LOST</div>'+
+        '<div>Your slot&#39;s window lapsed — the party continued the run without your hero.</div>';
+      btns=[{label:'END RUN',fn:()=>netTeardown(true)}];
+    }else{
+      body='<div class="cstat">PARTNER LEFT</div>'+
+        '<div>Your partner&#39;s slot has closed. The arena keeps what you earned together.</div>';
+      const lh=SIM.heroes[sess.myIdx];
+      btns=[];
+      if(lh&&!lh.downed)btns.push({label:'CONTINUE SOLO',fn:netContinueSolo});
+      btns.push({label:'END RUN',fn:()=>netTeardown(true)});
+    }
     closeLabel='';
   }else if(sess.dropped){
     const left=Math.max(0,Math.ceil((NET_GRACE_MS-(performance.now()-sess.dropAt))/1000));
     key='dropped'+left;
     body='<div class="cstat">CONNECTION LOST</div>'+
-      '<div>The sim is paused. Your partner&#39;s slot is held for <span class="k">'+left+' s</span> — rejoining resumes the run in sync.</div>';
+      ((sess.players&&sess.players.length>2)
+        ? '<div>The sim is paused. Your slot is held for <span class="k">'+left+' s</span> — rejoining resumes the run in sync. If the window lapses, the party continues without your hero.</div>'
+        : '<div>The sim is paused. Your partner&#39;s slot is held for <span class="k">'+left+' s</span> — rejoining resumes the run in sync.</div>');
     btns=[{label:'END RUN',fn:()=>netTeardown(true)}];
     closeLabel='';
   }else if(st==='mismatch'){
     key='mismatch';
     body='<div class="cstat">VERSION MISMATCH</div>'+
-      '<div>Both players need the same AETHERBLADE build to play together.</div>';
+      '<div>All players need the same AETHERBLADE build to play together.</div>';
     btns=[{label:'BACK',fn:()=>{ netTeardown(false); }}];
     closeLabel='CLOSE'; closeFn=()=>{ netTeardown(false); closeCoop(); };
   }else if(st==='nohost'||st==='full'||st==='failed'){
     key=st;
     body='<div class="cstat">'+(st==='nohost'?'ROOM NOT FOUND':st==='full'?'ROOM IS FULL':'CONNECTION FAILED')+'</div>'+
-      '<div>Check the code and try again.</div>';
+      '<div>Check the code and try again.</div>'+
+      (st==='full'?'<div>If your party is only two, a full room can also mean the relay has not been upgraded yet — 3–4 player rooms need the current relay.</div>':'');
     btns=[{label:'BACK',fn:()=>{ netTeardown(false); }}];
     closeLabel='CLOSE'; closeFn=()=>{ netTeardown(false); closeCoop(); };
   }else if(sess.role==='host'&&!sess.started){
-    key='host'+st+sess.code;
-    body='<div>Share this code with your partner:</div>'+
+    const nLobby=Object.keys(sess.lobby).length;
+    key='host'+st+sess.code+Object.keys(sess.lobby).sort().join(',')+(st==='starting'?'S':'');
+    body='<div>Share this code with your party (2–4 players):</div>'+
       '<div class="ccode">'+esc(sess.code)+'</div>'+
-      '<div class="cstat">'+(st==='connecting'?'CONNECTING…':st==='paired'?'PARTNER FOUND…':st==='starting'?'PAIRED — STARTING…':'WAITING FOR PARTNER…')+'</div>';
-    btns=[]; closeLabel='CANCEL'; closeFn=()=>{ netTeardown(false); closeCoop(); };
+      rosterHTML(sess)+
+      '<div class="cstat">'+(st==='starting'?'STARTING…':st==='connecting'?'CONNECTING…':nLobby>=2?'READY — START WHEN YOUR PARTY IS SET':'WAITING FOR PLAYERS…')+'</div>';
+    btns=[];
+    if(nLobby>=2&&st!=='starting')btns.push({label:'START RUN · '+nLobby+' PLAYERS',fn:()=>hostStartRun()});
+    closeLabel='CANCEL'; closeFn=()=>{ netTeardown(false); closeCoop(); };
   }else if(sess.role==='guest'&&!sess.started){
-    key='guest'+st+sess.code;
+    key='guest'+st+sess.code+Object.keys(sess.lobby).sort().join(',')+(st==='starting'?'S':'');
     body='<div>Room <span class="k">'+esc(sess.code)+'</span></div>'+
-      '<div class="cstat">'+(st==='connecting'?'CONNECTING…':st==='waitinghost'?'WAITING FOR HOST…':st==='starting'?'PAIRED — STARTING…':'FINDING HOST…')+'</div>';
+      rosterHTML(sess)+
+      '<div class="cstat">'+(st==='starting'?'PAIRED — STARTING…':st==='connecting'?'CONNECTING…':st==='waitinghost'?'WAITING FOR HOST…':'WAITING FOR HOST TO START…')+'</div>';
     btns=[]; closeLabel='CANCEL'; closeFn=()=>{ netTeardown(false); closeCoop(); };
   }else{
     key='playing'; body=''; btns=[]; closeLabel='';
@@ -64145,33 +64541,50 @@ function renderCoop(){
   cb.onclick=closeFn||null;
 }
 let ringMeshes=null;
+
 function updateNetUI(){
   const stat=$('netStat'); if(!stat)return;
   const sess=NET;
   const inRun=!!(sess&&sess.started);
+  const TAGS=['tagP1','tagP2','tagP3','tagP4'];
+  const TAGCOLORS=['#ffd24a','#54e0ff','#ff7ad9','#9dff57'];
   stat.style.display=inRun?'flex':'none';
   const bn=$('netBanner');
   if(!inRun){ bn.style.display='none';
-    $('tagP1').style.display='none'; $('tagP2').style.display='none'; }
+    for(const id of TAGS)$(id).style.display='none'; }
   if(ringMeshes)for(const m of ringMeshes)m.visible=false;
   if(!inRun)return;
   const dot=$('netDot'), txt=$('netTxt');
   if(sess.desync){ dot.className='bad'; txt.textContent='DESYNC'; }
-  else if(sess.partnerLeft){ dot.className='bad'; txt.textContent='PARTNER LEFT'; }
+  else if(sess.partnerLeft){ dot.className='bad';
+    txt.textContent=(sess.players&&sess.players.length>2)?'PLAYER LEFT':'PARTNER LEFT'; }
   else if(sess.dropped){ dot.className='warn'; txt.textContent='RECONNECTING…'; }
   else{
     dot.className='';
-    const rp=SIM.heroes[1-sess.myIdx];
-    txt.textContent='P'+(2-sess.myIdx)+(rp?(rp.downed?' DOWN':' \u2665 '+Math.max(0,Math.round(rp.hp))):'');
+    const parts=[];
+    SIM.heroes.forEach((h,i)=>{
+      if(i===sess.myIdx)return;
+      const sl=(sess.players&&sess.players[i])?sess.players[i].slot:i;
+      parts.push('P'+(sl+1)+((sess.removed&&sess.removed[sl]!=null)?' LEFT':
+        (h.downed?' DOWN':' ♥ '+Math.max(0,Math.round(h.hp)))));
+    });
+    txt.textContent=parts.join(' · ');
   }
-  const waiting=sess.active&&!sess.dropped&&
-    (performance.now()-sess.lastStepAt>CFG.net.stallMs)&&
-    (SIM.phase==='play'||SIM.phase==='boss'||SIM.phase==='levelup'||SIM.phase==='clear');
-  bn.style.display=waiting?'block':'none';
-  if(waiting)bn.textContent='WAITING FOR PLAYER\u2026';
-  /* hero ground rings: P1 gold, P2 cyan */
+  let banner='';
+  if(sess.bannerUntil&&performance.now()<sess.bannerUntil)banner=sess.bannerTxt;
+  else{
+    const anyDropped=sess.dropped||
+      (sess.players&&sess.players.some(p=>sess.droppedSlots[p.slot]));
+    const waiting=sess.active&&!anyDropped&&
+      (performance.now()-sess.lastStepAt>CFG.net.stallMs)&&
+      (SIM.phase==='play'||SIM.phase==='boss'||SIM.phase==='levelup'||SIM.phase==='clear');
+    if(waiting)banner='WAITING FOR PLAYER…';
+  }
+  bn.style.display=banner?'block':'none';
+  if(banner)bn.textContent=banner;
+  /* hero ground rings: P1 gold, P2 cyan, P3 rose, P4 lime */
   if(!ringMeshes){
-    ringMeshes=[0xffd24a,0x3fd2ff].map(c=>{
+    ringMeshes=[0xffd24a,0x3fd2ff,0xff7ad9,0x9dff57].map(c=>{
       const m=new T.Mesh(new T.RingGeometry(0.52,0.68,28),
         new T.MeshBasicMaterial({color:c,transparent:true,opacity:0.85,
           depthWrite:false,side:T.DoubleSide}));
@@ -64179,24 +64592,25 @@ function updateNetUI(){
     });
   }
   if(SIM.players>1&&SIM.phase!=='title'){
-    for(let i=0;i<2;i++){
+    for(let i=0;i<SIM.heroes.length&&i<4;i++){
       const h=SIM.heroes[i]; if(!h)continue;
+      if(h.state==='gone'){ ringMeshes[i].visible=false; continue; }
       ringMeshes[i].visible=true;
       ringMeshes[i].position.set(h.x,0.03,h.z);
     }
-    for(let i=0;i<2;i++){
-      const h=SIM.heroes[i], el=$(i===0?'tagP1':'tagP2');
-      if(!h){ el.style.display='none'; continue; }
+    for(let i=0;i<SIM.heroes.length&&i<4;i++){
+      const h=SIM.heroes[i], el=$(TAGS[i]);
+      if(!h||h.state==='gone'){ el.style.display='none'; continue; }
       _v.set(h.x,2.35,h.z).project(camera);
       if(_v.z<1&&Math.abs(_v.x)<1.05&&Math.abs(_v.y)<1.05){
         el.style.display='block';
         el.style.left=((_v.x*0.5+0.5)*innerWidth)+'px';
         el.style.top=((-_v.y*0.5+0.5)*innerHeight)+'px';
-        el.style.color=i===0?'#ffd24a':'#54e0ff';
+        el.style.color=TAGCOLORS[i];
       }else el.style.display='none';
     }
   }else{
-    $('tagP1').style.display='none'; $('tagP2').style.display='none';
+    for(const id of TAGS)$(id).style.display='none';
   }
 }
 $('coopClose').addEventListener('click',()=>{});
@@ -64361,16 +64775,30 @@ window.__GAME={
   get meta(){return META;},
   get net(){ const n=NET; return n?{active:n.active,role:n.role,code:n.code,step:n.step,
     started:n.started,desync:n.desync,dropped:n.dropped,partnerLeft:n.partnerLeft,
+    removedSelf:n.removedSelf,selfLeft:n.selfLeft,mySlot:n.mySlot,myIdx:n.myIdx,
+    pickerSlot:n.pickerSlot,removed:n.removed,
+    droppedSlots:Object.keys(n.droppedSlots).map(Number),
+    lobby:Object.keys(n.lobby||{}).map(Number),
     status:n.status,nextSend:n.nextSend,recs:n.recs?n.recs.map(r=>Object.keys(r).map(Number).sort((a,b)=>a-b)):null,
-    players:n.players?n.players.map(p=>({skin:p.skin,mods:p.mods})):null}:null; },
+    players:n.players?n.players.map(p=>({slot:p.slot,skin:p.skin,mods:p.mods})):null}:null; },
   netCreate(code){ return coopCreate(code); },
+  netStart(){ hostStartRun(); },
   netDrop(){ const n=NET; if(n&&n.ws){ const w=n.ws; n.ws=null;
     try{ w.close(); }catch(e){} netOnSocketDown(n); } },
   netHold(v){ if(NET)NET.holdReconnect=!!v; },
-  get netHashes(){ const n=NET; return n?{mine:Object.keys(n.hashMine).length,
-    theirs:Object.keys(n.hashTheirs).length,
-    lastMine:n.hashMine[Math.max(0,...Object.keys(n.hashMine).map(Number))],
-    lastTheirs:n.hashTheirs[Math.max(0,...Object.keys(n.hashTheirs).map(Number))]}:null; },
+  get netHashes(){ const n=NET; if(!n)return null;
+    const mt=Object.keys(n.hashMine).map(Number);
+    const last=mt.length?Math.max(...mt):0;
+    const bySlot={};
+    if(n.players)for(const p of n.players){
+      if(p.slot===n.mySlot)continue;
+      bySlot[p.slot]=n.hashTheirs[last+':'+p.slot]||null;
+    }
+    const otherP=n.players?n.players.find(p=>p.slot!==n.mySlot):null;
+    const other=otherP?otherP.slot:null;
+    return {mine:mt.length,theirs:Object.keys(n.hashTheirs).length,
+      lastMine:last?n.hashMine[last]:null,
+      lastTheirs:other!=null?bySlot[other]:null,bySlot,last}; },
   netJoin(code){ openCoop(); $('coopInput').value=code||''; return coopJoin(); },
   coopStart(seed){ if(NET){ NET.seed=(seed>>>0)||0x51A7E; NET.startAt=performance.now()+50; } },
   heroes(){ return SIM.heroes.map(h=>({x:h.x,z:h.z,hp:h.hp,maxHp:h.maxHp,
