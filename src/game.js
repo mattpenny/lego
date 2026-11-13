@@ -2340,6 +2340,10 @@ $('btnMute').addEventListener('pointerdown',e=>{
   const m=Audio.toggle();$('btnMute').innerHTML=m?'&#128263;':'&#9835;';
 });
 
+/* ---------- armoury modal wiring ---------- */
+$('armClose').addEventListener('click',()=>{closeArmoury();});
+$('armoury').addEventListener('pointerdown',e=>{if(e.target===$('armoury'))closeArmoury();});
+
 /* ---------- keyboard ---------- */
 const GAME_KEYS=new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' ','j','k','shift','p','m','f','g','enter']);
 addEventListener('keydown',e=>{
@@ -2389,8 +2393,17 @@ function readInput(){
 }
 
 /* ---------- overlays ---------- */
+function fillBtns(bw,btns){
+  bw.innerHTML='';
+  (btns||[]).forEach(b=>{
+    const el=document.createElement('button');
+    el.className='bigbtn'+(b.ghost?' ghost':'')+(b.prime?' prime':'');el.textContent=b.label;
+    el.addEventListener('click',b.fn);bw.appendChild(el);
+  });
+}
 function setOverlay(key,kick,title,sub,body,cards,btns,credits){
   overlayKey=key;
+  $('overlay').classList.toggle('landing',key.indexOf('title')===0);
   $('ovKick').textContent=kick;$('ovTitle').textContent=title;$('ovSub').textContent=sub;
   $('ovBody').innerHTML=body||'';
   const cw=$('cards');cw.innerHTML='';
@@ -2401,16 +2414,11 @@ function setOverlay(key,kick,title,sub,body,cards,btns,credits){
     el.addEventListener('click',()=>{UI.upgradeLatch=i;Audio.init();});
     cw.appendChild(el);
   });
-  const bw=$('ovBtns');bw.innerHTML='';
-  (btns||[]).forEach(b=>{
-    const el=document.createElement('button');
-    el.className='bigbtn'+(b.ghost?' ghost':'');el.textContent=b.label;
-    el.addEventListener('click',b.fn);bw.appendChild(el);
-  });
+  fillBtns($('ovBtns'),btns);
   $('credits').innerHTML=credits||'';
   $('overlay').classList.add('on');
 }
-function hideOverlay(){overlayKey='';$('overlay').classList.remove('on');}
+function hideOverlay(){overlayKey='';$('overlay').classList.remove('on');closeArmoury();}
 const CREDITS_HTML='three.js r170 &mdash; MIT, &copy; 2010-2024 three.js authors (vendored inline). '+
   'Mesh2Motion-style humanoid rig + animation clips &mdash; CC0 1.0, authored procedurally in this file. '+
   'No third-party model, texture, font or audio files. All terrain, gear, VFX and music are generated in code. Zero network requests.';
@@ -2446,9 +2454,8 @@ function trackBtn(id,label,per){
   if(lv>=5)return {label:label+' · LV 5/5 · MAX',fn:()=>{}};
   return {label:label+' +'+per+' · LV '+lv+'/5 · '+CFG.meta.costs[lv]+' G',fn:()=>buyTrack(id)};
 }
-function titleButtons(){
-  const bs=[{label:'START RUN',fn:startRun},
-    trackBtn('hp','ARMOUR HP',CFG.meta.hpPer),
+function metaButtons(){
+  const bs=[trackBtn('hp','ARMOUR HP',CFG.meta.hpPer),
     trackBtn('dmg','EDGE DMG',CFG.meta.dmgPer),
     trackBtn('spd','BOOTS SPD',CFG.meta.spdPer)];
   for(const k of ['soldier','archer','sorcerer','knight']){
@@ -2457,6 +2464,24 @@ function titleButtons(){
     else bs.push({label:'UNLOCK HERO: '+nm+' \u00B7 '+CFG.meta.heroCosts[k]+' G',fn:()=>heroBtn(k)});
   }
   return bs;
+}
+/* ---------- armoury: the meta hall, opened from the landing page ---------- */
+let armouryOpen=false,armouryRev=-1;
+function openArmoury(){ armouryOpen=true; armouryRev=-1;
+  $('armoury').classList.add('on'); renderArmoury(); Audio.init(); }
+function closeArmoury(){ armouryOpen=false;
+  const a=$('armoury'); if(a)a.classList.remove('on'); }
+function armouryBodyHTML(){
+  return '<div>\u{1FA99} GOLD <span class="k">'+META.gold+'</span> &nbsp;\u00B7&nbsp; BEST '+META.bestTotal+
+    ' &nbsp;\u00B7&nbsp; '+[1,2,3].map(c=>(META.cleared[c]?'\u2605':'\u2606')+' CH'+c+(META.best[c]?' \u00B7 '+META.best[c]:'')).join(' &nbsp; ')+
+    ' &nbsp;\u00B7&nbsp; HERO: '+esc((META.heroSkin||'hero').toUpperCase())+'</div>'+
+  '<div>Spend gold below: permanent upgrades and hero skins carry across every run. Magic: fill the meter with kills, then unleash 60 damage on everything near.</div>';
+}
+function renderArmoury(){
+  if(!armouryOpen||armouryRev===META.rev)return;
+  armouryRev=META.rev;
+  $('armBody').innerHTML=armouryBodyHTML();
+  fillBtns($('armBtns'),metaButtons());
 }
 let bannerTimer=0;
 function showBanner(txt,ms){
@@ -2500,17 +2525,9 @@ function syncOverlay(){
   const s=SIM,key=s.phase+(s.phase==='levelup'?s.level:'')+(s.phase==='clear'?s.chapter:'')+(s.phase==='title'?'m'+META.rev:'');
   if(key===overlayKey)return;
   if(s.phase==='title'){
-    setOverlay(key,'A SINGLE FILE · NO NETWORK · NO ASSETS','AETHERBLADE',
-      '3D ARENA SURVIVOR — 3 CHAPTERS',
-      '<div><span class="k">LEFT STICK</span> move &nbsp;·&nbsp; <span class="k">ATTACK</span> 3.2 m / 130&deg; sword &nbsp;·&nbsp; <span class="k">ROLL</span> 3.5 m i-frames</div>'+
-      '<div>Survive <span class="k">3:00</span> per chapter, then kill the boss. Collect XP gems, pick upgrades, carry them forward.</div>'+
-      '<div>Keyboard: <span class="k">WASD</span> move &nbsp; <span class="k">SPACE / J</span> attack &nbsp; <span class="k">SHIFT / K</span> roll &nbsp; <span class="k">G</span> magic.</div>'+
-      '<div style="margin-top:6px"><span class="k">3 CHAPTERS \u00B7 7 ENEMY CLASSES \u00B7 UNLOCK NEW HEROES</span></div>'+
-      '<div>\u{1FA99} GOLD <span class="k">'+META.gold+'</span> &nbsp;\u00B7&nbsp; BEST '+META.bestTotal+
-        ' &nbsp;\u00B7&nbsp; '+[1,2,3].map(c=>(META.cleared[c]?'\u2605':'\u2606')+' CH'+c+(META.best[c]?' \u00B7 '+META.best[c]:'')).join(' &nbsp; ')+
-        ' &nbsp;\u00B7&nbsp; HERO: '+esc((META.heroSkin||'hero').toUpperCase())+'</div>'+
-      '<div>Spend gold below: permanent upgrades and hero skins carry across every run. Magic: fill the meter with kills, then unleash 60 damage on everything near.</div>',
-      null,titleButtons(),CREDITS_HTML);
+    setOverlay(key,'','AETHERBLADE','','',null,
+      [{label:'\u2694 START RUN',fn:startRun,prime:true},
+       {label:'ARMOURY',fn:openArmoury,ghost:true}],'');
   }else if(s.phase==='levelup'){
     const cards=s.choices.map(id=>UPGRADES.find(u=>u.id===id)).filter(Boolean);
     setOverlay(key,'LEVEL '+s.level,'CHOOSE AN UPGRADE','The arena is paused.',
@@ -2618,7 +2635,7 @@ function frame(now){
   updateVFX(dt,RTIME);
   Audio.setIntensity(Math.min(1,s.enemies.length/7+(s.boss?0.55:0)+s.chapter*0.05));
   updateCamera(dt);
-  syncOverlay();
+  syncOverlay(); renderArmoury();
   updateHUD(); updateHints();
   renderer.render(scene,camera);
   lastCalls=renderer.info.render.calls;
