@@ -2,7 +2,7 @@
    Burnt crowns, lava pools and a ring of castle walls around the keep. */
 export const volcanoCastle = {
   id: 'volcano-castle', type: 'map', chapter: 3,
-  displayName: 'VOLCANO CASTLE', bossId: 'magma-tyrant',
+  displayName: 'VOLCANO CASTLE', bossId: 'iron-lancer',
   palette: {
     name: 'VOLCANO CASTLE', sky: 0x7a3a30, fog: 0x84452f,
     ground: '#4d3638', ground2: '#63453a', path: '#7d5a44',

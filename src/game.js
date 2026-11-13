@@ -1514,15 +1514,20 @@ function syncViews(s,dt){
   }
   if(s.boss&&s.boss.hp>0){
     const b=s.boss; seen.add(b.id);
-    /* The boss FIGURE is per-chapter content (bosses/<id>.js): chapters
-       2/3 wear the humanoid warlord rig; chapter 1's Emerald Drake is a
-       custom-rendered quadruped with its own view + animation. */
+    /* The boss FIGURE is per-chapter content (bosses/<id>.js): chapter
+       2 wears the humanoid warlord rig; chapter 1's Emerald Drake and
+       chapter 3's Iron Lancer are custom-rendered quadrupeds, each with
+       its own view + procedural animation. */
     const bfig=(BOSSES[s.chapter]||{}).figure||'boss';
     let v=VIEWS.get(b.id);
     if(v&&v.kind!==bfig){ scene.remove(v.mesh); if(v.dispose)v.dispose(); else v.mesh.material.dispose(); VIEWS.delete(b.id); v=null; }
-    if(FIGURES[bfig]&&FIGURES[bfig].custom){
+    const bCustom=FIGURES[bfig]&&FIGURES[bfig].custom;
+    if(bCustom==='dragon'){
       if(!v)v=makeDragonView(b.id,b);
       updateDragonView(v,b,dt);
+    }else if(bCustom==='knightMount'){
+      if(!v)v=makeKnightMountView(b.id,b);
+      updateKnightMountView(v,b,dt);
     }else{
       if(!v)v=makeView('boss',b.id);
       setClip(v,clipFor('boss',b.state,b.state==='approach'?8:10));
@@ -1833,6 +1838,210 @@ function updateDragonFlame(D,b){
   F.outer.material.opacity=0.34; F.inner.material.opacity=0.50;
   F.scorch.position.set(b.x+fx*(BR.headDist+4.8),0.06,b.z+fz*(BR.headDist+4.8));
   F.scorch.material.opacity=0.26+0.06*Math.sin(D.t*37);
+}
+
+/* =====================================================================
+   THE IRON LANCER — custom boss view (figure descriptor
+   figures/knight-mount.js, `custom: 'knightMount'`). A horse and rider
+   cannot ride the 13-joint humanoid rig, so the lancer is a hierarchy
+   of merged-geometry groups — horse body, neck, head, tail, four legs,
+   and a rider whose sword arm and plume are separate groups — animated
+   procedurally below. VIEW ONLY: it reads sim boss state and writes
+   nothing. All colours come from TINTS['knight-mount']; geometry is
+   owned by this builder, exactly as the descriptor contract states.
+   Local axes match the dragon: +Z is forward.
+   ===================================================================== */
+function knightHorseParts(TN){
+  const H=TN.cloth,B=TN.trim,D=TN.dark;
+  return [
+    dP('box',[0,1.32,0],[0.66,0.66,1.75],H),               // barrel
+    dP('sph',[0,1.30,0.82],[0.60,0.60,0.55],H),            // chest
+    dP('sph',[0,1.34,-0.82],[0.62,0.62,0.58],H),           // rump
+    dP('box',[0,1.50,-0.05],[0.78,0.44,0.58],B),           // blue saddle cloth
+    dP('box',[0,1.70,-0.05],[0.56,0.10,0.62],D),           // saddle
+    dP('box',[0,1.28,0.16],[0.70,0.55,0.10],D),            // girth strap
+    dP('box',[0,1.34,0.80],[0.56,0.30,0.10],D,[0.30,0,0]), // breastcollar
+  ];
+}
+function knightNeckParts(TN){
+  const H=TN.cloth,M=TN.skin;
+  return [
+    dP('box',[0,0,0.30],[0.36,0.55,0.82],H),
+    dP('box',[0,0.30,0.02],[0.10,0.24,0.55],M),            // mane, upper neck
+    dP('box',[0,0.33,0.42],[0.10,0.20,0.32],M),            // mane, lower neck
+  ];
+}
+function knightHeadParts(TN){
+  const H=TN.cloth,M=TN.skin,D=TN.dark,S=TN.armor;
+  return [
+    dP('box',[0,0.02,0.05],[0.30,0.34,0.38],H),            // skull
+    dP('box',[0,-0.06,0.34],[0.22,0.24,0.38],H),           // muzzle
+    dP('box',[0,-0.01,0.40],[0.26,0.08,0.10],D),           // noseband
+    dP('box',[0,0.13,0.14],[0.33,0.06,0.32],S,[0.25,0,0]), // silver chanfron plate
+    dP('cone',[0.09,0.30,-0.06],[0.09,0.24,0.09],H),       // ears
+    dP('cone',[-0.09,0.30,-0.06],[0.09,0.24,0.09],H),
+    dP('box',[0,0.26,0.12],[0.17,0.10,0.24],M),            // forelock
+    dP('sph',[0.135,0.06,0.18],[0.05,0.05,0.05],D),        // eyes
+    dP('sph',[-0.135,0.06,0.18],[0.05,0.05,0.05],D),
+  ];
+}
+function knightTailParts(TN){
+  const M=TN.skin;
+  return [
+    dP('box',[0,-0.16,-0.12],[0.16,0.44,0.14],M,[0.35,0,0]),
+    dP('box',[0,-0.50,-0.22],[0.13,0.46,0.11],M,[0.22,0,0]),
+  ];
+}
+function knightLegParts(TN){
+  const H=TN.cloth,G=TN.glow,D=TN.dark;
+  return [
+    dP('box',[0,-0.28,0],[0.17,0.58,0.20],H),              // upper leg (brown)
+    dP('sph',[0,-0.56,0],[0.15,0.15,0.15],H),              // knee / hock
+    dP('box',[0,-0.85,0],[0.13,0.44,0.15],G),              // white lower leg
+    dP('box',[0,-1.11,0.02],[0.16,0.12,0.20],D),           // hoof
+  ];
+}
+function knightRiderParts(TN){
+  const S=TN.armor,B=TN.trim,D=TN.dark,MT=TN.metal,G=TN.glow;
+  return [
+    dP('box',[0,0.06,0],[0.40,0.16,0.34],MT),              // hips / mail skirt
+    dP('box',[0.30,-0.28,0.10],[0.15,0.62,0.17],S,[0.15,0,0.10]),   // legs in stirrups
+    dP('box',[-0.30,-0.28,0.10],[0.15,0.62,0.17],S,[0.15,0,-0.10]),
+    dP('box',[0.34,-0.62,0.24],[0.14,0.12,0.30],MT),       // sabatons (pointed boots)
+    dP('box',[-0.34,-0.62,0.24],[0.14,0.12,0.30],MT),
+    dP('box',[0,0.42,0],[0.46,0.55,0.30],B),               // blue tabard torso
+    dP('box',[0,0.46,0.165],[0.15,0.21,0.03],G,[0,0,Math.PI/4]),  // griffin: diamond body
+    dP('box',[0.135,0.53,0.165],[0.14,0.05,0.03],G,[0,0,0.50]),   // griffin: wings
+    dP('box',[-0.135,0.53,0.165],[0.14,0.05,0.03],G,[0,0,-0.50]),
+    dP('sph',[0,0.615,0.165],[0.05,0.05,0.03],G),          // griffin: head
+    dP('box',[0,0.15,0],[0.48,0.08,0.32],D),               // belt
+    dP('sph',[0.30,0.63,0],[0.20,0.18,0.20],S),            // pauldrons
+    dP('sph',[-0.30,0.63,0],[0.20,0.18,0.20],S),
+    dP('box',[-0.34,0.32,0.12],[0.13,0.42,0.13],S,[0.50,0,0.15]),  // left arm to the reins
+    dP('sph',[-0.37,0.13,0.30],[0.11,0.11,0.11],MT),       // left gauntlet
+    dP('box',[0,0.03,0.58],[0.04,0.03,0.82],D,[0.30,0,0]), // rein strap toward the bit
+    dP('cyl',[0,0.88,0],[0.31,0.34,0.31],S),               // great helm
+    dP('box',[0,0.73,0],[0.37,0.05,0.37],MT),              // helm brim
+    dP('box',[0,0.86,0.145],[0.20,0.045,0.03],D),          // visor slit
+    dP('box',[0,0.79,0.155],[0.05,0.17,0.03],S),           // nose guard
+    dP('box',[0,1.07,0],[0.08,0.06,0.30],MT),              // crown ridge (plume socket)
+  ];
+}
+function knightPlumeParts(TN){
+  const B=TN.trim;
+  return [
+    dP('box',[0,0.10,-0.05],[0.09,0.26,0.15],B,[-0.25,0,0]),
+    dP('box',[0,0.25,-0.14],[0.08,0.24,0.13],B,[-0.55,0,0]),
+    dP('cone',[0,0.38,-0.26],[0.09,0.26,0.09],B,[-1.10,0,0]),
+  ];
+}
+function knightArmParts(TN){
+  const S=TN.armor,MT=TN.metal,W=TN.blade;
+  return [
+    dP('box',[0,-0.16,0],[0.13,0.36,0.13],S),              // upper arm
+    dP('sph',[0,-0.35,0],[0.11,0.11,0.11],MT),             // elbow cop
+    dP('box',[0,-0.51,0.02],[0.11,0.30,0.11],S),           // forearm
+    dP('sph',[0,-0.68,0.03],[0.10,0.10,0.10],MT),          // gauntlet
+    dP('box',[0,-0.73,0.03],[0.32,0.045,0.06],MT),         // crossguard
+    dP('box',[0,-1.32,0.03],[0.055,1.12,0.016],W),         // long sword blade
+    dP('cone',[0,-1.95,0.03],[0.055,0.15,0.016],W,[Math.PI,0,0]), // tip
+  ];
+}
+function makeKnightMountView(id,b){
+  const TN=TINTS['knight-mount'];
+  const mat=new T.MeshLambertMaterial({vertexColors:true});
+  const root=new T.Group(); root.rotation.order='YXZ';
+  const bodyG=new T.Group(); root.add(bodyG);
+  bodyG.add(new T.Mesh(dGeo(knightHorseParts(TN)),mat));
+  const neckG=new T.Group(); neckG.position.set(0,1.52,0.78); bodyG.add(neckG);
+  neckG.add(new T.Mesh(dGeo(knightNeckParts(TN)),mat));
+  const headG=new T.Group(); headG.position.set(0,0.14,0.70); neckG.add(headG);
+  headG.add(new T.Mesh(dGeo(knightHeadParts(TN)),mat));
+  const tailG=new T.Group(); tailG.position.set(0,1.50,-0.92); bodyG.add(tailG);
+  tailG.add(new T.Mesh(dGeo(knightTailParts(TN)),mat));
+  const riderG=new T.Group(); riderG.position.set(0,1.66,-0.02); bodyG.add(riderG);
+  riderG.add(new T.Mesh(dGeo(knightRiderParts(TN)),mat));
+  const plumeG=new T.Group(); plumeG.position.set(0,1.08,-0.02); riderG.add(plumeG);
+  plumeG.add(new T.Mesh(dGeo(knightPlumeParts(TN)),mat));
+  const armG=new T.Group(); armG.position.set(0.34,0.60,0.02); riderG.add(armG);
+  armG.add(new T.Mesh(dGeo(knightArmParts(TN)),mat));
+  const legGeo=dGeo(knightLegParts(TN));
+  const legs=[];
+  for(const [lx,lz] of [[-0.27,0.60],[0.27,0.60],[-0.27,-0.60],[0.27,-0.60]]){
+    const g=new T.Group(); g.position.set(lx,1.18,lz);
+    g.add(new T.Mesh(legGeo,mat)); root.add(g); legs.push(g);
+  }
+  scene.add(root);
+  const D={ t:0, phase:0, amp:0, armX:-0.55, lean:0, neckX:-0.55,
+    bodyG, neckG, headG, tailG, riderG, plumeG, armG, legs, mat };
+  const v={ kind:'knight-mount', id, mesh:root, knight:D, baseScale:1,
+    anim:{cur:'knightMount',prev:null,t:0,prevT:0,blend:1,weightSum:1},
+    bones:JOINTS.map(()=>({rotation:{x:0,y:0,z:0}})),
+    dispose(){
+      root.traverse(o=>{ if(o.geometry)o.geometry.dispose(); });
+      mat.dispose();
+    } };
+  VIEWS.set(id,v);
+  return v;
+}
+
+/* Procedural knight-mount animation — reads sim boss state only
+   (position, yaw, velocity, state string, hitFlash), so lockstep
+   guests see the same gallop because they simulate the same state. */
+function updateKnightMountView(v,b,dt){
+  const D=v.knight; D.t+=dt;
+  const root=v.mesh;
+  root.position.set(b.x,0,b.z); root.rotation.y=b.yaw;
+  const sp=Math.sqrt(b.vx*b.vx+b.vz*b.vz);
+  const moving=clamp(sp/7,0,1);
+  D.phase+=dt*(5+sp*1.05);
+  D.amp+=((moving>0.05?1:0)-D.amp)*Math.min(1,dt*6);
+  /* gallop: diagonal pairs (FL+HR, FR+HL) with a gathered offset */
+  const legOffs=[0,Math.PI,Math.PI,0.4];
+  for(let i=0;i<4;i++)
+    D.legs[i].rotation.x=Math.sin(D.phase+legOffs[i])*0.55*D.amp;
+  if(D.amp<0.25){
+    /* idle pawing: the near foreleg scrapes the ground in slow pulses */
+    const p=Math.max(0,Math.sin(D.t*0.8)); 
+    D.legs[1].rotation.x=-(p*p*p)*0.45;
+  }
+  /* body: suspension bob + pitch over the stride, idle breathing */
+  D.bodyG.position.y=Math.abs(Math.sin(D.phase))*0.075*D.amp+Math.sin(D.t*1.7)*0.015;
+  D.bodyG.rotation.x=Math.sin(D.phase+0.6)*0.05*D.amp;
+  /* neck/head: nod against the stride; head up on the charge
+     telegraph, stretched low in the charge */
+  let neckT=-0.55+Math.sin(D.phase+1.1)*0.07*D.amp;
+  if(b.state==='chargeTele')neckT=-0.38;
+  else if(b.state==='charge')neckT=-0.68;
+  D.neckX+=(neckT-D.neckX)*Math.min(1,dt*6);
+  D.neckG.rotation.x=D.neckX;
+  D.headG.rotation.x=-D.neckX*0.55+Math.sin(D.t*1.9+0.5)*0.03;
+  /* tail flows behind the stride; plume streams with speed */
+  D.tailG.rotation.x=0.10+Math.sin(D.phase-0.7)*0.14*D.amp;
+  D.tailG.rotation.y=Math.sin(D.t*1.9)*0.10;
+  D.plumeG.rotation.x=-clamp(sp/19,0,1)*0.55+Math.sin(D.phase)*0.08*D.amp+Math.sin(D.t*3.1)*0.04;
+  /* rider lean: sits back as the horse gathers, drives forward in the
+     charge and through the sword sweep */
+  let leanT=-0.04-clamp(sp/19,0,1)*0.10;
+  if(b.state==='chargeTele')leanT=0.10;
+  else if(b.state==='charge')leanT=-0.30;
+  else if(b.state==='slamTele')leanT=-0.10;
+  else if(b.state==='slam')leanT=-0.32;
+  D.lean+=(leanT-D.lean)*Math.min(1,dt*7);
+  D.riderG.rotation.x=D.lean;
+  /* sword arm: couched in the charge, raised high on both telegraphs,
+     chopped down through the slam */
+  let armT=-0.55+Math.sin(D.t*2.2)*0.03, armRate=6;
+  if(b.state==='chargeTele')armT=-2.55;
+  else if(b.state==='charge')armT=-1.30;
+  else if(b.state==='slamTele')armT=-2.20;
+  else if(b.state==='slam'){ armT=0.55; armRate=16; }
+  else if(b.state==='recover')armT=-0.90;
+  D.armX+=(armT-D.armX)*Math.min(1,dt*armRate);
+  D.armG.rotation.x=D.armX;
+  /* shared hit flash */
+  const hf=b.hitFlash||0;
+  D.mat.emissive.setRGB(0.45*hf,0.42*hf,0.40*hf);
 }
 
 /* ---------- gems / heal orbs / projectiles (cosmetic instancing) ---------- */

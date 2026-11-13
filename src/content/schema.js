@@ -31,7 +31,7 @@ export const PRIM_KINDS = Object.freeze(['box', 'sph', 'cyl', 'cyl12', 'cone']);
     `custom: '<id>'` carries a tint + meshScale but NO rig parts — its
     builder owns the geometry and its animation. Adding a renderer means
     adding the builder in game.js AND the id here, in the same commit. */
-export const CUSTOM_RENDERERS = Object.freeze(['dragon']);
+export const CUSTOM_RENDERERS = Object.freeze(['dragon', 'knightMount']);
 
 /** Named plastic colour slots used by TINTS and by part `c` references. */
 export const TINT_SLOTS = Object.freeze([

@@ -1,13 +1,13 @@
 {
-  "sourceSha256": "616b80e4e3b8502316f5b9a7ac43e5535613aa8bea7808dbbf20a0a30bd9cdff",
-  "build": "AB-NET-3",
+  "sourceSha256": "5376b5a0205f5eee54e8d72f277cac65b419f8c867c1a7e3ba0015309ec9eda4",
+  "build": "AB-NET-4",
   "heroCosts": {
     "soldier": 150,
     "archer": 200,
     "sorcerer": 250,
     "knight": 300
   },
-  "simContentSha256": "03c46a7d5946a1fef2bad799a95ae5697c4eaf3a32af89429cd04289284fd9f2",
+  "simContentSha256": "6f67a12fe858a5ad5d11314ced1d042d52582b801bffccff65aa25e5dac47da9",
   "checks": {
     "fresh": "3211ebe328fd195f",
     "idle600": "9fea68db557a617b",

@@ -4,11 +4,11 @@
 import { deepFreeze } from '../../schema.js';
 import { emeraldDrake } from './emerald-drake.js';
 import { graveSovereign } from './grave-sovereign.js';
-import { magmaTyrant } from './magma-tyrant.js';
+import { ironLancer } from './iron-lancer.js';
 import { BOSS_CFG, BOSS_PHASE2, BOSS_FIGURE } from './shared.js';
 
 export const BOSSES = deepFreeze({
-  1: emeraldDrake, 2: graveSovereign, 3: magmaTyrant,
+  1: emeraldDrake, 2: graveSovereign, 3: ironLancer,
 });
 export const BOSS_IDS = deepFreeze(Object.values(BOSSES).map((b) => b.id));
 
