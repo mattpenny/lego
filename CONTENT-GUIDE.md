@@ -320,6 +320,20 @@ descriptor fields affect presentation only:
   after the original 0.52 m dark-steel head read as a small stick at
   game distance. Both changes are figure/descriptor view data only;
   the combined digest did not move.)
+- The dwarf also SWINGS differently (2026-11-14): `CLIPS.hammer` in
+  game.js is his attack clip — a two-handed OVERHEAD slam in the pitch
+  plane (weapon arm to −2.55 rad behind the crown at t=0.13, slammed
+  to +0.95 with spine pitched +0.40 at the t=0.25 hit key, then
+  recover), selected in syncViews by `heroId==='dwarf'` exactly the
+  way ranged heroes swap in `CLIPS.shoot`. Same 0.625 s envelope,
+  same hit frame; `updateAnim` drives it from the sim's state time
+  like attack/shoot. His crescent follows the same arc: slash slots
+  keyed `mk==='dwarf'` pitch the flat arc into the vertical facing
+  plane (slot `rx`, rotation order YXZ) and sweep its centre from
+  −100° to +49° over the shared q envelope, so the pale-orange arc
+  crests over him and lands with the hit step. Other heroes' slots
+  keep `rx=0` and the original yaw sweep — regression-captured
+  unchanged. All view-only; digests bit-identical.
 - `trait: '…'` — the one-line tradeoff shown on the hero's
   CHOOSE YOUR HERO card ("Ranged arrows · lighter damage" / "Heavy
   hammer · slower, short roll" / "Balanced sword & shield"), read from

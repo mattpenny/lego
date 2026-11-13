@@ -1753,6 +1753,22 @@ const CLIPS={
     {t:0.44, p:pose({1:[0.20,0.28,0],6:[0.35,0,0.30],7:[-0.55,0,0],8:[-0.30,0,0]})},
     {t:0.625,p:pose({})}
   ]),
+  /* HAMMER SLAM (the Earth Dwarf, 'Matt'): same 0.625 s envelope and the
+     same hit key at t=0.25 as the sword swing, but the motion is a
+     two-handed OVERHEAD slam in the pitch plane — no spine yaw, no
+     across-body z. The weapon arm (6/7/8) hauls the hammer high behind
+     the head by t=0.13 (joint 6 x -2.55: up and back over the crown),
+     the left arm (3/4) comes up with it as if gripping the haft, the
+     spine leans back; then everything pitches forward into the hit key
+     (spine +0.40, hips +0.24 crouch, arm +0.95) and recovers. View-only:
+     clip choice keys on heroId in syncViews; sim timing is untouched. */
+  hammer: CLIP(0.625,false,[
+    {t:0,    p:pose({1:[-0.06,0,0],3:[-0.30,0,0.15],4:[-0.30,0,0],6:[-0.70,0,-0.10],7:[-0.50,0,0],8:[0.25,0,0]})},
+    {t:0.13, p:pose({0:[-0.05,0,0],1:[-0.22,0,0],2:[-0.14,0,0],3:[-2.00,0,0.55],4:[-0.55,0,0],6:[-2.55,0,-0.12],7:[-0.85,0,0],8:[0.55,0,0],9:[0.08,0,0],11:[-0.08,0,0]})},
+    {t:0.25, p:pose({0:[0.24,0,0],1:[0.40,0,0],2:[0.16,0,0],3:[0.60,0,0.30],4:[-0.25,0,0],6:[0.95,0,0.05],7:[-0.12,0,0],8:[-0.30,0,0],9:[-0.28,0,0],10:[0.30,0,0],11:[0.20,0,0],12:[0.10,0,0]})},
+    {t:0.44, p:pose({0:[0.10,0,0],1:[0.16,0,0],3:[0.15,0,0.25],4:[-0.15,0,0],6:[0.35,0,0],7:[-0.45,0,0],8:[-0.10,0,0]})},
+    {t:0.625,p:pose({})}
+  ]),
   /* BOW SHOT (ranged heroes): same 0.625 s envelope as the sword swing.
      The bow arm (3/4/5) holds the bow up toward facing for the whole
      clip; the draw arm (6/7/8) pulls the string to the cheek during the
@@ -1846,7 +1862,7 @@ function updateAnim(v,dt,stateTime){
   const a=v.anim;
   a.t+=dt; a.prevT+=dt;
   a.blend=Math.min(1,a.blend+dt/CROSSFADE);
-  const pB=sampleClip(CLIPS[a.cur]||CLIPS.idle,(a.cur==='attack'||a.cur==='shoot')?stateTime:a.t);
+  const pB=sampleClip(CLIPS[a.cur]||CLIPS.idle,(a.cur==='attack'||a.cur==='shoot'||a.cur==='hammer')?stateTime:a.t);
   const wA=a.prev?1-a.blend:0, wB=1-wA;
   const pA=a.prev?sampleClip(CLIPS[a.prev]||CLIPS.idle,a.prevT):null;
   a.weightSum=wA+wB;                       // EXACTLY 1.0 by construction
@@ -1884,6 +1900,10 @@ function syncViews(s,dt){
     /* A ranged hero (HERO_ATTACK) shoots: swap the sword clip for the
        bow-shot clip while her sim state is 'attack'. */
     if(hs==='attack'&&(HERO_ATTACK[h.heroId]||{}).kind==='arrow')hClip='shoot';
+    /* The Earth Dwarf swings his hammer OVERHEAD, not with the sword
+       slash pose: swap in the hammer clip while his sim state is
+       'attack'. Same envelope, same hit frame — view layer only. */
+    if(hs==='attack'&&h.heroId==='dwarf')hClip='hammer';
     setClip(hv,hClip,h.state==='attack'?h.st:undefined);
     updateAnim(hv,dt,h.state==='attack'?h.st:0);
     /* ROLL = a real forward somersault, not a dash. The mesh pitches a full
@@ -2798,7 +2818,7 @@ function updateSlashFX(s,dt){
       if(sl.age>0.52)sl.on=false;
     }
     if(!sl.on||!h){
-      sl.b=0; sl.px=0; sl.py=-50; sl.pz=0; sl.ry=0; sl.rz=0; sl.sc=0.001;
+      sl.b=0; sl.px=0; sl.py=-50; sl.pz=0; sl.rx=0; sl.ry=0; sl.rz=0; sl.sc=0.001;
     }else{
       const t=sl.age, q=clamp(t/0.30,0,1), qe=1-(1-q)*(1-q);
       const sweep=sl.dir*(0.92-1.84*qe);              // +53 deg -> -53 deg
@@ -2806,7 +2826,19 @@ function updateSlashFX(s,dt){
       if(t>0.03)sl.b=0.50*Math.min(1,(t-0.03)/0.10);  // peak covers hitAt 0.25 s
       if(t>0.27)sl.b=0.50*Math.max(0,1-(t-0.27)/0.20);
       sl.px=h.x; sl.py=1.06; sl.pz=h.z;
-      sl.ry=sl.yaw+sweep; sl.rz=sl.dir*0.30;
+      if(sl.mk==='dwarf'){
+        /* The dwarf's crescent rides his OVERHEAD hammer arc: the flat
+           arc is pitched up into the vertical facing plane (rotation
+           order YXZ — yaw to facing first, then pitch about the yawed
+           X) and its centre sweeps from up-behind-the-head (-100 deg)
+           to down-forward (+49 deg) across the same q envelope, so the
+           pale-orange arc crests over him and lands with the hit step,
+           exactly where the hammer head travels. Colour, brightness
+           envelope and timing are the shared ones above. */
+        sl.ry=sl.yaw; sl.rz=0; sl.rx=-1.75+2.60*qe;
+      }else{
+        sl.rx=0; sl.ry=sl.yaw+sweep; sl.rz=sl.dir*0.30;
+      }
       sl.sc=0.92+0.14*qe;
     }
   }
@@ -2817,7 +2849,7 @@ function updateSlashFX(s,dt){
       const sl=slashSlots[i], live=sl.on&&sl.mk===e.key;
       if(live)any=true;
       slashDummy.position.set(live?sl.px:0,live?sl.py:-50,live?sl.pz:0);
-      slashDummy.rotation.set(0,live?sl.ry:0,live?sl.rz:0);
+      slashDummy.rotation.set(live?(sl.rx||0):0,live?sl.ry:0,live?sl.rz:0);
       slashDummy.scale.setScalar(live?sl.sc:0.001); slashDummy.scale.y=1;
       slashDummy.updateMatrix();
       e.mesh.setMatrixAt(i,slashDummy.matrix);
