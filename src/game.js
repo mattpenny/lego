@@ -432,6 +432,12 @@ function damageBoss(s,b,dmg,crit){
   if(!b.enraged&&b.hp>0&&b.hp<=CFG.boss2.hpFrac*b.maxHp){
     b.enraged=true; emit('enrage',{x:b.x,z:b.z});
   }
+  /* FURY — third phase, once per boss at <=15% HP: approach speed
+     stacks another x1.15 and attack tempo rises x1.15 (see the tempo
+     rule in updateBoss). The flag is sim state and is hashed. */
+  if(!b.furious&&b.hp>0&&b.hp<=CFG.boss2.fury.hpFrac*b.maxHp){
+    b.furious=true; emit('fury',{x:b.x,z:b.z});
+  }
   if(b.hp<=0){
     s.score+=bossCfgOf(s).score;
     emit('bossDeath',{x:b.x,z:b.z});
@@ -808,6 +814,9 @@ function updateProjectiles(s,dt){
    dot test and takes nothing. */
 function breathDamage(s,b,B){
   const BR=B.breath;
+  /* cfg.dmgMul scales the tick ONCE (rounded per tick, never
+     accumulated): tickDmg 9 x 1.1 = 10 per 0.2 s tick. */
+  const tickDmg=Math.round(BR.tickDmg*(B.dmgMul||1));
   const fx=Math.sin(b.lockYaw), fz=Math.cos(b.lockYaw);
   const hx=b.x+fx*BR.headDist, hz=b.z+fz*BR.headDist;
   const cosHalf=Math.cos(BR.halfAngleDeg*DEG);
@@ -818,9 +827,9 @@ function breathDamage(s,b,B){
     const d=Math.sqrt(dx*dx+dz*dz);
     if(d>BR.range+HERO_R)continue;
     if(d>0.001 && (dx*fx+dz*fz)/d<cosHalf)continue;   // outside the cone
-    h.hp=Math.max(0,h.hp-BR.tickDmg);
+    h.hp=Math.max(0,h.hp-tickDmg);
     b.pursuit=0;                                      // a hit landed: no ramp
-    emit('hit',{x:h.x,z:h.z,y:1.5,dmg:BR.tickDmg,crit:false,type:'boss'});
+    emit('hit',{x:h.x,z:h.z,y:1.5,dmg:tickDmg,crit:false,type:'boss'});
     if(h.hp<=0)resolveHeroDeath(s,h);
   }
 }
@@ -828,6 +837,14 @@ function breathDamage(s,b,B){
 function updateBoss(s,dt){
   const b=s.boss; if(!b||b.hp<=0)return;
   const B=bossCfgOf(s);
+  /* FURY tempo: telegraph durations and cooldowns that START while
+     the boss is furious are divided by tempoMul (attack speed +15%).
+     A timer already running when fury triggers keeps the duration it
+     started with — the divisor is read here, at assignment time only.
+     Breath tickEvery/duration and charge duration/speed are NOT
+     tempo-scaled: per-breath damage is unchanged, the boss simply
+     cycles to its next attack sooner. */
+  const tempo=b.furious?CFG.boss2.fury.tempoMul:1;
   /* FROZEN (Frost Nova, half duration on bosses): everything pauses —
      cooldowns, pursuit ramp, telegraph/charge/breath timers — and the
      boss does not move. It can still be hit and killed while frozen. */
@@ -845,20 +862,20 @@ function updateBoss(s,dt){
   const stopDist=B.radius+HERO_R+0.30;
   if(b.state==='approach'){
     b.yaw=Math.atan2(dx,dz);
-    if(d>stopDist){ const sp=(B.speed+boost)*(b.enraged?CFG.boss2.speedMul:1); mvx=dx/d*sp; mvz=dz/d*sp; }
+    if(d>stopDist){ const sp=(B.speed+boost)*(b.enraged?CFG.boss2.speedMul:1)*(b.furious?CFG.boss2.fury.speedMul:1); mvx=dx/d*sp; mvz=dz/d*sp; }
     if(B.breath && b.brCd<=0 && d>=B.breath.minRange && d<=B.breath.maxRange){
       /* Fire breath wins the mid-range slot when it is ready; the facing
          LOCKS here, at telegraph start, so a sidestep during the 0.8 s
          wind-up genuinely avoids the cone (locked-facing dodge rule). */
-      b.lockYaw=b.yaw; b.state='breathTele'; b.timer=B.breath.tele;
+      b.lockYaw=b.yaw; b.state='breathTele'; b.timer=B.breath.tele/tempo;
       mvx=0;mvz=0;
       emit('bossTelegraph',{x:b.x,z:b.z,kind:'BREATH'});
     }else if(d>B.chargeRange && b.cd<=0){
-      b.lockYaw=b.yaw; b.state='chargeTele'; b.timer=B.chargeTele;
+      b.lockYaw=b.yaw; b.state='chargeTele'; b.timer=B.chargeTele/tempo;
       mvx=0;mvz=0;
       emit('bossTelegraph',{x:b.x,z:b.z,kind:'CHARGE'});
     }else if(d<=B.slamRange && b.slamCd<=0){
-      b.lockYaw=b.yaw; b.state='slamTele'; b.timer=B.slamTele;
+      b.lockYaw=b.yaw; b.state='slamTele'; b.timer=B.slamTele/tempo;
       mvx=0;mvz=0;                     // freeze AT the wind-up start so the slam lands
       emit('bossTelegraph',{x:b.x,z:b.z,kind:'SLAM'});
     }
@@ -882,14 +899,14 @@ function updateBoss(s,dt){
     const dd=Math.sqrt((h.x-b.x)*(h.x-b.x)+(h.z-b.z)*(h.z-b.z));
     if(dd<B.radius+HERO_R+0.55 && !b.chargeHit){
       b.chargeHit=true; b.pursuit=0;
-      if(hurtHero(s,h,B.chargeDmg,'boss'))emit('bossSlam',{x:h.x,z:h.z});
+      if(hurtHero(s,h,Math.round(B.chargeDmg*(B.dmgMul||1)),'boss'))emit('bossSlam',{x:h.x,z:h.z});
     }
-    if(b.timer<=0){ b.state='recover'; b.timer=0.75; b.cd=B.chargeCd; b.slamCd=0.7; b.chargeHit=false; }
+    if(b.timer<=0){ b.state='recover'; b.timer=0.75; b.cd=B.chargeCd/tempo; b.slamCd=0.7/tempo; b.chargeHit=false; }
   }else if(b.state==='slamTele'){
     b.timer-=dt;
     // A lunging wind-up: the boss keeps closing (but never crosses) the hero,
     // so the slam actually lands on a moving target instead of expiring in air.
-    if(d>stopDist){ const sp=(B.speed+boost)*(b.enraged?CFG.boss2.speedMul:1); mvx=dx/d*sp; mvz=dz/d*sp; }
+    if(d>stopDist){ const sp=(B.speed+boost)*(b.enraged?CFG.boss2.speedMul:1)*(b.furious?CFG.boss2.fury.speedMul:1); mvx=dx/d*sp; mvz=dz/d*sp; }
     if(b.timer<=0){
       b.state='slam'; b.timer=0.35;
       const ddx=h.x-b.x, ddz=h.z-b.z, dd=Math.sqrt(ddx*ddx+ddz*ddz)||0.001;
@@ -898,12 +915,12 @@ function updateBoss(s,dt){
       const inArc=dd<1.2 || (ddx*Math.sin(b.lockYaw)+ddz*Math.cos(b.lockYaw))/dd>=Math.cos(70*DEG);
       if(dd<=B.slamRange && inArc){
         b.pursuit=0;
-        if(hurtHero(s,h,B.slamDmg+(b.enraged?CFG.boss2.slamBonus:0),'boss'))emit('bossSlam',{x:h.x,z:h.z});
+        if(hurtHero(s,h,Math.round((B.slamDmg+(b.enraged?CFG.boss2.slamBonus:0))*(B.dmgMul||1)),'boss'))emit('bossSlam',{x:h.x,z:h.z});
       }
       emit('bossSlamFx',{x:b.x,z:b.z});
     }
   }else if(b.state==='slam'){
-    b.timer-=dt; if(b.timer<=0){ b.state='recover'; b.timer=0.55; b.slamCd=1.1; }
+    b.timer-=dt; if(b.timer<=0){ b.state='recover'; b.timer=0.55; b.slamCd=1.1/tempo; }
   }else if(b.state==='breathTele'){
     /* Stationary, head rearing, facing frozen at lockYaw. */
     b.timer-=dt; b.yaw=b.lockYaw;
@@ -928,7 +945,7 @@ function updateBoss(s,dt){
     }
     if(b.timer<=0){
       b.state='recover'; b.timer=0.6;
-      b.brCd=b.summoned?B.breath.p2Cd:B.breath.cd;      // phase 2 cools down faster
+      b.brCd=(b.summoned?B.breath.p2Cd:B.breath.cd)/tempo;  // phase 2 cools down faster; fury tempo on top
     }
   }else if(b.state==='recover'){
     b.timer-=dt; if(b.timer<=0)b.state='approach';
@@ -1171,7 +1188,7 @@ function simDigest(s){
   }
   put('G'+s.gems.length);for(const g of s.gems)for(const v of [g.id,g.x,g.z])put(q(v));
   put('H'+s.heals.length);for(const o of s.heals)for(const v of [o.id,o.x,o.z])put(q(v));
-  if(s.boss){const b=s.boss;put('B1');for(const v of [b.x,b.z,b.yaw,b.lockYaw,b.hp,b.timer,b.cd,b.slamCd,b.pursuit||0,b.state==='charge'?1:0,b.brCd||0,b.brTick||0])put(q(v));put(b.state);put(b.enraged?1:0);put(b.summoned?1:0);put(b.frozen||0);}
+  if(s.boss){const b=s.boss;put('B1');for(const v of [b.x,b.z,b.yaw,b.lockYaw,b.hp,b.timer,b.cd,b.slamCd,b.pursuit||0,b.state==='charge'?1:0,b.brCd||0,b.brTick||0])put(q(v));put(b.state);put(b.enraged?1:0);put(b.summoned?1:0);put(b.furious?1:0);put(b.frozen||0);}
   else put('B0');
   for(const k of Object.keys(s.up).sort())put(k+':'+s.up[k]);
   return (h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0');
@@ -1885,6 +1902,7 @@ function makeDragonView(id,b){
   const TN=TINTS.dragon;
   const mat=new T.MeshLambertMaterial({vertexColors:true});
   const root=new T.Group(); root.rotation.order='YXZ';
+  root.scale.setScalar(FIGURE_SCALES.dragon||1);   // descriptor meshScale (x1.3 boss size buff)
   const torsoG=new T.Group(); root.add(torsoG);
   torsoG.add(new T.Mesh(dGeo(dragonBodyParts(TN)),mat));
   const neckG=new T.Group(); neckG.position.set(0,1.80,1.35); torsoG.add(neckG);
@@ -1943,7 +1961,7 @@ function makeDragonView(id,b){
   const D={ t:0, trot:0, legAmp:0, spread:0.15, neckX:0, jaw:0,
     torsoG, neckG, headG, jawG, wingL, wingR, tailG, legs, mat, chest,
     flame:{outer:flameOuter, inner:flameInner, glow, scorch} };
-  const v={ kind:'dragon', id, mesh:root, dragon:D, baseScale:1,
+  const v={ kind:'dragon', id, mesh:root, dragon:D, baseScale:FIGURE_SCALES.dragon||1,
     anim:{cur:'dragon',prev:null,t:0,prevT:0,blend:1,weightSum:1},
     bones:JOINTS.map(()=>({rotation:{x:0,y:0,z:0}})),
     dispose(){
@@ -2012,18 +2030,20 @@ function updateDragonFlame(D,b){
   }
   const yaw=b.lockYaw;
   const fx=Math.sin(yaw), fz=Math.cos(yaw);
-  const hx=b.x+fx*3.0, hz=b.z+fz*3.0;   // the mouth, world space
+  const hx=b.x+fx*BR.headDist, hz=b.z+fz*BR.headDist;   // the mouth (cfg headDist), world space
+  const mouthY=3.19;   // old 2.45 x 1.3 boss size buff — the scaled head height
   F.glow.visible=true;
-  F.glow.position.set(hx,2.45,hz);
+  F.glow.position.set(hx,mouthY,hz);
   F.glow.scale.setScalar(tele?0.9+0.35*Math.abs(Math.sin(D.t*7)):1.25);
   if(!breathing){ F.outer.visible=F.inner.visible=F.scorch.visible=false; return; }
   F.outer.visible=F.inner.visible=F.scorch.visible=true;
-  F.outer.position.set(hx,2.45,hz); F.outer.rotation.y=yaw;
-  F.inner.position.set(hx,2.45,hz); F.inner.rotation.y=yaw;
+  F.outer.position.set(hx,mouthY,hz); F.outer.rotation.y=yaw;
+  F.inner.position.set(hx,mouthY,hz); F.inner.rotation.y=yaw;
   const fl=0.85+0.30*Math.sin(D.t*43)+0.12*Math.sin(D.t*91);
-  F.outer.scale.set(fl,fl,1); F.inner.scale.set(fl*0.95,fl*0.95,1);
+  const flLen=BR.range/9.5;   // flame visual tracks the damage cone length (geometry built 9.5 long)
+  F.outer.scale.set(fl,fl,flLen); F.inner.scale.set(fl*0.95,fl*0.95,flLen);
   F.outer.material.opacity=0.34; F.inner.material.opacity=0.50;
-  F.scorch.position.set(b.x+fx*(BR.headDist+4.8),0.06,b.z+fz*(BR.headDist+4.8));
+  F.scorch.position.set(b.x+fx*(BR.headDist+BR.range*0.5),0.06,b.z+fz*(BR.headDist+BR.range*0.5));
   F.scorch.material.opacity=0.26+0.06*Math.sin(D.t*37);
 }
 
@@ -2138,6 +2158,7 @@ function makeKnightMountView(id,b){
   const TN=TINTS['knight-mount'];
   const mat=new T.MeshLambertMaterial({vertexColors:true});
   const root=new T.Group(); root.rotation.order='YXZ';
+  root.scale.setScalar(FIGURE_SCALES['knight-mount']||1);   // descriptor meshScale (x1.3 boss size buff)
   const bodyG=new T.Group(); root.add(bodyG);
   bodyG.add(new T.Mesh(dGeo(knightHorseParts(TN)),mat));
   const neckG=new T.Group(); neckG.position.set(0,1.52,0.78); bodyG.add(neckG);
@@ -2161,7 +2182,7 @@ function makeKnightMountView(id,b){
   scene.add(root);
   const D={ t:0, phase:0, amp:0, armX:-0.55, lean:0, neckX:-0.55,
     bodyG, neckG, headG, tailG, riderG, plumeG, armG, legs, mat };
-  const v={ kind:'knight-mount', id, mesh:root, knight:D, baseScale:1,
+  const v={ kind:'knight-mount', id, mesh:root, knight:D, baseScale:FIGURE_SCALES['knight-mount']||1,
     anim:{cur:'knightMount',prev:null,t:0,prevT:0,blend:1,weightSum:1},
     bones:JOINTS.map(()=>({rotation:{x:0,y:0,z:0}})),
     dispose(){
@@ -2322,7 +2343,7 @@ function updatePickupMeshes(s,time){
   for(const h of s.heroes)put(h.x,h.z,0.55);
   for(const e of s.enemies)put(e.x,e.z,0.5);
   if(s.boss&&s.boss.hp>0){ const bf=(BOSSES[s.chapter]||{}).figure;
-    put(s.boss.x,s.boss.z,(FIGURES[bf]&&FIGURES[bf].custom)?2.35:1.25); }
+    put(s.boss.x,s.boss.z,(FIGURES[bf]&&FIGURES[bf].custom)?3.055:1.625); }  // blob shadow x1.3 with the boss size buff
   shadowMesh.count=n;shadowMesh.instanceMatrix.needsUpdate=true;
 }
 
@@ -2645,30 +2666,38 @@ function updateSlashFX(s,dt){
 }
 
 /* ---------- hero arrows (cosmetic only) ----------
-   Pooled meshes for the sim's hero arrows (s.arrows): a wood shaft,
-   steel head and pale crossed fletching (one merged vertex-coloured
-   geometry), oriented along the velocity, plus a short faint additive
-   streak trailing behind each one. Pure presentation — the sim's
-   segment hit test never reads these. */
+   Pooled meshes for the sim's hero arrows (s.arrows): a PALE shaft,
+   bright steel head and vivid frost-cyan crossed fletching (one merged
+   vertex-coloured geometry), oriented along the velocity, plus a long
+   additive tracer streak trailing behind each one. Sized for phone
+   readability (Matt: the first version read too small/thin in flight).
+   FINAL shipped scale, after capture checks at 844x390: shaft 0.13 m
+   thick (the original was 0.045 — ~2.9x), head r 0.15, fletching
+   0.42 m wide in vivid frost cyan, overall length ~1.19 m (1.28x),
+   pale near-white shaft, and a 0.26 x 1.6 m additive frost-cyan
+   tracer streak (0x7fe3ff, 0.60 opacity) trailing it — the cyan
+   streak is what carries the read at 11 m and over pale sand, where
+   the white shaft alone washes out. Pure presentation — the sim's
+   segment hit test (body + 0.25) never reads these. */
 const ARROW_POOL=12;
 let arrowMeshes=[], arrowTrailMeshes=[];
 function arrowGeo(){
-  const head=new T.ConeGeometry(0.055,0.17,8); head.rotateX(Math.PI/2);
+  const head=new T.ConeGeometry(0.15,0.28,8); head.rotateX(Math.PI/2);
   return mergeParts([
-    {geo:new T.BoxGeometry(0.045,0.045,0.62),x:0,y:0,z:0,c:[0.45,0.30,0.14]},
-    {geo:head,x:0,y:0,z:0.38,c:[0.78,0.82,0.90]},
-    {geo:new T.BoxGeometry(0.17,0.018,0.15),x:0,y:0,z:-0.24,c:[0.92,0.94,0.98]},
-    {geo:new T.BoxGeometry(0.018,0.17,0.15),x:0,y:0,z:-0.24,c:[0.92,0.94,0.98]},
+    {geo:new T.BoxGeometry(0.13,0.13,0.95),x:0,y:0,z:0,c:[0.96,0.94,0.88]},
+    {geo:head,x:0,y:0,z:0.575,c:[0.90,0.94,1.00]},
+    {geo:new T.BoxGeometry(0.42,0.035,0.24),x:0,y:0,z:-0.36,c:[0.20,0.80,1.00]},
+    {geo:new T.BoxGeometry(0.035,0.42,0.24),x:0,y:0,z:-0.36,c:[0.20,0.80,1.00]},
   ]);
 }
 function setupArrowFX(){
   const geo=arrowGeo();
-  const tGeo=new T.PlaneGeometry(0.09,0.6); tGeo.rotateX(-Math.PI/2);
+  const tGeo=new T.PlaneGeometry(0.26,1.6); tGeo.rotateX(-Math.PI/2);
   for(let i=0;i<ARROW_POOL;i++){
     const m=new T.Mesh(geo,new T.MeshLambertMaterial({vertexColors:true}));
     m.frustumCulled=false; m.visible=false; scene.add(m); arrowMeshes.push(m);
-    const tr=new T.Mesh(tGeo,new T.MeshBasicMaterial({color:0xbfe8ff,transparent:true,
-      opacity:0.15,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide}));
+    const tr=new T.Mesh(tGeo,new T.MeshBasicMaterial({color:0x7fe3ff,transparent:true,
+      opacity:0.60,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide}));
     tr.frustumCulled=false; tr.visible=false; scene.add(tr); arrowTrailMeshes.push(tr);
   }
 }
@@ -2680,7 +2709,7 @@ function updateArrowFX(s){
     const m=arrowMeshes[n], tr=arrowTrailMeshes[n];
     m.visible=true; m.position.set(a.x,1.12,a.z); m.rotation.set(0,yaw,0);
     tr.visible=true;
-    tr.position.set(a.x-Math.sin(yaw)*0.48,1.12,a.z-Math.cos(yaw)*0.48);
+    tr.position.set(a.x-Math.sin(yaw)*1.28,1.12,a.z-Math.cos(yaw)*1.28);
     tr.rotation.set(0,yaw,0);
     n++;
   }
@@ -2818,7 +2847,7 @@ function syncIceShells(s){
     g.visible=true;
   };
   for(const e of s.enemies)if((e.frozen||0)>0)use(e.x,e.z,e.yaw,CFG.enemy[e.type].radius,1);
-  if(s.boss&&(s.boss.frozen||0)>0)use(s.boss.x,s.boss.z,s.boss.yaw,bossCfgOf(s).radius,1.45);
+  if(s.boss&&(s.boss.frozen||0)>0)use(s.boss.x,s.boss.z,s.boss.yaw,bossCfgOf(s).radius,1.885);  // tall x1.3 with the boss size buff (width follows radius)
   for(let i=n;i<ICE_POOL;i++)iceShells[i].visible=false;
 }
 
@@ -2862,6 +2891,11 @@ function consumeEvents(){
       case 'victory': Audio.level();break;
       case 'event': showBanner('\u26A0 ELITE INCOMING \u26A0',2600); Audio.boss(); break;
       case 'enrage': showBanner('\u2620 '+BOSS_NAMES[SIM.chapter-1]+' RAGES \u2620',2600); Audio.boss(); break;
+      case 'fury': showBanner('\u2620 '+BOSS_NAMES[SIM.chapter-1]+' IS FURIOUS \u2620',2600);
+        { const fl=$('flash'); fl.style.transition='none'; fl.style.background='#ff2a1a'; fl.style.opacity='0.45';
+          requestAnimationFrame(()=>{ fl.style.transition='opacity .5s'; fl.style.opacity='0'; });
+          setTimeout(()=>{ fl.style.background=''; },700); }
+        Audio.boss(); break;
       case 'bossTelegraph': if(e.kind==='BREATH')Audio.whoosh(0.8); break;
       case 'breathStart': Audio.boss(); break;
       case 'summon': burst(e.x,1.6,e.z,[1,.5,.2],18,4.0); break;
@@ -3212,7 +3246,7 @@ function metaButtons(){
      list silently hid any newly added skin. */
   for(const k of Object.keys(HEROES)){
     if(HEROES[k].default)continue;      // the free default hero is never sold
-    const nm=heroName(k);
+    const nm=heroLabel(k);
     if(META.heroes[k])bs.push({label:(META.heroSkin===k?'\u2713 HERO: ':'USE HERO: ')+nm,fn:()=>heroBtn(k)});
     else bs.push({label:'UNLOCK HERO: '+nm+' \u00B7 '+CFG.meta.heroCosts[k]+' G',fn:()=>heroBtn(k)});
   }
@@ -3227,7 +3261,7 @@ function closeArmoury(){ armouryOpen=false;
 function armouryBodyHTML(){
   return '<div>\u{1FA99} GOLD <span class="k">'+META.gold+'</span> &nbsp;\u00B7&nbsp; BEST '+META.bestTotal+
     ' &nbsp;\u00B7&nbsp; '+[1,2,3].map(c=>(META.cleared[c]?'\u2605':'\u2606')+' CH'+c+(META.best[c]?' \u00B7 '+META.best[c]:'')).join(' &nbsp; ')+
-    ' &nbsp;\u00B7&nbsp; HERO: '+esc(heroName(safeHero(META.heroSkin)))+'</div>'+
+    ' &nbsp;\u00B7&nbsp; HERO: '+esc(heroLabel(safeHero(META.heroSkin)))+'</div>'+
   '<div>Spend gold below: permanent upgrades and hero skins carry across every run. Magic: fill the meter with kills, then unleash 60 damage on everything near.</div>';
 }
 function renderArmoury(){
@@ -3258,6 +3292,10 @@ function heroAbilityText(k){
 /* The one-line tradeoff shown under the ability — read from the hero
    descriptor's `trait`, so the card can never drift from the content. */
 function heroTraitText(k){ return (HEROES[k]&&HEROES[k].trait)||''; }
+function heroRoleText(k){ return (HEROES[k]&&HEROES[k].role)||''; }
+/* Name + class for one-line surfaces (Armoury): "Penny · ARCHER".
+   Heroes without a role (the class skins) render as just their name. */
+function heroLabel(k){ const r=heroRoleText(k); const n=heroName(k); return r?n+' \u00B7 '+r:n; }
 function spawnHeroPreview(kind){
   removeHeroPreview();
   hselView=makeView(kind,HSEL_ID);
@@ -3334,6 +3372,7 @@ function renderHeroSelect(){
     el.className='hcard'+(k===hselKind?' sel':'')+(hselOwned(k)?'':' locked');
     const st=k===hselKind?'SELECTED':(hselOwned(k)?'SELECT':'\u{1F512} '+hselCost(k)+' G');
     el.innerHTML='<div class="hnm">'+esc(heroName(k))+'</div>'+
+      (heroRoleText(k)?'<div class="hrl">'+esc(heroRoleText(k))+'</div>':'')+
       '<div class="hds">'+esc(heroAbilityText(k))+'</div>'+
       '<div class="htr">'+esc(heroTraitText(k))+'</div>'+
       '<div class="hst">'+st+'</div>';

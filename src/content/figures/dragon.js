@@ -23,7 +23,7 @@ export const dragon = {
     glow:  [1.000, 0.450, 0.100],   // fire-orange eyes / mouth glow
     metal: [0.850, 0.620, 0.150],   // gold — treasure chest + hoard
   },
-  meshScale: 1,                     // the custom builder works in world metres
+  meshScale: 1.3,                   // custom builder works in world metres; root scaled x1.3 (boss size buff 2026-11-13)
   parts: [],                        // custom figures own no rig parts (schema)
   added: '2026-11-13',
   notes: 'Quadruped boss figure: segmented body ~5.4 m, articulated wings/neck/head/jaw/tail/legs, all procedural in game.js. View-only: tint edits never move the digest.',

@@ -17,7 +17,7 @@ export const boss = {
     dark: [0.010, 0.010, 0.015],
     glow: [0.980, 0.220, 0.060],
   },
-  meshScale: 1.65,
+  meshScale: 2.145,
   parts: [
     { j:0, g:'box', o:[0,0,0], s:[0.62,0.24,0.36], c:'armor' },
     { j:0, g:'box', o:[0,-0.11,0], s:[0.56,0.1,0.31], c:'trim' },

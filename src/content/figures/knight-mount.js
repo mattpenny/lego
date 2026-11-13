@@ -25,7 +25,7 @@ export const knightMount = {
     glow:  [0.930, 0.940, 0.980],   // pale griffin emblem on the tabard
     metal: [0.620, 0.650, 0.710],   // darker steel — chainmail, stirrups
   },
-  meshScale: 1,                     // the custom builder works in world metres
+  meshScale: 1.3,                   // custom builder works in world metres; root scaled x1.3 (boss size buff 2026-11-13)
   parts: [],                        // custom figures own no rig parts (schema)
   added: '2026-11-13',
   notes: 'Mounted boss figure: horse ~2.7 m long, rider to ~2.9 m with plume. Gallop / lean / sword-raise are procedural in game.js. View-only: tint edits never move the digest.',

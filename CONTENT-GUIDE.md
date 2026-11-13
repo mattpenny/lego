@@ -159,7 +159,7 @@ moves, so re-record the baseline and bump the net stamp (§5).
 Heroes are **cosmetic skins**: behaviour and stats come from `RULES.hero` and
 the Armoury tracks, never from the skin — with three descriptor-carried
 exceptions, all documented at the end of this section: signature **magic**,
-a ranged **attack**, and balance **stats**. (Current build: **AB-NET-6**.)
+a ranged **attack**, and balance **stats**. (Current build: **AB-NET-7**.)
 
 1. **Create `src/content/heroes/<id>.js`:**
 
@@ -199,6 +199,15 @@ id instead.
 
 Plain skins do not change the simulation, so no digest move and no
 net-stamp bump.
+
+**Names and roles.** `displayName` is the headline everywhere (hero-select
+card, Armoury). The three identity heroes also carry an optional `role`
+(`KNIGHT` / `ARCHER` / `DWARF`): the picker shows it as the class sub-line
+under the personal name (the identity heroes are named **Ansum**, **Penny**
+and **Matt**), and one-line surfaces render `Name · ROLE` via `heroLabel()`.
+Both fields are view-only text — NOT in SIM_CONTENT — so renaming a hero
+never moves a digest and never needs a stamp bump. The four class skins
+have no `role`.
 
 **Signature magic (the one exception).** A hero descriptor may carry an
 optional `magic` block — the registry's only per-hero sim ability:
@@ -307,6 +316,24 @@ chapter. Two levels:
 - **A genuinely different boss (own HP/moves):** give `shared.js` per-chapter
   overrides, or add a `cfg` object to the descriptor and branch the boss AI on
   `s.chapter`. This **is** a sim change — full §5 routine.
+
+**Boss numbers (AB-NET-7).** Every boss→hero damage value is scaled by ONE
+multiplier: `cfg.dmgMul` on the shared `BOSS_CFG` and on each own-`cfg` boss
+(default 1 when absent), applied with a single `Math.round` at each damage
+point — slam (the phase-2 slamBonus is added BEFORE the multiply), charge,
+and breath tick. **Phases** are shared, in `BOSS_PHASE2`: Summon ≤50%
+(2 × soldier) · Enrage ≤30% (approach speed ×1.15, slam +4) · **Fury ≤15%**
+(approach speed ×1.15 MORE — ×1.3225 total — and attack tempo ×1.15:
+cooldowns and telegraphs that START in fury are divided by 1.15, timers
+already running keep their duration; breath tick rate/duration and charge
+speed unchanged). The fury flag is hashed sim state. **Size:** `cfg.radius`
+is the sim body — all three bosses are ×1.3 (1.95 / 1.495 / 1.755) — and the
+matching figure scale is the figure descriptor's `meshScale` (warlord
+2.145, which includes its original 1.65; dragon and knightMount 1.3; the
+descriptor snapshot in `scripts/figures-legacy.txt` must match). The
+dragon's `breath.headDist` is the mouth offset and scales with the body
+(3.38) — geometry, not attack range. For every current number, see the
+generated **STATS.md** at the repo root (`npm run stats:build`).
 
 Remember the standing proof rule: verify on the **natural path** (boss spawns
 from the 3:00 timer at 26–30 m and walks in), never by teleporting it next to

@@ -265,6 +265,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 .hcard.sel{border-color:#8a5f1c;background:linear-gradient(180deg,#ffe9b0,#f3d98d);
   box-shadow:0 0 0 2px #caa14e,0 6px 18px rgba(0,0,0,.35)}
 .hcard .hnm{font-size:calc(13px*var(--u));font-weight:bold;letter-spacing:.07em;color:#5a3d0c;white-space:nowrap}
+.hcard .hrl{font-size:calc(8.5px*var(--u));font-weight:bold;letter-spacing:.22em;color:#8a5f1c;margin-top:calc(1px*var(--u))}
 .hcard .hds{font-size:calc(9.5px*var(--u));line-height:1.45;color:#5d4420;
   margin-top:calc(2px*var(--u));min-height:calc(25px*var(--u))}
 .hcard .htr{font-size:calc(9px*var(--u));font-style:italic;color:#7a5a28;

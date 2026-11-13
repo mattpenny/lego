@@ -6,7 +6,8 @@
 export const frostarcher = {
   id: 'frostarcher',
   type: 'hero',
-  displayName: 'FROST ARCHER',
+  displayName: 'Penny',
+  role: 'ARCHER',
   price: 350,
   default: false,
   figure: 'frostarcher',

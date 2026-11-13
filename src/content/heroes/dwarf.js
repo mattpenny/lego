@@ -7,7 +7,8 @@
 export const dwarf = {
   id: 'dwarf',
   type: 'hero',
-  displayName: 'EARTH DWARF',
+  displayName: 'Matt',
+  role: 'DWARF',
   price: 400,
   default: false,
   figure: 'dwarf',

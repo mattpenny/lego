@@ -189,6 +189,12 @@ function checkHero(d, key, errors, warnings) {
      that screen and need none. */
   if (d.trait !== undefined && !isStr(d.trait))
     errors.push(`${w}: trait must be a non-empty string`);
+  /* Optional class label for the identity heroes (KNIGHT / ARCHER /
+     DWARF): the hero-select card and Armoury show the personal
+     displayName as the headline and the role as the class sub-line.
+     View-only text — displayName/role are NOT in SIM_CONTENT. */
+  if (d.role !== undefined && !isStr(d.role))
+    errors.push(`${w}: role must be a non-empty string`);
   if ((d.default === true || d.attack !== undefined || d.stats !== undefined) && !isStr(d.trait))
     errors.push(`${w}: an identity hero (default / attack / stats) needs a trait line for the hero-select card`);
 }
@@ -270,6 +276,12 @@ function checkBoss(d, key, errors, warnings, registry) {
                        'chargeSpeed', 'chargeTele', 'chargeDur', 'chargeCd',
                        'chargeRange', 'chargeDmg', 'slamTele', 'slamRange', 'slamDmg'])
         if (!isNum(d.cfg[f])) errors.push(`${w}: cfg.${f} must be numeric`);
+      /* Optional boss damage multiplier (same pattern as hero stats):
+         scales slam/charge/breath at the point of application in the
+         sim, rounded once. Absent means x1.0. The shared BOSS_CFG in
+         shared.js is not a descriptor, so it is not checked here. */
+      if (d.cfg.dmgMul !== undefined && (!isNum(d.cfg.dmgMul) || d.cfg.dmgMul <= 0))
+        errors.push(`${w}: cfg.dmgMul must be > 0`);
       if (d.cfg.breath !== undefined) {
         if (!isObj(d.cfg.breath)) errors.push(`${w}: cfg.breath must be an object`);
         else for (const f of ['minRange', 'maxRange', 'range', 'halfAngleDeg',

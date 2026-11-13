@@ -8,6 +8,9 @@ export const graveSovereign = {
   sharedSim: 'src/content/enemies/bosses/shared.js',
   added: '2026-11-13',
   notes: 'Name/banner identity only — stats and figure are shared (see bosses/shared.js).',
-  behaviour: ['Identical stats to the Ashen Warden; the Graveyard Forest palette carries the chapter identity.'],
+  behaviour: [
+    'Identical stats to the Ashen Warden (shared BOSS_CFG: HP 330, slam 24 / enraged 29, charge 22 after dmgMul 1.1, radius 1.495 after the x1.3 size buff); the Graveyard Forest palette carries the chapter identity.',
+    'Shared phases: summons 2 soldiers at <=50% HP; enrage at <=30% (speed x1.15, slam +4); FURY at <=15% HP (<=49.5 of 330): speed x1.15 again (7.4 -> 8.51 -> 9.7865) and attack tempo x1.15 for telegraphs/cooldowns starting in fury.',
+  ],
 };
 export default graveSovereign;

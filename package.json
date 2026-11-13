@@ -12,6 +12,7 @@
     "content:check": "node scripts/content-check.mjs",
     "content:baseline": "node scripts/digest-harness.mjs --baseline",
     "content:summary": "node scripts/content-summary.mjs",
+    "stats:build": "node scripts/build-stats.mjs",
     "digest:check": "node scripts/digest-harness.mjs --check",
     "dom:sync": "node scripts/sync-dom.mjs",
     "boot:smoke": "node scripts/boot-smoke.mjs",
