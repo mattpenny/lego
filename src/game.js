@@ -9,7 +9,7 @@
    descriptor file under src/content/. See CONTENT-GUIDE.md section 6. */
 import {
   RULES, REGISTRY, SIM_CONTENT, contentSummary, assertRegistry,
-  HEROES, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC, heroName, safeHero,
+  HEROES, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC, HERO_ATTACK, HERO_SLASH_TINTS, HERO_STATS, heroName, safeHero,
   FIGURES, FIGURE_INK, TINTS, FIGURE_SCALES,
   ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL, SCHEDULED_ELITES, OPENER_KIND,
   ENEMIES,
@@ -217,13 +217,27 @@ const UPGRADES = UPGRADE_LIST;
 function heroStats(s,h){
   const u=s.up, C=CFG.hero;
   const md=(h&&h.mods)||s.mods||{hp:0,dmg:0,spd:0};
+  /* Per-hero BALANCE multipliers (hero descriptor `stats` block ->
+     HERO_STATS, hashed in SIM_CONTENT). Composition rule: each
+     multiplier applies to the BASE stat FIRST — damage is rounded ONCE,
+     here, with Math.round — and only then do the existing upgrade
+     curves and additive meta mods compose on top, exactly as before.
+     A hero with no stats block (lion, all class skins) is x1.0 in every
+     field and bit-identical to the pre-balance game: round(34 x 1)=34,
+     and multiplying by 1.0 is exact. */
+  const hs=(h&&HERO_STATS[h.heroId])||null;
+  const dmgMul=hs&&hs.dmgMul!==undefined?hs.dmgMul:1;
+  const spdMul=hs&&hs.speedMul!==undefined?hs.speedMul:1;
+  const rdMul =hs&&hs.rollDistMul!==undefined?hs.rollDistMul:1;
+  const rcMul =hs&&hs.rollCdMul!==undefined?hs.rollCdMul:1;
   return {
-    speed:C.runSpeed*Math.pow(1.08,u.boots)+md.spd,
-    dmg:C.dmg*Math.pow(1.20,u.edge)+md.dmg,
+    speed:C.runSpeed*spdMul*Math.pow(1.08,u.boots)+md.spd,
+    dmg:Math.round(C.dmg*dmgMul)*Math.pow(1.20,u.edge)+md.dmg,
     swingCd:C.swingCd*Math.pow(0.88,u.tempo),
     range:C.range+0.5*u.reach,
     arc:(C.arcDeg+10*u.reach)*DEG,
-    rollCd:C.rollCd*Math.pow(0.80,u.reflex),
+    rollCd:C.rollCd*rcMul*Math.pow(0.80,u.reflex),
+    rollDist:C.rollDist*rdMul,
     pickup:1.65+0.9*u.magnet,
     crit:0.05+0.15*u.crit
   };
@@ -270,7 +284,7 @@ function newSim(seed,players){
     phase:'title', chapter:1, map:null,
     waveLeft:CFG.waveSeconds, bossSpawned:false, bossHits:0,
     heroes:[], players:1, resume:null,
-    enemies:[], projectiles:[], gems:[], heals:[], boss:null,
+    enemies:[], projectiles:[], arrows:[], gems:[], heals:[], boss:null,
     nextId:1, score:0, kills:0, level:1, xp:0, xpNeed:8,
     up:{edge:0,tempo:0,reach:0,boots:0,reflex:0,magnet:0,crit:0,siphon:0},
     choices:[], hitStop:0, spawnTimer:1.2, chapterClearTimer:0,
@@ -509,6 +523,90 @@ function doHeroHit(s,h,st){
   }
 }
 
+/* RANGED HERO ATTACK (hero descriptor `attack` block → HERO_ATTACK).
+   The arrow leaves at the exact step the sword hit would land
+   (h.st >= CFG.hero.hitAt), from the hero's centre, and flies straight:
+   no tracking, no gravity, no piercing — the first body on its path
+   takes the hit through the SAME damageEnemy/damageBoss pipeline a
+   sword uses (same damage stat, same crit roll at hit time, same
+   wind-up interrupt, same kill drops). AIM ASSIST, fixed at release:
+   the nearest enemy/boss whose centre is within the descriptor's cone
+   of the hero's facing (and within range + its radius) donates its
+   direction; otherwise the arrow flies along facing. */
+function fireArrow(s,h,st,atk){
+  let fx=Math.sin(h.yaw), fz=Math.cos(h.yaw);
+  const cosAim=Math.cos((atk.aimDeg||25)*DEG);
+  let bd=Infinity;
+  const consider=(tx,tz,tr)=>{
+    const dx=tx-h.x, dz=tz-h.z, d=Math.sqrt(dx*dx+dz*dz);
+    if(d<1e-6 || d>atk.range+tr)return;
+    if((dx*fx+dz*fz)/d<cosAim)return;
+    if(d<bd){ bd=d; fx=dx/d; fz=dz/d; }
+  };
+  for(let i=0;i<s.enemies.length;i++){
+    const e=s.enemies[i]; if(e.dead)continue;
+    consider(e.x,e.z,CFG.enemy[e.type].radius);
+  }
+  const b=s.boss;
+  if(b&&b.hp>0)consider(b.x,b.z,bossCfgOf(s).radius);
+  s.arrows.push({id:s.nextId++, x:h.x, z:h.z,
+    vx:fx*atk.speed, vz:fz*atk.speed,
+    dmg:st.dmg, critP:st.crit, r:atk.r||0.25, dist:0, max:atk.range});
+  emit('arrowFire',{x:h.x,z:h.z});
+}
+
+/* Arrow flight: per step, test the TRAVELLED SEGMENT against every
+   enemy body and the boss body (circle vs segment, radius + arrow
+   radius), so a 26 m/s arrow cannot tunnel through a target at 60 Hz.
+   The earliest crossing along the segment wins; ties resolve in scan
+   order (enemies in array order, then the boss) — fully deterministic. */
+function updateArrows(s,dt){
+  if(!s.arrows.length)return;
+  const out=[];
+  for(let i=0;i<s.arrows.length;i++){
+    const a=s.arrows[i];
+    const spd=Math.sqrt(a.vx*a.vx+a.vz*a.vz);
+    const stepLen=spd*dt;
+    const go=Math.min(stepLen, a.max-a.dist);      // never fly past max range
+    const segX=a.vx/spd*go, segZ=a.vz/spd*go;      // this step's segment delta
+    let hitT=Infinity, hitE=null, hitBoss=false;
+    const testBody=(tx,tz,tr)=>{
+      const rr=tr+a.r;
+      const ox=a.x-tx, oz=a.z-tz;
+      const bq=ox*segX+oz*segZ, cq=ox*ox+oz*oz-rr*rr, aq=go*go;
+      let t;
+      if(cq<=0)t=0;                              // segment starts inside the body
+      else{
+        if(aq<1e-12 || bq>=0)return -1;
+        const disc=bq*bq-aq*cq;
+        if(disc<0)return -1;
+        t=(-bq-Math.sqrt(disc))/aq;
+        if(t<0||t>1)return -1;
+      }
+      return t;
+    };
+    for(let j=0;j<s.enemies.length;j++){
+      const e=s.enemies[j]; if(e.dead)continue;
+      const t=testBody(e.x,e.z,CFG.enemy[e.type].radius);
+      if(t>=0&&t<hitT){ hitT=t; hitE=e; hitBoss=false; }
+    }
+    const b=s.boss;
+    if(b&&b.hp>0){
+      const t=testBody(b.x,b.z,bossCfgOf(s).radius);
+      if(t>=0&&t<hitT){ hitT=t; hitE=null; hitBoss=true; }
+    }
+    if(hitE||hitBoss){
+      const crit=rnd(s)<a.critP;
+      if(hitBoss)damageBoss(s,b,a.dmg*(crit?1.7:1),crit);
+      else damageEnemy(s,hitE,a.dmg*(crit?1.7:1),crit);
+      continue;                                  // first hit only — the arrow dies
+    }
+    a.x+=segX; a.z+=segZ; a.dist+=go;
+    if(a.dist<a.max-1e-9 && a.x*a.x+a.z*a.z<(ARENA_R+3)*(ARENA_R+3))out.push(a);
+  }
+  s.arrows=out;
+}
+
 function startRoll(s,h,inp,st){
   if(h.rollCd>0||h.state==='roll')return;
   let dx=inp.mx, dz=inp.my;
@@ -533,7 +631,7 @@ function updateHero(s,h,inp,dt){
   if(inp.roll)startRoll(s,h,inp,st);
 
   if(h.state==='roll'){
-    const step=CFG.hero.rollDist/CFG.hero.rollDur;
+    const step=st.rollDist/CFG.hero.rollDur;
     h.vx=h.rollX*step; h.vz=h.rollZ*step;
     h.st+=dt;
     if(h.st>=CFG.hero.rollDur){ h.state='idle'; h.st=0; h.vx=0; h.vz=0; h.invuln=0; }
@@ -548,10 +646,16 @@ function updateHero(s,h,inp,dt){
     h.vx+=(tx*target-h.vx)*k;
     h.vz+=(tz*target-h.vz)*k;
 
-    // swing: 0.625 s, hit at 40% (0.25 s), 0.5 s cooldown
+    // swing: 0.625 s, hit at 40% (0.25 s), 0.5 s cooldown.
+    // A hero with a ranged `attack` block (HERO_ATTACK) fires an arrow at
+    // the SAME hit moment instead of testing the melee arc — identical
+    // input, wind-up and cadence; only the delivery differs.
+    const atk=HERO_ATTACK[h.heroId]||null;
     if(h.state==='attack'){
       h.st+=dt;
-      if(!h.hitDone && h.st>=CFG.hero.hitAt){ h.hitDone=true; doHeroHit(s,h,st); }
+      if(!h.hitDone && h.st>=CFG.hero.hitAt){ h.hitDone=true;
+        if(atk&&atk.kind==='arrow')fireArrow(s,h,st,atk);
+        else doHeroHit(s,h,st); }
       if(h.st>=CFG.hero.swingDur){ h.state='idle'; h.st=0; }
     }
     if(h.state==='hurt'){
@@ -560,8 +664,9 @@ function updateHero(s,h,inp,dt){
     if(inp.attack && h.atkCd<=0 && h.state!=='hurt' && (h.state!=='attack' || h.hitDone)){
       h.state='attack'; h.st=0; h.hitDone=false; h.atkCd=st.swingCd;
       h.attackId++;
-      h.lungeX=Math.sin(h.yaw)*CFG.hero.lunge;
-      h.lungeZ=Math.cos(h.yaw)*CFG.hero.lunge;
+      /* The forward lunge is melee-only: a bow hero holds her ground. */
+      h.lungeX=atk?0:Math.sin(h.yaw)*CFG.hero.lunge;
+      h.lungeZ=atk?0:Math.cos(h.yaw)*CFG.hero.lunge;
       emit('swing',{x:h.x,z:h.z});
     }
     if(tilt>0.08 && h.state!=='attack' && h.state!=='hurt')h.yaw=Math.atan2(tx,tz);
@@ -990,7 +1095,7 @@ function simStep(raw){
       if(s.chapter<3){
         s.chapter++; s.map=buildMapData(s.chapter);
         s.waveLeft=CFG.waveSeconds; s.bossSpawned=false; s.boss=null;
-        s.enemies=[]; s.projectiles=[]; s.gems=[]; s.heals=[]; s.potions=[];
+        s.enemies=[]; s.projectiles=[]; s.arrows=[]; s.gems=[]; s.heals=[]; s.potions=[];
         s.eventDone=false; s.eventQueue=[];
         s.heroes.forEach((h,i)=>{
           h.x=s.players>1?(i===1?1.4:-1.4):0; h.z=0; h.vx=0; h.vz=0;
@@ -1027,6 +1132,7 @@ function simStep(raw){
   }
   updateEnemies(s,FIXED);
   updateProjectiles(s,FIXED);
+  updateArrows(s,FIXED);
   if(s.boss)updateBoss(s,FIXED);
   collectPickups(s);
 }
@@ -1054,6 +1160,15 @@ function simDigest(s){
   for(const e of s.enemies){ for(const v of [e.id,e.x,e.z,e.yaw,e.lockYaw,e.hp,e.timer,e.cd,e.state==='telegraph'?1:0,e.vx,e.vz])put(q(v)); put(e.state); put(e.attackKind||''); put(e.frozen||0); }
   put('P'+s.projectiles.length);
   for(const p of s.projectiles)for(const v of [p.id,p.x,p.z,p.vx,p.vz,p.life,p.tx||0,p.tz||0])put(q(v));
+  /* Hero arrows are hashed ONLY while any are in flight. Every shipped
+     digest scenario runs the default (melee) hero, whose arrow list is
+     always empty — hashing unconditionally would move those baselines
+     for a state that never occurs in them. When an archer IS playing,
+     her arrows are full sim state and hashed like projectiles. */
+  if(s.arrows.length){
+    put('A'+s.arrows.length);
+    for(const a of s.arrows)for(const v of [a.id,a.x,a.z,a.vx,a.vz,a.dist])put(q(v));
+  }
   put('G'+s.gems.length);for(const g of s.gems)for(const v of [g.id,g.x,g.z])put(q(v));
   put('H'+s.heals.length);for(const o of s.heals)for(const v of [o.id,o.x,o.z])put(q(v));
   if(s.boss){const b=s.boss;put('B1');for(const v of [b.x,b.z,b.yaw,b.lockYaw,b.hp,b.timer,b.cd,b.slamCd,b.pursuit||0,b.state==='charge'?1:0,b.brCd||0,b.brTick||0])put(q(v));put(b.state);put(b.enraged?1:0);put(b.summoned?1:0);put(b.frozen||0);}
@@ -1422,6 +1537,17 @@ const CLIPS={
     {t:0.44, p:pose({1:[0.20,0.28,0],6:[0.35,0,0.30],7:[-0.55,0,0],8:[-0.30,0,0]})},
     {t:0.625,p:pose({})}
   ]),
+  /* BOW SHOT (ranged heroes): same 0.625 s envelope as the sword swing.
+     The bow arm (3/4/5) holds the bow up toward facing for the whole
+     clip; the draw arm (6/7/8) pulls the string to the cheek during the
+     wind-up and snaps forward at t=0.25 — the exact frame the sim
+     releases the arrow. */
+  shoot: CLIP(0.625,false,[
+    {t:0,    p:pose({1:[-0.04,-0.28,0],2:[0,-0.15,0],3:[-1.50,0,0.10],4:[-0.10,0,0],6:[-0.55,0,-0.55],7:[-2.05,0,0]})},
+    {t:0.25, p:pose({1:[0.02,0.06,0],2:[0,0,0],3:[-1.52,0,0.08],4:[-0.04,0,0],6:[-1.15,0,-0.15],7:[-0.35,0,0]})},
+    {t:0.44, p:pose({1:[0,0,0],3:[-1.30,0,0.12],4:[-0.08,0,0],6:[-0.70,0,-0.20],7:[-0.50,0,0]})},
+    {t:0.625,p:pose({})}
+  ]),
   /* TUCK: chin down, knees to chest, heels to the seat, arms hugging in.
      The somersault itself is the mesh pitch in syncViews(); this clip only
      curls the body into a ball so the rotation reads as a roll. */
@@ -1504,7 +1630,7 @@ function updateAnim(v,dt,stateTime){
   const a=v.anim;
   a.t+=dt; a.prevT+=dt;
   a.blend=Math.min(1,a.blend+dt/CROSSFADE);
-  const pB=sampleClip(CLIPS[a.cur]||CLIPS.idle,a.cur==='attack'?stateTime:a.t);
+  const pB=sampleClip(CLIPS[a.cur]||CLIPS.idle,(a.cur==='attack'||a.cur==='shoot')?stateTime:a.t);
   const wA=a.prev?1-a.blend:0, wB=1-wA;
   const pA=a.prev?sampleClip(CLIPS[a.prev]||CLIPS.idle,a.prevT):null;
   a.weightSum=wA+wB;                       // EXACTLY 1.0 by construction
@@ -1536,7 +1662,10 @@ function syncViews(s,dt){
     if(!hv)hv=makeView(skin,vid);
     seen.add(vid);
     const hs=h.downed?'dead':(h.hp<=0?'dead':h.state);
-    const hClip=clipFor('hero',hs,Math.sqrt(h.vx*h.vx+h.vz*h.vz));
+    let hClip=clipFor('hero',hs,Math.sqrt(h.vx*h.vx+h.vz*h.vz));
+    /* A ranged hero (HERO_ATTACK) shoots: swap the sword clip for the
+       bow-shot clip while her sim state is 'attack'. */
+    if(hs==='attack'&&(HERO_ATTACK[h.heroId]||{}).kind==='arrow')hClip='shoot';
     setClip(hv,hClip,h.state==='attack'?h.st:undefined);
     updateAnim(hv,dt,h.state==='attack'?h.st:0);
     /* ROLL = a real forward somersault, not a dash. The mesh pitches a full
@@ -2227,7 +2356,7 @@ function setupVFX(){
   };
   splatMesh.frustumCulled=false;splatMesh.count=0;scene.add(splatMesh);
   for(let i=0;i<48;i++)splatMesh.setColorAt(i,_splatCol.setRGB(1,1,1));
-  setupSlashFX();
+  setupSlashFX(); setupArrowFX();
   setupBolts();
 }
 function burst(x,y,z,color,n,power){
@@ -2340,8 +2469,15 @@ function splatAtlasTex(){
    built in the XZ plane, facing +Z. 3 rows (dim rim -> bright core ->
    dim rim) so one additive InstancedMesh with per-instance brightness
    does the whole effect in a single draw call. Visual only — the sim's
-   hit test never reads this geometry. */
-function crescentGeo(){
+   hit test never reads this geometry.
+   The palette is a parameter: the default call reproduces the original
+   luminous blue-white EXACTLY; a hero with a descriptor `slashTint`
+   (HERO_SLASH_TINTS — the dwarf's pale red) gets the same geometry with
+   its core/rim colours baked in, rim rows dimmed to 36% like the
+   default's. Geometry, timing and brightness envelope never change. */
+function crescentGeo(core,rim){
+  const C=core||[0.92,0.97,1.0];
+  const R=rim?rim.map(v=>v*0.36):[0.30,0.42,0.66];
   const SEG=26, SPAN=96*DEG, RC=2.02, HW=0.055;
   const pos=[], col=[], idx=[];
   for(let i=0;i<=SEG;i++){
@@ -2349,7 +2485,7 @@ function crescentGeo(){
     const sa=Math.sin(a), ca=Math.cos(a);
     const rI=RC-HW*w, rM=RC, rO=RC+HW*w;
     pos.push(sa*rI,0,ca*rI, sa*rM,0,ca*rM, sa*rO,0,ca*rO);
-    col.push(0.30,0.42,0.66, 0.92,0.97,1.0, 0.30,0.42,0.66);
+    col.push(R[0],R[1],R[2], C[0],C[1],C[2], R[0],R[1],R[2]);
   }
   for(let i=0;i<SEG;i++){ const b=i*3;
     idx.push(b,b+3,b+1, b+1,b+3,b+4, b+1,b+4,b+2, b+2,b+4,b+5); }
@@ -2359,9 +2495,13 @@ function crescentGeo(){
   geo.setIndex(idx);
   return geo;
 }
-let slashMesh=null, trailMesh=null, trailPos=null, trailCol=null;
+let slashMeshes=null, trailMesh=null, trailPos=null, trailCol=null;
 let slashDummy=null;
 const slashSlots=[];
+/* Which crescent mesh a hero's swings draw into: 'default' for the
+   luminous original, or the hero's own id when its descriptor carries
+   a slashTint (the dwarf's pale-red hammer arc). */
+function slashKeyFor(heroId){ return HERO_SLASH_TINTS[heroId]?heroId:'default'; }
 const swingSeen=[{id:-1},{id:-1}];   // per-hero attackId tracking (slash FX)
 const TRAIL_N=30;
 let trailPts=[], trailFade=0;
@@ -2372,19 +2512,27 @@ const SLASH_TIP = HERO_SLASH_TIPS;
 const _tipV=new T.Vector3(), _baseV=new T.Vector3(), _dirV=new T.Vector3(), _innV=new T.Vector3();
 function setupSlashFX(){
   slashDummy=new T.Object3D(); slashDummy.rotation.order='YXZ';
-  slashMesh=new T.InstancedMesh(crescentGeo(),
-    new T.MeshBasicMaterial({vertexColors:true,transparent:true,
-      blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide}),6);
-  slashMesh.frustumCulled=false;
-  for(let i=0;i<6;i++){
-    slashSlots.push({on:false,id:-1,yaw:0,dir:1,age:9,hi:0});
+  /* One InstancedMesh per crescent palette: the default luminous one,
+     plus one per hero slashTint in the registry (today: the dwarf). */
+  slashMeshes=[];
+  const mkMesh=(key,geo)=>{
+    const m=new T.InstancedMesh(geo,
+      new T.MeshBasicMaterial({vertexColors:true,transparent:true,
+        blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide}),6);
+    m.frustumCulled=false; m.visible=false;
     slashDummy.position.set(0,-50,0); slashDummy.scale.setScalar(0.001);
     slashDummy.rotation.set(0,0,0); slashDummy.updateMatrix();
-    slashMesh.setMatrixAt(i,slashDummy.matrix);
-    slashMesh.setColorAt(i,_splatCol.setRGB(0,0,0));
+    for(let i=0;i<6;i++){ m.setMatrixAt(i,slashDummy.matrix); m.setColorAt(i,_splatCol.setRGB(0,0,0)); }
+    m.instanceMatrix.needsUpdate=true;
+    scene.add(m);
+    slashMeshes.push({key,mesh:m});
+  };
+  mkMesh('default',crescentGeo());
+  for(const hid of Object.keys(HERO_SLASH_TINTS)){
+    const t=HERO_SLASH_TINTS[hid];
+    mkMesh(hid,crescentGeo(t.core,t.rim));
   }
-  slashMesh.instanceMatrix.needsUpdate=true;
-  scene.add(slashMesh);
+  for(let i=0;i<6;i++)slashSlots.push({on:false,id:-1,yaw:0,dir:1,age:9,hi:0,mk:'default'});
   trailPos=new Float32Array(TRAIL_N*6); trailCol=new Float32Array(TRAIL_N*6);
   for(let i=0;i<TRAIL_N;i++)trailPos[i*6+1]=-50,trailPos[i*6+4]=-50;
   const tg=new T.BufferGeometry();
@@ -2402,19 +2550,23 @@ function setupSlashFX(){
 /* Drives ONLY from sim state the view already reads (hero.state/st/attackId)
    plus the posed hero skeleton: zero sim writes, digest-safe. */
 function updateSlashFX(s,dt){
-  if(!slashMesh)return;
-  /* crescents: tracked per hero into the shared slot pool */
+  if(!slashMeshes)return;
+  /* crescents: tracked per hero into the shared slot pool. A RANGED
+     hero (HERO_ATTACK) never activates a slot — she has no blade arc —
+     and never starts a weapon trail. */
   for(let hi=0;hi<s.heroes.length;hi++){
     const h=s.heroes[hi], seenS=swingSeen[hi];
     if(h.attackId<seenS.id)seenS.id=h.attackId;      // resync after reset
     if(h.state==='attack'&&h.attackId!==seenS.id){
       seenS.id=h.attackId;
+      if((HERO_ATTACK[h.heroId]||{}).kind==='arrow')continue;
       const sl=slashSlots.find(x=>!x.on)||slashSlots[0];
-      sl.on=true; sl.id=h.attackId; sl.hi=hi; sl.yaw=h.yaw;
+      sl.on=true; sl.id=h.attackId; sl.hi=hi; sl.yaw=h.yaw; sl.mk=slashKeyFor(h.heroId);
       sl.dir=(h.attackId%2===0)?1:-1; sl.age=h.st;   // alternate fore/backhand
       if(hi===LOCAL_IDX){ trailPts.length=0; trailFade=1; }
     }
   }
+  /* slot lifetimes + transforms (palette-independent) */
   for(let i=0;i<6;i++){
     const sl=slashSlots[i];
     const h=sl.on?s.heroes[sl.hi]:null;
@@ -2424,29 +2576,38 @@ function updateSlashFX(s,dt){
       if(sl.age>0.52)sl.on=false;
     }
     if(!sl.on||!h){
-      sl.b=0;
-      slashDummy.position.set(0,-50,0); slashDummy.scale.setScalar(0.001);
-      slashDummy.rotation.set(0,0,0);
+      sl.b=0; sl.px=0; sl.py=-50; sl.pz=0; sl.ry=0; sl.rz=0; sl.sc=0.001;
     }else{
       const t=sl.age, q=clamp(t/0.30,0,1), qe=1-(1-q)*(1-q);
       const sweep=sl.dir*(0.92-1.84*qe);              // +53 deg -> -53 deg
       sl.b=0;
       if(t>0.03)sl.b=0.50*Math.min(1,(t-0.03)/0.10);  // peak covers hitAt 0.25 s
       if(t>0.27)sl.b=0.50*Math.max(0,1-(t-0.27)/0.20);
-      slashDummy.position.set(h.x,1.06,h.z);
-      slashDummy.rotation.set(0,sl.yaw+sweep,sl.dir*0.30);
-      const sc=0.92+0.14*qe; slashDummy.scale.set(sc,1,sc);
+      sl.px=h.x; sl.py=1.06; sl.pz=h.z;
+      sl.ry=sl.yaw+sweep; sl.rz=sl.dir*0.30;
+      sl.sc=0.92+0.14*qe;
     }
-    slashDummy.updateMatrix();
-    slashMesh.setMatrixAt(i,slashDummy.matrix);
-    slashMesh.setColorAt(i,_splatCol.setRGB(sl.b||0,sl.b||0,sl.b||0));
   }
-  slashMesh.instanceMatrix.needsUpdate=true;
-  if(slashMesh.instanceColor)slashMesh.instanceColor.needsUpdate=true;
-  slashMesh.visible=slashSlots.some(sl=>sl.on);
+  /* write each slot into ITS palette's mesh; hide it in all others */
+  for(const e of slashMeshes){
+    let any=false;
+    for(let i=0;i<6;i++){
+      const sl=slashSlots[i], live=sl.on&&sl.mk===e.key;
+      if(live)any=true;
+      slashDummy.position.set(live?sl.px:0,live?sl.py:-50,live?sl.pz:0);
+      slashDummy.rotation.set(0,live?sl.ry:0,live?sl.rz:0);
+      slashDummy.scale.setScalar(live?sl.sc:0.001); slashDummy.scale.y=1;
+      slashDummy.updateMatrix();
+      e.mesh.setMatrixAt(i,slashDummy.matrix);
+      e.mesh.setColorAt(i,_splatCol.setRGB(live?(sl.b||0):0,live?(sl.b||0):0,live?(sl.b||0):0));
+    }
+    e.mesh.instanceMatrix.needsUpdate=true;
+    if(e.mesh.instanceColor)e.mesh.instanceColor.needsUpdate=true;
+    e.mesh.visible=any;
+  }
   /* --- blade trail: ribbon for the LOCAL hero's weapon only --- */
   const h=localHero(s), hv=VIEWS.get(LOCAL_IDX===0?0:-1);
-  const swinging=h.state==='attack'&&h.st<=0.46&&hv;
+  const swinging=h.state==='attack'&&h.st<=0.46&&hv&&(HERO_ATTACK[h.heroId]||{}).kind!=='arrow';
   if(swinging){
     hv.mesh.updateMatrixWorld(true);
     const tip=SLASH_TIP[hv.kind]||SLASH_TIP.hero, bone=hv.bones[tip.b];
@@ -2481,6 +2642,49 @@ function updateSlashFX(s,dt){
   trailMesh.geometry.getAttribute('position').needsUpdate=true;
   trailMesh.geometry.getAttribute('color').needsUpdate=true;
   trailMesh.visible=trailPts.length>0;
+}
+
+/* ---------- hero arrows (cosmetic only) ----------
+   Pooled meshes for the sim's hero arrows (s.arrows): a wood shaft,
+   steel head and pale crossed fletching (one merged vertex-coloured
+   geometry), oriented along the velocity, plus a short faint additive
+   streak trailing behind each one. Pure presentation — the sim's
+   segment hit test never reads these. */
+const ARROW_POOL=12;
+let arrowMeshes=[], arrowTrailMeshes=[];
+function arrowGeo(){
+  const head=new T.ConeGeometry(0.055,0.17,8); head.rotateX(Math.PI/2);
+  return mergeParts([
+    {geo:new T.BoxGeometry(0.045,0.045,0.62),x:0,y:0,z:0,c:[0.45,0.30,0.14]},
+    {geo:head,x:0,y:0,z:0.38,c:[0.78,0.82,0.90]},
+    {geo:new T.BoxGeometry(0.17,0.018,0.15),x:0,y:0,z:-0.24,c:[0.92,0.94,0.98]},
+    {geo:new T.BoxGeometry(0.018,0.17,0.15),x:0,y:0,z:-0.24,c:[0.92,0.94,0.98]},
+  ]);
+}
+function setupArrowFX(){
+  const geo=arrowGeo();
+  const tGeo=new T.PlaneGeometry(0.09,0.6); tGeo.rotateX(-Math.PI/2);
+  for(let i=0;i<ARROW_POOL;i++){
+    const m=new T.Mesh(geo,new T.MeshLambertMaterial({vertexColors:true}));
+    m.frustumCulled=false; m.visible=false; scene.add(m); arrowMeshes.push(m);
+    const tr=new T.Mesh(tGeo,new T.MeshBasicMaterial({color:0xbfe8ff,transparent:true,
+      opacity:0.15,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide}));
+    tr.frustumCulled=false; tr.visible=false; scene.add(tr); arrowTrailMeshes.push(tr);
+  }
+}
+function updateArrowFX(s){
+  let n=0;
+  for(const a of s.arrows){
+    if(n>=ARROW_POOL)break;
+    const yaw=Math.atan2(a.vx,a.vz);
+    const m=arrowMeshes[n], tr=arrowTrailMeshes[n];
+    m.visible=true; m.position.set(a.x,1.12,a.z); m.rotation.set(0,yaw,0);
+    tr.visible=true;
+    tr.position.set(a.x-Math.sin(yaw)*0.48,1.12,a.z-Math.cos(yaw)*0.48);
+    tr.rotation.set(0,yaw,0);
+    n++;
+  }
+  for(let i=n;i<ARROW_POOL;i++){ arrowMeshes[i].visible=false; arrowTrailMeshes[i].visible=false; }
 }
 
 /* ---------- magic lightning (cosmetic only) ----------
@@ -3051,6 +3255,9 @@ function heroAbilityText(k){
   if(m.kind==='earth')return 'EARTHQUAKE \u2014 knocks enemies back '+m.push+' m, boss '+m.bossPush+' m';
   return 'SIGNATURE MAGIC';
 }
+/* The one-line tradeoff shown under the ability — read from the hero
+   descriptor's `trait`, so the card can never drift from the content. */
+function heroTraitText(k){ return (HEROES[k]&&HEROES[k].trait)||''; }
 function spawnHeroPreview(kind){
   removeHeroPreview();
   hselView=makeView(kind,HSEL_ID);
@@ -3128,6 +3335,7 @@ function renderHeroSelect(){
     const st=k===hselKind?'SELECTED':(hselOwned(k)?'SELECT':'\u{1F512} '+hselCost(k)+' G');
     el.innerHTML='<div class="hnm">'+esc(heroName(k))+'</div>'+
       '<div class="hds">'+esc(heroAbilityText(k))+'</div>'+
+      '<div class="htr">'+esc(heroTraitText(k))+'</div>'+
       '<div class="hst">'+st+'</div>';
     el.addEventListener('click',()=>pickHeroCard(k));
     cw.appendChild(el);
@@ -3813,7 +4021,7 @@ function frame(now){
   if(s.chapter!==lastChapter){lastChapter=s.chapter;buildMapMeshes(s);}
   syncViews(s,dt);
   updateHeroPreview(dt);
-  updateSlashFX(s,dt);
+  updateSlashFX(s,dt); updateArrowFX(s);
   updateBolts(dt);
   updateRings(dt);
   syncIceShells(s);
@@ -3834,7 +4042,7 @@ window.__GAME={
   CFG, PALETTES, UPGRADES, CLIPS, BOSS_NAMES, SLASH_TIP,
   /* Read-only handles for QA / tooling: every content table is traceable at
      runtime, not just at build time. REGISTRY is deep-frozen by the schema. */
-  REGISTRY, SIM_CONTENT, contentSummary,
+  REGISTRY, SIM_CONTENT, contentSummary, HERO_ATTACK, HERO_STATS, HERO_SLASH_TINTS,
   get sim(){return SIM;},
   get input(){return {mx:LAST_IN.mx,my:LAST_IN.my,sx:LAST_IN.sx,sy:LAST_IN.sy,
     tiltX:UI.tiltX,tiltY:UI.tiltY,attack:UI.attack,stickActive:UI.stickActive};},
@@ -3876,7 +4084,7 @@ window.__GAME={
     buildMapMeshes(SIM);lastChapter=SIM.chapter;return SIM.chapter;},
   spawnTestEnemy(type,x,z,state){const e=makeEnemy(SIM,type,x,z,0.6);
     if(state){e.state=state;e.timer=0.55;e.lockYaw=e.yaw;}return e.id;},
-  clearEnemies(){SIM.enemies=[];SIM.projectiles=[];SIM.boss=null;},
+  clearEnemies(){SIM.enemies=[];SIM.projectiles=[];SIM.arrows=[];SIM.boss=null;},
   bossName(){return BOSS_NAMES[SIM.chapter-1];},
   clearViews(){for(const [id,v] of VIEWS){scene.remove(v.mesh);if(v.dispose)v.dispose();else v.mesh.material.dispose();}VIEWS.clear();},
   drawCalls(){return renderer.info.render.calls;},

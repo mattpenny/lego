@@ -145,6 +145,52 @@ function checkHero(d, key, errors, warnings) {
              (!isNum(m.push) || m.push <= 0 || !isNum(m.bossPush) || m.bossPush <= 0))
       errors.push(`${w}: earth magic needs positive push and bossPush`);
   }
+  /* Optional RANGED ATTACK — the second per-hero sim exception, same
+     pattern as magic: the descriptor carries the block, heroes/index.js
+     derives HERO_ATTACK, and it is hashed into SIM_CONTENT. A hero with
+     an attack block fires a deterministic projectile at the sword hit
+     moment instead of testing the melee arc (no lunge). A hero WITHOUT
+     one keeps the sword, bit-identical. */
+  if (d.attack !== undefined) {
+    const a = d.attack;
+    if (!isObj(a) || a.kind !== 'arrow')
+      errors.push(`${w}: attack.kind must be 'arrow'`);
+    else {
+      if (!isNum(a.range) || a.range <= 0) errors.push(`${w}: attack.range must be > 0`);
+      if (!isNum(a.speed) || a.speed <= 0) errors.push(`${w}: attack.speed must be > 0`);
+      if (!isNum(a.aimDeg) || a.aimDeg <= 0 || a.aimDeg > 180)
+        errors.push(`${w}: attack.aimDeg must be in (0,180]`);
+      if (!isNum(a.r) || a.r < 0) errors.push(`${w}: attack.r (arrow radius) must be >= 0`);
+    }
+  }
+  /* Optional slash-crescent tint — VIEW ONLY (never in SIM_CONTENT).
+     {core, rim} RGB triples fed to crescentGeo() for this hero's swings. */
+  if (d.slashTint !== undefined) {
+    const t = d.slashTint;
+    if (!isObj(t) || !isRGB(t.core) || !isRGB(t.rim))
+      errors.push(`${w}: slashTint must be {core:[r,g,b], rim:[r,g,b]} in 0..1`);
+  }
+  /* Optional BALANCE multipliers — the third per-hero sim exception,
+     same pattern: descriptor block -> HERO_STATS -> SIM_CONTENT.
+     heroStats() applies them to the BASE stat first (damage rounded
+     once, there), then the existing upgrade curves and additive meta
+     mods compose on top unchanged. Missing fields mean x1.0; a hero
+     with NO stats block is bit-identical to the pre-balance game. */
+  if (d.stats !== undefined) {
+    const st = d.stats;
+    if (!isObj(st)) errors.push(`${w}: stats must be an object`);
+    else for (const f of ['dmgMul', 'speedMul', 'rollDistMul', 'rollCdMul'])
+      if (st[f] !== undefined && (!isNum(st[f]) || st[f] <= 0))
+        errors.push(`${w}: stats.${f} must be > 0`);
+  }
+  /* The pickable identity heroes (default / ranged / rebalanced) carry a
+     one-line trait shown on the CHOOSE YOUR HERO cards, so the tradeoff
+     the stats encode is visible before picking. Class skins are not on
+     that screen and need none. */
+  if (d.trait !== undefined && !isStr(d.trait))
+    errors.push(`${w}: trait must be a non-empty string`);
+  if ((d.default === true || d.attack !== undefined || d.stats !== undefined) && !isStr(d.trait))
+    errors.push(`${w}: an identity hero (default / attack / stats) needs a trait line for the hero-select card`);
 }
 
 function checkFigure(d, key, errors, warnings) {

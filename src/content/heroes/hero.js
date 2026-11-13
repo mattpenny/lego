@@ -11,6 +11,7 @@ export const hero = {
   default: true,
   figure: 'hero',
   slashTip: { b: 8, o: [0, -0.86, 0] },
+  trait: 'Balanced sword & shield',
   added: '2026-11-13',
   notes: 'Always owned, never sold in the Armoury. Classic blue lion knight.',
 };

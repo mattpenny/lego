@@ -39,6 +39,31 @@ export const HERO_MAGIC = deepFreeze(Object.fromEntries(
   Object.values(HEROES).filter((h) => h.magic).map((h) => [h.id, h.magic]),
 ));
 
+/** Ranged attack spec, keyed by hero id — only heroes WITH an `attack`
+    block are listed; every other skin swings the sword. updateHero()
+    reads it through this table via the hero's heroId and fires a
+    deterministic arrow at the sword hit moment instead of the melee
+    arc. Simulation input — hashed into SIM_CONTENT. */
+export const HERO_ATTACK = deepFreeze(Object.fromEntries(
+  Object.values(HEROES).filter((h) => h.attack).map((h) => [h.id, h.attack]),
+));
+
+/** Balance multipliers, keyed by hero id — only heroes WITH a `stats`
+    block are listed; every other skin plays at x1.0. heroStats() reads
+    it through this table via the hero's heroId and applies each
+    multiplier to the BASE stat before upgrades/meta mods compose.
+    Simulation input — hashed into SIM_CONTENT. */
+export const HERO_STATS = deepFreeze(Object.fromEntries(
+  Object.values(HEROES).filter((h) => h.stats).map((h) => [h.id, h.stats]),
+));
+
+/** Slash-crescent tint, keyed by hero id — VIEW ONLY. Heroes not listed
+    draw the default luminous crescent. Deliberately NOT in SIM_CONTENT:
+    a tint can never move the digest. */
+export const HERO_SLASH_TINTS = deepFreeze(Object.fromEntries(
+  Object.values(HEROES).filter((h) => h.slashTint).map((h) => [h.id, h.slashTint]),
+));
+
 export const HERO_IDS = deepFreeze(Object.keys(HEROES));
 
 export function hasHero(id) {

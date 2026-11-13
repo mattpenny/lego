@@ -157,7 +157,9 @@ moves, so re-record the baseline and bump the net stamp (§5).
 ## 2. Adding a new HERO (playable skin)
 
 Heroes are **cosmetic skins**: behaviour and stats come from `RULES.hero` and
-the Armoury tracks, never from the skin.
+the Armoury tracks, never from the skin — with three descriptor-carried
+exceptions, all documented at the end of this section: signature **magic**,
+a ranged **attack**, and balance **stats**. (Current build: **AB-NET-6**.)
 
 1. **Create `src/content/heroes/<id>.js`:**
 
@@ -217,6 +219,77 @@ and co-op) and hashed per hero. A hero WITHOUT a `magic` block casts
 the plain blast, unchanged. Because this is simulation input, adding
 or tuning a signature **does** move the digest: re-record the baseline
 (`npm run content:baseline`) and bump `RULES.net.build`.
+
+**Ranged attack (the second exception).** A hero descriptor may carry
+an optional `attack` block — today exactly one hero does, and she is
+the worked example of a ranged hero:
+
+```js
+attack: { kind: 'arrow', range: 14, speed: 26, aimDeg: 25, r: 0.25 },  // FROST ARCHER
+```
+
+`heroes/index.js` derives `HERO_ATTACK` from the descriptors that
+carry one; it is hashed into `SIM_CONTENT`. `updateHero()` branches on
+it at the hit moment: input, wind-up, swing duration and cooldown
+cadence are **identical** to the sword (hit at 0.25 s; 31 steps dry /
+36 in combat) — only the delivery differs. At the hit moment
+`fireArrow()` spawns a deterministic sim projectile (`s.arrows`):
+it flies straight along facing at `speed`, up to `range` metres, and
+the per-step segment-vs-body test in `updateArrows()` (body radius +
+arrow radius `r`) stops it at the **first** body on its path — no
+piercing. Damage is the hero's current damage stat, routed through the
+same `damageEnemy()`/`damageBoss()` pipeline as a sword hit (same
+crit roll at hit time, same wind-up interrupt, same kill drops, frozen
+enemies hittable, boss a valid target). **Aim assist**, fixed at
+release: the nearest enemy/boss centre inside an `aimDeg` cone of the
+hero's facing (and within `range` + its radius) donates the arrow's
+direction; otherwise it flies along facing. No tracking after release.
+A ranged hero gets **no forward lunge** (the sword's is melee-only)
+and no slash crescent or weapon trail in the view; her `attack` state
+plays the dedicated `shoot` clip (bow arm up, draw during the wind-up,
+release at 0.25 s) and pooled arrow meshes fly the sim's arrows.
+Arrows are hashed by `simDigest` **only while any are in flight** —
+the shipped digest scenarios run the default melee hero, whose arrow
+list is always empty, so adding the block left every recorded scenario
+digest (and `combined`) bit-identical; only the `SIM_CONTENT` hash and
+the net stamp moved (AB-NET-5 → **AB-NET-6**).
+
+**Balance stats (the third exception).** A hero descriptor may carry
+an optional `stats` block of multipliers:
+
+```js
+stats: { dmgMul: 0.8 },                                              // FROST ARCHER
+stats: { dmgMul: 1.25, speedMul: 0.9, rollDistMul: 0.8, rollCdMul: 1.3 },  // EARTH DWARF
+```
+
+`heroes/index.js` derives `HERO_STATS`; hashed into `SIM_CONTENT`.
+`heroStats()` applies each multiplier to the **base** stat first —
+damage is rounded once, there, with `Math.round` (34 × 0.8 → 27;
+34 × 1.25 → 43) — and only then do the existing upgrade curves and
+additive meta mods compose on top, exactly as before. Any missing
+field is ×1.0; a hero with NO `stats` block (the LION KNIGHT and all
+four class skins) is ×1.0 throughout and bit-identical. Today's
+settled balance: the archer trades damage for range (arrows at 0.8×);
+the dwarf hits 1.25× but moves at 0.9× speed, rolls 2.8 m
+(0.8 × 3.5 m) and waits 1.3 s between rolls (1.3 × 1.0 s).
+
+**View-only per-hero dressing (never in `SIM_CONTENT`).** Two optional
+descriptor fields affect presentation only:
+
+- `slashTint: { core: [r,g,b], rim: [r,g,b] }` — derived into
+  `HERO_SLASH_TINTS`. The hero's swings draw the slim crescent (same
+  geometry, timing and brightness envelope as the default) from a
+  palette with these colours baked in. The EARTH DWARF's hammer arc is
+  pale red: core `[1.0, 0.70, 0.63]` (#ffb3a1), rim
+  `[0.98, 0.80, 0.74]` (baked at 36% brightness, like the default's
+  rim). Everyone else keeps the luminous blue-white original.
+- `trait: '…'` — the one-line tradeoff shown on the hero's
+  CHOOSE YOUR HERO card ("Ranged arrows · lighter damage" / "Heavy
+  hammer · slower, short roll" / "Balanced sword & shield"), read from
+  the descriptor so card and content cannot drift. The schema
+  **requires** a trait on any hero that is `default`, carries an
+  `attack` block, or carries a `stats` block — the pickable identity
+  heroes; class skins are not on that screen and need none.
 
 ---
 
