@@ -642,6 +642,24 @@ PLAN.md rather than silently tuned away. If he wants Chapter 1 softer,
 the lever is the `map.fill` table in `grassland.js` (lower the early
 trio's weights first).
 
+**Softening (AB-NET-12, Matt's final call 2026-11-14):** he took the
+lever. In `grassland.js` only: the early trio's weights were halved
+(raven 30→16, crossbowman 26→14, russet-archer 26→14, ramps eased to
+−0.06/−0.05/−0.05; `from` times unchanged) and the base kinds' decay
+ramps eased (soldier −0.06→−0.02, brute −0.10→−0.03, runner
+−0.08→−0.03) so base kinds hold the early share longer. Five cap-1
+kinds also had weights raised purely for presence robustness
+(crimson 24→40, axe 26→56, kraken 44→80, tower 100→200, dragon
+110→160): at the old weights, which cap-1 kind missed the ≥2-of-3-seeds
+audit bar rotated with every stream change. Re-measured on the SAME
+canary (5 seeds, no refill): median survival **3776 → 6325 ticks**,
+median kills **16 → 37** — past the ≥4700 target and the AB-NET-9
+reference (5499/35); one seed now kills the boss outright. Director
+audit: union 15/15, every kind on ≥2 of 3 seeds, alive max 8, no cap
+violations; chapters 2/3 first-spawn + per-kind-alive tables
+bit-identical to pre-change. Only the two Ch.1 combat digests moved
+(combat3600 + altSeed); baseline re-recorded, stamp AB-NET-12.
+
 ## 9. Chapters 4–6 and placeholder bosses (AB-NET-11)
 
 The campaign is **six chapters**: 4 FROSTFALL GLACIER, 5 EMBER CALDERA,

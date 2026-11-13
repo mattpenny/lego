@@ -55435,7 +55435,7 @@ const RULES = deepFreeze({
     relay: 'wss://dragon-alley-relay.ccac-church.workers.dev/ws',
     /* LOAD-BEARING: co-op peers must agree. Bump ONLY when sim behaviour
        actually changes. A view-only content edit must NOT bump this. */
-    build: 'AB-NET-11',
+    build: 'AB-NET-12',
     graceMs: 60000,
   },
 
@@ -60042,25 +60042,43 @@ const grassland = {
       /* The three always-eligible base kinds DECAY over the wave
          (negative ramp, this chapter only), handing the late-game
          share to the heraldic tail instead of crowding it out.
-         Weights stay positive all wave: 34->23, 26->8, 22->8. */
-      'soldier':        { ramp: -0.06 },
-      'brute':          { ramp: -0.10 },
-      'runner':         { ramp: -0.08 },
-      'raven-knight':   { from: 18,  weight: 30, ramp: -0.10 },
-      'crossbowman':    { from: 22,  weight: 26, ramp: -0.08 },
-      'russet-archer':  { from: 28,  weight: 26, ramp: -0.08 },
+         Weights stay positive all wave: 34->30, 26->21, 22->17.
+         AB-NET-12 SOFTENING (Matt's call, 2026-11-14): the AB-NET-10
+         numbers (trio 30/26/26, base ramps -0.06/-0.10/-0.08) made the
+         early wave too hard — the weak no-refill canary bot's 5-seed
+         median survival fell 5499 -> 3776 ticks, kills 35 -> 16. The
+         early trio's weights were halved (30->16, 26->14, 26->14,
+         ramps eased) and the base kinds' decay eased to
+         -0.02/-0.03/-0.03 so base kinds keep the early share longer.
+         Re-measured on the same canary: median survival 6325 ticks,
+         median kills 37 — the early pressure is off and all 15
+         heraldic kinds still appear across the wave (director audit:
+         union 15/15, every kind on >= 2 of 3 seeds, alive max 8, caps
+         respected; chapters 2/3 spawn tables bit-identical). Five
+         cap-1 kinds also had their weights raised (crimson 24->40,
+         axe 26->56, kraken 44->80, tower 100->200, dragon 110->160):
+         at the old weights their appearance on the audit seeds was
+         stream luck — each softening iteration knocked a different
+         one below 2 seeds — so the raises buy robust presence, not
+         pressure (a cap-1 kind leaves the pool while alive). */
+      'soldier':        { ramp: -0.02 },
+      'brute':          { ramp: -0.03 },
+      'runner':         { ramp: -0.03 },
+      'raven-knight':   { from: 18,  weight: 16, ramp: -0.06 },
+      'crossbowman':    { from: 22,  weight: 14, ramp: -0.05 },
+      'russet-archer':  { from: 28,  weight: 14, ramp: -0.05 },
       'eagle-knight':   { from: 52,  weight: 30, ramp: -0.06 },
       'teal-archer':    { from: 58,  weight: 28, ramp: -0.06 },
       'sun-knight':     { from: 64,  weight: 26, ramp: -0.05 },
       'azure-knight':   { from: 72,  weight: 30, ramp: -0.05 },
-      'crimson-knight': { from: 82,  weight: 24, ramp: -0.04 },
-      'axe-knight':     { from: 100, weight: 26 },
+      'crimson-knight': { from: 82,  weight: 40, ramp: -0.04 },
+      'axe-knight':     { from: 100, weight: 56 },
       'obsidian-knight': { from: 108, weight: 34 },
       'unicorn-knight': { from: 116, weight: 56 },
       'lion-knight':    { from: 124, weight: 48 },
-      'kraken-knight':  { from: 132, weight: 44 },
-      'tower-knight':   { from: 150, weight: 100 },
-      'dragon-knight':  { from: 158, weight: 110 },
+      'kraken-knight':  { from: 132, weight: 80 },
+      'tower-knight':   { from: 150, weight: 200 },
+      'dragon-knight':  { from: 158, weight: 160 },
     },
   },
   added: '2026-11-13',
