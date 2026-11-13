@@ -1,0 +1,1 @@
+{"description":"AETHERBLADE — 3D Arena Survivor, refactored from the single-file build (phase 1: works as-is).","devDependencies":{"vite":"^5.4.8"},"name":"aetherblade-refactor","private":true,"scripts":{"build":"vite build","dev":"vite","migrate":"node scripts/migrate.mjs","preview":"vite preview"},"type":"module","version":"0.1.0"}

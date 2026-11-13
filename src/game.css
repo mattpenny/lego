@@ -1,12 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<title>AETHERBLADE — 3D Arena Survivor</title>
-<link rel="icon" href="data:,">
-<style>
+
 :root{ --u:1; --gold:#f5cf76; --ice:#a8dcff; --bad:#ff6b5e; --panel:rgba(9,13,22,.78);
   /* notch / gesture-bar insets: with viewport-fit=cover a control 16px from the
      edge can sit UNDER the system gesture area, where the OS eats the tap. */
@@ -88,6 +80,18 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 .abtn.press{filter:brightness(1.45);transform:scale(.94)}
 #hint{position:absolute;left:50%;bottom:calc(6px*var(--u));transform:translateX(-50%);
   font-size:calc(8px*var(--u));letter-spacing:.08em;color:rgba(200,225,255,.55);white-space:nowrap}
+#btnMagic{right:calc(208px*var(--u) + var(--sa-r));bottom:calc(38px*var(--u) + var(--sa-b));width:calc(74px*var(--u));height:calc(74px*var(--u));
+  font-size:calc(12px*var(--u));background:radial-gradient(circle at 38% 30%,#c46bff,#4a1d86 75%);
+  border-color:rgba(216,170,255,.7)}
+#btnMagic.ready{box-shadow:0 0 22px rgba(196,107,255,.95),inset 0 0 22px rgba(255,255,255,.25)}
+#magicFill{position:absolute;left:15%;bottom:calc(9px*var(--u));width:70%;height:calc(5px*var(--u));
+  background:linear-gradient(90deg,#c46bff,#e9b8ff);border-radius:3px;transform-origin:left center;transform:scaleX(0)}
+#banner{position:fixed;left:50%;top:15%;transform:translateX(-50%);z-index:15;pointer-events:none;
+  font-size:calc(27px*var(--u));font-weight:bold;letter-spacing:.12em;color:#ffd7a1;text-align:center;
+  text-shadow:0 2px 16px rgba(255,80,40,.85),0 1px 3px #000;opacity:0;transition:opacity .25s}
+#hint2{position:fixed;left:50%;bottom:20%;transform:translateX(-50%);z-index:15;pointer-events:none;
+  font-size:calc(17px*var(--u));font-weight:bold;letter-spacing:.1em;color:#a8dcff;text-align:center;
+  text-shadow:0 2px 9px #000;opacity:0;transition:opacity .3s}
 /* ---- overlays ---- */
 #overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
   background:rgba(3,6,12,.80);z-index:20;pointer-events:auto;padding:calc(10px*var(--u))}
@@ -124,45 +128,3 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
   background:#060a12;text-align:center;font-size:16px;letter-spacing:.14em;color:var(--gold);padding:24px}
 @media (orientation:portrait){#rotate{display:flex}}
 @media (max-height:400px){:root{--u:.86}}
-</style>
-</head>
-<body>
-<div id="stage"></div>
-<div id="vign"></div>
-<div id="flash"></div>
-<div id="hud">
-  <div id="hpWrap" class="panel">
-    <div id="hpTxt"><span>HP</span><span id="hpNum">100 / 100</span></div>
-    <div class="bar"><i id="hpFill"></i></div>
-    <div id="info"><span id="scoreTxt">SCORE 0</span><span class="lv" id="lvTxt">LV 1</span></div>
-    <div class="bar xp"><i id="xpFill" style="width:0%"></i></div>
-  </div>
-  <div id="fsRow">
-    <button class="tbtn" id="btnMute" aria-label="mute">&#9835;</button>
-    <button class="tbtn" id="btnFs" aria-label="fullscreen">&#9974;</button>
-  </div>
-  <div id="timer" class="panel"><div class="lab" id="timerLab">BOSS ARRIVES IN</div><div class="val" id="timerVal">3:00</div></div>
-  <div id="bossWrap" class="panel"><div id="bossName">WARDEN</div><div class="bar boss"><i id="bossFill"></i></div></div>
-  <div id="bossArrow"><div class="tri"></div><div class="d">BOSS</div></div>
-  <div id="hint">WASD MOVE &nbsp;·&nbsp; SPACE / J ATTACK &nbsp;·&nbsp; SHIFT / K ROLL &nbsp;·&nbsp; P PAUSE &nbsp;·&nbsp; M MUTE</div>
-</div>
-<div id="stickZone"><div id="stick"><div id="stickKnob"></div></div></div>
-<div id="actZone">
-  <div class="abtn" id="btnRoll">ROLL<small>i-frames</small></div>
-  <div class="abtn" id="btnAttack">ATTACK<small>3.2 m arc</small></div>
-</div>
-<div id="nums"></div>
-<div id="overlay"><div id="ovCard">
-  <div id="ovKick"></div><div id="ovTitle"></div><div id="ovSub"></div>
-  <div id="ovBody"></div><div id="cards"></div><div id="ovBtns"></div>
-  <div id="credits"></div>
-</div></div>
-<div id="rotate">ROTATE YOUR PHONE TO LANDSCAPE<br><small style="font-size:11px;letter-spacing:0;color:#9fb6d0">AETHERBLADE is built for landscape play</small></div>
-<script>
-/*__CORE__*/
-</script>
-<script>
-/*__GAME__*/
-</script>
-</body>
-</html>
