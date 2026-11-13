@@ -6,7 +6,7 @@
 export const hero = {
   id: 'hero',
   type: 'hero',
-  displayName: 'HERO',
+  displayName: 'LION KNIGHT',
   price: 0,
   default: true,
   figure: 'hero',

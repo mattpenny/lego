@@ -241,5 +241,43 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 .ptag{position:fixed;z-index:13;display:none;pointer-events:none;transform:translate(-50%,-100%);
   font-size:calc(12px*var(--u));font-weight:bold;letter-spacing:.1em;
   text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.6)}
+/* ---- hero select: pre-run picker, parchment sheet over the live scene ----
+   The sheet hugs the bottom so the highlighted hero's 3D figure stays
+   visible standing in the arena above it. */
+#hsel{position:fixed;inset:0;display:none;align-items:flex-end;justify-content:center;
+  background:rgba(3,5,10,.34);z-index:32;padding:0 calc(8px*var(--u)) calc(8px*var(--u))}
+#hsel.on{display:flex}
+#hselCard{width:min(97vw,calc(720px*var(--u)));text-align:center;
+  border-radius:calc(10px*var(--u));padding:calc(8px*var(--u)) calc(12px*var(--u)) calc(8px*var(--u));
+  background:linear-gradient(180deg,#f6ead0,#ecdcae 60%,#e0c88f);
+  border:2px solid #a97f33;color:#3a2a12;
+  box-shadow:0 18px 60px rgba(0,0,0,.75),inset 0 0 40px rgba(150,105,30,.18);
+  font-family:"Palatino Linotype","Book Antiqua",Palatino,Georgia,"Times New Roman",serif}
+#hselTitle{font-size:calc(16px*var(--u));font-weight:bold;letter-spacing:.22em;color:#6e4a10}
+#hselRule{height:2px;width:72%;margin:calc(5px*var(--u)) auto 0;
+  background:linear-gradient(90deg,transparent,#a97f33,transparent)}
+#hselCards{display:flex;gap:calc(7px*var(--u));justify-content:center;margin-top:calc(6px*var(--u))}
+.hcard{flex:1 1 0;max-width:calc(216px*var(--u));cursor:pointer;pointer-events:auto;text-align:center;
+  border:2px solid rgba(122,85,24,.45);border-radius:calc(9px*var(--u));
+  padding:calc(6px*var(--u)) calc(7px*var(--u)) calc(5px*var(--u));
+  background:rgba(255,250,230,.5);transition:transform .1s,border-color .1s,background .1s}
+.hcard:active{transform:scale(.98)}
+.hcard.sel{border-color:#8a5f1c;background:linear-gradient(180deg,#ffe9b0,#f3d98d);
+  box-shadow:0 0 0 2px #caa14e,0 6px 18px rgba(0,0,0,.35)}
+.hcard .hnm{font-size:calc(13px*var(--u));font-weight:bold;letter-spacing:.07em;color:#5a3d0c;white-space:nowrap}
+.hcard .hds{font-size:calc(9.5px*var(--u));line-height:1.45;color:#5d4420;
+  margin-top:calc(2px*var(--u));min-height:calc(25px*var(--u))}
+.hcard .hst{margin-top:calc(2px*var(--u));font-size:calc(10px*var(--u));font-weight:bold;
+  letter-spacing:.14em;color:#8a5a08}
+.hcard.sel .hst{color:#6e4a10}
+#hselGold{font-size:calc(11px*var(--u));letter-spacing:.1em;color:#4a3512;margin-top:calc(5px*var(--u))}
+#hselGold .k{color:#8a5a08;font-weight:bold}
+#hselBtns{display:flex;gap:calc(8px*var(--u));justify-content:center;flex-wrap:wrap;
+  margin-top:calc(5px*var(--u));min-height:calc(32px*var(--u))}
+#hselBtns .bigbtn{background:linear-gradient(180deg,#ffe2a0,#dfa83f);
+  border:1px solid #8a5f1c;color:#241703}
+#hselBtns .bigbtn:disabled{background:rgba(120,100,60,.25);border:1px solid rgba(122,85,24,.4);
+  color:#7a6234;cursor:default}
+#hselBack{margin-top:calc(5px*var(--u))}
 
 

@@ -1470,6 +1470,11 @@ function sampleClip(clip,t){
   return out;
 }
 const VIEWS=new Map();
+/* Hero-select live preview: a standalone figure view (id 'hsel') that lives
+   in VIEWS only while the picker is open. syncViews must not reap it, and
+   it is removed before any run starts. View-only — no sim entity. */
+const HSEL_ID='hsel';
+let hselView=null, hselSpin=0;
 function makeView(kind,id){
   const bones=JOINTS.map(j=>{ const b=new T.Bone(); b.position.set(j.o[0],j.o[1],j.o[2]); return b; });
   JOINTS.forEach((j,i)=>{ if(j.p>=0)bones[j.p].add(bones[i]); });
@@ -1587,6 +1592,7 @@ function syncViews(s,dt){
       v.mesh.position.set(b.x,0,b.z); v.mesh.rotation.y=b.yaw;
     }
   }
+  if(hselView)seen.add(HSEL_ID);   // hero-select preview survives the reap while open
   for(const [id,v] of VIEWS){
     if(!seen.has(id)){ scene.remove(v.mesh); if(v.dispose)v.dispose(); else v.mesh.material.dispose(); VIEWS.delete(id); }
   }
@@ -2875,6 +2881,10 @@ $('btnMute').addEventListener('pointerdown',e=>{
 $('armClose').addEventListener('click',()=>{closeArmoury();});
 $('armoury').addEventListener('pointerdown',e=>{if(e.target===$('armoury'))closeArmoury();});
 
+/* ---------- hero select modal wiring ---------- */
+$('hselBack').addEventListener('click',()=>{closeHeroSelect();});
+$('hsel').addEventListener('pointerdown',e=>{if(e.target===$('hsel'))closeHeroSelect();});
+
 /* ---------- keyboard ---------- */
 const GAME_KEYS=new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' ','j','k','shift','p','m','f','g','enter']);
 addEventListener('keydown',e=>{
@@ -2886,7 +2896,7 @@ addEventListener('keydown',e=>{
     if(k==='shift'||k==='k'){UI.rollLatch=true;INPUT_LOG.rollPress++;}
     if(k===' '||k==='j')UI.atkBuf=ATK_BUFFER;
     if(k==='g'){UI.magicLatch=true;INPUT_LOG.magicPress++;}
-    if(k==='enter'&&SIM.phase==='title')startRun();
+    if(k==='enter'&&SIM.phase==='title'){ if(hselOpen)confirmHeroSelect(); else openHeroSelect('solo'); }
     if(k==='m'){Audio.init();const m=Audio.toggle();$('btnMute').innerHTML=m?'&#128263;':'&#9835;';}
     if(k==='f'){const d=document.documentElement;
       if(d.requestFullscreen){const q=d.requestFullscreen();if(q&&q.catch)q.catch(()=>{});}}
@@ -3022,6 +3032,122 @@ function renderArmoury(){
   $('armBody').innerHTML=armouryBodyHTML();
   fillBtns($('armBtns'),metaButtons());
 }
+
+/* ---------- hero select: the pre-run picker (landing -> pick -> run) ----
+   Exactly three identity heroes are offered here; the class skins stay in
+   the Armoury. The highlighted hero is what the confirm starts the run
+   with: confirming writes META.heroSkin through the same save the Armoury
+   uses (key aetherblade-meta-v1), and an unlock goes through heroBtn()'s
+   purchase, then selects immediately. View/flow only — no sim input. */
+const HSEL_HEROES=['hero','frostarcher','dwarf'];
+let hselOpen=false, hselMode='solo', hselKind='hero', hselRev='';
+function hselOwned(k){ return !!HEROES[k].default||!!META.heroes[k]; }
+function hselCost(k){ return CFG.meta.heroCosts[k]||0; }
+function hselNum(n){ return n%1===0?String(n|0):String(n); }
+function heroAbilityText(k){
+  const m=HERO_MAGIC[k];
+  if(!m)return 'ARCANE BLAST \u2014 the standard magic';
+  if(m.kind==='frost')return 'FROST NOVA \u2014 freezes enemies '+hselNum(m.freezeSec)+' s, boss '+hselNum(m.bossFreezeSec)+' s';
+  if(m.kind==='earth')return 'EARTHQUAKE \u2014 knocks enemies back '+m.push+' m, boss '+m.bossPush+' m';
+  return 'SIGNATURE MAGIC';
+}
+function spawnHeroPreview(kind){
+  removeHeroPreview();
+  hselView=makeView(kind,HSEL_ID);
+  hselSpin=-0.6;   // open on a front three-quarter view, then drift around
+  const h=SIM.heroes[0];
+  hselView.mesh.position.set(h?h.x:0,0,(h?h.z:0)+1.2);
+  hselView.mesh.visible=true;
+}
+function removeHeroPreview(){
+  if(!hselView)return;
+  scene.remove(hselView.mesh);
+  if(hselView.dispose)hselView.dispose(); else hselView.mesh.material.dispose();
+  VIEWS.delete(HSEL_ID); hselView=null;
+}
+function updateHeroPreview(dt){
+  if(!hselOpen||!hselView)return;
+  hselSpin+=dt*0.3;
+  updateAnim(hselView,dt,0);
+  /* facing set after the pose pass, the same order syncViews uses for the
+     sim hero views: PI faces the figure toward the menu camera */
+  hselView.mesh.rotation.y=Math.PI+hselSpin;   // start facing camera, slow turn
+}
+function openHeroSelect(mode){
+  if(SIM.phase!=='title')return;
+  hselMode=(mode==='coop')?'coop':'solo';
+  const cur=safeHero(META.heroSkin);
+  hselKind=HSEL_HEROES.includes(cur)?cur:'hero';
+  hselOpen=true; hselRev='';
+  $('hsel').classList.add('on');
+  spawnHeroPreview(hselKind);
+  renderHeroSelect();
+  Audio.init();
+}
+function closeHeroSelect(){
+  if(!hselOpen)return;
+  hselOpen=false; hselRev='';
+  removeHeroPreview();
+  $('hsel').classList.remove('on');
+  if(SIM.phase==='title'){ hideOverlay(); syncOverlay(); }  // restore the landing
+}
+function pickHeroCard(k){
+  if(!HSEL_HEROES.includes(k))return;
+  hselKind=k; hselRev='';
+  spawnHeroPreview(k);
+  renderHeroSelect();
+  Audio.init();
+}
+function unlockHeroFromSelect(){
+  const k=hselKind;
+  if(hselOwned(k)||META.gold<hselCost(k))return;
+  heroBtn(k);                        // the existing purchase: gold, flag, save
+  if(!META.heroes[k])return;         // purchase refused — nothing changed
+  META.heroSkin=k; META.rev++; saveMeta();   // unlock selects immediately
+  hselRev=''; renderHeroSelect();
+}
+function confirmHeroSelect(){
+  if(!hselOpen||!hselOwned(hselKind))return;
+  if(META.heroSkin!==hselKind){ META.heroSkin=hselKind; META.rev++; saveMeta(); }
+  const mode=hselMode;
+  closeHeroSelect();
+  if(mode==='coop')openCoop(); else startRun();
+}
+function renderHeroSelect(){
+  if(!hselOpen)return;
+  /* the landing stays hidden behind the sheet while the picker is open */
+  $('overlay').classList.remove('on');
+  const owned=hselOwned(hselKind), cost=hselCost(hselKind);
+  const key=hselKind+'|'+hselMode+'|'+META.gold+'|'+META.rev+'|'+(owned?1:0);
+  if(key===hselRev)return;
+  hselRev=key;
+  const cw=$('hselCards'); cw.innerHTML='';
+  for(const k of HSEL_HEROES){
+    const el=document.createElement('div');
+    el.className='hcard'+(k===hselKind?' sel':'')+(hselOwned(k)?'':' locked');
+    const st=k===hselKind?'SELECTED':(hselOwned(k)?'SELECT':'\u{1F512} '+hselCost(k)+' G');
+    el.innerHTML='<div class="hnm">'+esc(heroName(k))+'</div>'+
+      '<div class="hds">'+esc(heroAbilityText(k))+'</div>'+
+      '<div class="hst">'+st+'</div>';
+    el.addEventListener('click',()=>pickHeroCard(k));
+    cw.appendChild(el);
+  }
+  $('hselGold').innerHTML='\u{1FA99} GOLD <span class="k">'+META.gold+'</span>';
+  const bw=$('hselBtns'); bw.innerHTML='';
+  const b=document.createElement('button');
+  b.className='bigbtn';
+  if(owned){
+    b.textContent=hselMode==='coop'?'CONTINUE TO CO-OP \u2192':'\u2694 BEGIN RUN';
+    b.addEventListener('click',confirmHeroSelect);
+  }else if(META.gold>=cost){
+    b.textContent='UNLOCK \u00B7 '+cost+' G';
+    b.addEventListener('click',unlockHeroFromSelect);
+  }else{
+    b.textContent='NEED '+(cost-META.gold)+' G MORE';
+    b.disabled=true;
+  }
+  bw.appendChild(b);
+}
 let bannerTimer=0;
 function showBanner(txt,ms){
   const el=$('banner'); if(!el)return;
@@ -3050,6 +3176,7 @@ function updateHints(){
 }
 
 function startRun(){
+  if(hselOpen)closeHeroSelect();   // the preview never leaks into a run
   SIM=newSim(0x51A7E); SIM.phase='play';
   SIM.mods={hp:META.tracks.hp*CFG.meta.hpPer, dmg:META.tracks.dmg*CFG.meta.dmgPer, spd:META.tracks.spd*CFG.meta.spdPer};
   SIM.heroes[0].mods={hp:SIM.mods.hp,dmg:SIM.mods.dmg,spd:SIM.mods.spd};
@@ -3068,8 +3195,8 @@ function syncOverlay(){
   if(key===overlayKey)return;
   if(s.phase==='title'){
     setOverlay(key,'','AETHERBLADE','','',null,
-      [{label:'\u2694 START RUN',fn:startRun,prime:true},
-       {label:'\u{1F465} CO-OP',fn:openCoop,ghost:true},
+      [{label:'\u2694 START RUN',fn:()=>openHeroSelect('solo'),prime:true},
+       {label:'\u{1F465} CO-OP',fn:()=>openHeroSelect('coop'),ghost:true},
        {label:'ARMOURY',fn:openArmoury,ghost:true}],'');
   }else if(s.phase==='levelup'){
     const cards=s.choices.map(id=>UPGRADES.find(u=>u.id===id)).filter(Boolean);
@@ -3395,6 +3522,7 @@ function netResync(sess,T){
   closeCoop();
 }
 function startCoopRun(seed){
+  if(hselOpen)closeHeroSelect();   // defensive: picker is closed before the lobby anyway
   const sess=NET; if(!sess||!sess.players)return;
   SIM=newSim(seed>>>0,2); SIM.phase='play';
   sess.players.forEach((p,i)=>{ const h=SIM.heroes[i];
@@ -3652,6 +3780,16 @@ function updateHUD(){
 }
 function updateCamera(dt){
   const s=SIM,h=localHero(s);
+  /* hero select open: portrait framing on the preview figure (view-only;
+     the follow camera resumes by its normal lerp when the picker closes) */
+  if(hselOpen&&hselView){
+    const p=hselView.mesh.position,k=Math.min(1,dt*6);
+    camera.position.x=lerp(camera.position.x,p.x,k);
+    camera.position.y=lerp(camera.position.y,1.8,k);
+    camera.position.z=lerp(camera.position.z,p.z-4.4,k);
+    camera.lookAt(p.x,0.55,p.z);
+    return;
+  }
   const tx=h.x,ty=1.15,tz=h.z+2.4;
   camera.position.x=lerp(camera.position.x,tx,Math.min(1,dt*6));
   camera.position.y=lerp(camera.position.y,9.4*camZoom,Math.min(1,dt*6));
@@ -3674,6 +3812,7 @@ function frame(now){
   const s=SIM;
   if(s.chapter!==lastChapter){lastChapter=s.chapter;buildMapMeshes(s);}
   syncViews(s,dt);
+  updateHeroPreview(dt);
   updateSlashFX(s,dt);
   updateBolts(dt);
   updateRings(dt);
@@ -3682,7 +3821,7 @@ function frame(now){
   updateVFX(dt,RTIME);
   Audio.setIntensity(Math.min(1,s.enemies.length/7+(s.boss?0.55:0)+s.chapter*0.05));
   updateCamera(dt);
-  syncOverlay(); renderArmoury(); renderCoop(); updateNetUI();
+  syncOverlay(); renderArmoury(); renderCoop(); renderHeroSelect(); updateNetUI();
   updateHUD(); updateHints();
   renderer.render(scene,camera);
   lastCalls=renderer.info.render.calls;
