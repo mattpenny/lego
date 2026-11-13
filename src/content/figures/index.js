@@ -16,10 +16,33 @@ import { dragon } from './dragon.js';
 import { knightMount } from './knight-mount.js';
 import { frostarcher } from './frostarcher.js';
 import { dwarf } from './dwarf.js';
+/* Heraldic knights + archers from the LEGO reference photos. */
+import { ravenKnight } from './raven-knight.js';
+import { eagleKnight } from './eagle-knight.js';
+import { crimsonKnight } from './crimson-knight.js';
+import { axeKnight } from './axe-knight.js';
+import { sunKnight } from './sun-knight.js';
+import { azureKnight } from './azure-knight.js';
+import { obsidianKnight } from './obsidian-knight.js';
+import { unicornKnight } from './unicorn-knight.js';
+import { lionKnight } from './lion-knight.js';
+import { krakenKnight } from './kraken-knight.js';
+import { towerKnight } from './tower-knight.js';
+import { dragonKnight } from './dragon-knight.js';
+import { crossbowman } from './crossbowman.js';
+import { russetArcher } from './russet-archer.js';
+import { tealArcher } from './teal-archer.js';
 
 export const FIGURES = deepFreeze({
   hero, knight, soldier, brute, runner, ranger, archer, sorcerer, boss,
   dragon, 'knight-mount': knightMount, frostarcher, dwarf,
+  'raven-knight': ravenKnight, 'eagle-knight': eagleKnight,
+  'crimson-knight': crimsonKnight, 'axe-knight': axeKnight,
+  'sun-knight': sunKnight, 'azure-knight': azureKnight,
+  'obsidian-knight': obsidianKnight, 'unicorn-knight': unicornKnight,
+  'lion-knight': lionKnight, 'kraken-knight': krakenKnight,
+  'tower-knight': towerKnight, 'dragon-knight': dragonKnight,
+  crossbowman, 'russet-archer': russetArcher, 'teal-archer': tealArcher,
 });
 export const FIGURE_IDS = deepFreeze(Object.keys(FIGURES));
 

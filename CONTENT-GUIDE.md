@@ -152,6 +152,25 @@ The existing 9 figures were extracted mechanically from the legacy
 A new enemy **changes the simulation** (new spawns consume RNG): the digest
 moves, so re-record the baseline and bump the net stamp (§5).
 
+**The heraldic set (AB-NET-8).** Fifteen enemies landed at once from an
+external handoff — 12 heraldic knights (raven, eagle, crimson, axe, sun,
+azure, obsidian, unicorn, lion, kraken, tower, dragon), the crossbowman,
+and the russet + teal archers. The integration was exactly this section's
+recipe at bulk scale: the 15 enemy descriptors + 15 figure descriptors
+are pure data in the registry format (the shared 29-part minifig body;
+heraldry lives in tint slots + accessories, `meshScale` per figure), and
+the only merges were the import/registration blocks of
+`enemies/index.js` and `figures/index.js` plus the expected-count line in
+`scripts/content-check.mjs` (ENEMIES 22, FIGURES 28). NO sim code changed:
+the wave director's weighted fill is fully generic — `FILL_POOL` derives
+from each descriptor's `fill {order, weight, from}` and `ENEMY_CAPS` from
+its `cap`, so a new kind spawns by data alone. Ranged kinds (`cls:
+'ranged'` with `minRange/maxRange/volley/projSpeed`) flow through the
+same ranged path as the archer/ranger/sorcerer. The handoff's generator
+script is documentation of how the descriptors were produced — the
+descriptors are the deliverable; do not re-run it over hand-tuned files.
+Every current number is in the generated **STATS.md**.
+
 ---
 
 ## 2. Adding a new HERO (playable skin)

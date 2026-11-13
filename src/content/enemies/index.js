@@ -19,11 +19,35 @@ import { soldier } from './soldier.js';
 import { archer } from './archer.js';
 import { sorcerer } from './sorcerer.js';
 import { knight } from './knight.js';
+/* Heraldic knight order — 12 shields from the LEGO reference grid. */
+import { ravenKnight } from './raven-knight.js';
+import { eagleKnight } from './eagle-knight.js';
+import { crimsonKnight } from './crimson-knight.js';
+import { axeKnight } from './axe-knight.js';
+import { sunKnight } from './sun-knight.js';
+import { azureKnight } from './azure-knight.js';
+import { obsidianKnight } from './obsidian-knight.js';
+import { unicornKnight } from './unicorn-knight.js';
+import { lionKnight } from './lion-knight.js';
+import { krakenKnight } from './kraken-knight.js';
+import { towerKnight } from './tower-knight.js';
+import { dragonKnight } from './dragon-knight.js';
+/* Archers — wide-brim crossbowman + two hooded rangers. */
+import { crossbowman } from './crossbowman.js';
+import { russetArcher } from './russet-archer.js';
+import { tealArcher } from './teal-archer.js';
 import { MELEE_DEFAULTS, GLOBAL_ENEMY_CAP } from './shared.js';
 import { BOSSES, BOSS_NAMES, BOSS_CFG, BOSS_PHASE2, BOSS_FIGURE, BOSS_IDS, BOSS_CFG_BY_CHAPTER } from './bosses/index.js';
 
 export const ENEMIES = deepFreeze({
   brute, runner, ranger, soldier, archer, sorcerer, knight,
+  'raven-knight': ravenKnight, 'eagle-knight': eagleKnight,
+  'crimson-knight': crimsonKnight, 'axe-knight': axeKnight,
+  'sun-knight': sunKnight, 'azure-knight': azureKnight,
+  'obsidian-knight': obsidianKnight, 'unicorn-knight': unicornKnight,
+  'lion-knight': lionKnight, 'kraken-knight': krakenKnight,
+  'tower-knight': towerKnight, 'dragon-knight': dragonKnight,
+  crossbowman, 'russet-archer': russetArcher, 'teal-archer': tealArcher,
 });
 export const ENEMY_KINDS = deepFreeze(Object.keys(ENEMIES));
 

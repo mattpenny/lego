@@ -73,6 +73,21 @@ Shared melee defaults: telegraph 0.55 s, strike range 1.8 m, arc 120°, recovery
 | ARCHER | 34 | 8 | 3.55 | 0.4 | 150 | Ranged — band 9–13 m, volley every 1.5 s, projectile 14 m/s, telegraph 0.42 s | `src/content/enemies/archer.js · cfg` |
 | SORCERER | 60 | 10 | 2.1 | 0.5 | 240 | Ranged — band 8.5–13.5 m, volley every 3.6 s, projectile 7.5 m/s, splash 1.5 m, telegraph 0.95 s | `src/content/enemies/sorcerer.js · cfg` |
 | KNIGHT | 168 | 20 | 2.6 | 0.66 | 320 | Melee — reach 2 m, arc 120°, telegraph 0.95 s, recovery 0.6 s, cooldown 0.7 s, poise (windup uninterruptible) | `src/content/enemies/knight.js · cfg` |
+| RAVEN-KNIGHT | 78 | 15 | 2.55 | 0.5 | 170 | Melee — reach 2.25 m, arc 105°, telegraph 0.55 s, recovery 0.44 s, cooldown 0.58 s | `src/content/enemies/raven-knight.js · cfg` |
+| EAGLE-KNIGHT | 84 | 16 | 2.5 | 0.52 | 180 | Melee — reach 2.3 m, arc 110°, telegraph 0.58 s, recovery 0.45 s, cooldown 0.6 s | `src/content/enemies/eagle-knight.js · cfg` |
+| CRIMSON-KNIGHT | 96 | 17 | 2.4 | 0.54 | 200 | Melee — reach 2.3 m, arc 115°, telegraph 0.62 s, recovery 0.48 s, cooldown 0.62 s | `src/content/enemies/crimson-knight.js · cfg` |
+| AXE-KNIGHT | 104 | 19 | 2.3 | 0.56 | 210 | Melee — reach 2.5 m, arc 120°, telegraph 0.7 s, recovery 0.52 s, cooldown 0.68 s | `src/content/enemies/axe-knight.js · cfg` |
+| SUN-KNIGHT | 88 | 15 | 2.65 | 0.5 | 190 | Melee — reach 2.2 m, arc 100°, telegraph 0.52 s, recovery 0.42 s, cooldown 0.55 s | `src/content/enemies/sun-knight.js · cfg` |
+| AZURE-KNIGHT | 90 | 16 | 2.55 | 0.52 | 195 | Melee — reach 2.35 m, arc 110°, telegraph 0.58 s, recovery 0.45 s, cooldown 0.6 s | `src/content/enemies/azure-knight.js · cfg` |
+| OBSIDIAN-KNIGHT | 118 | 19 | 2.35 | 0.58 | 235 | Melee — reach 2.4 m, arc 120°, telegraph 0.72 s, recovery 0.52 s, cooldown 0.66 s | `src/content/enemies/obsidian-knight.js · cfg` |
+| UNICORN-KNIGHT | 92 | 15 | 2.8 | 0.5 | 200 | Melee — reach 2.2 m, arc 100°, telegraph 0.5 s, recovery 0.42 s, cooldown 0.55 s | `src/content/enemies/unicorn-knight.js · cfg` |
+| LION-KNIGHT | 108 | 18 | 2.45 | 0.55 | 220 | Melee — reach 2.4 m, arc 115°, telegraph 0.65 s, recovery 0.5 s, cooldown 0.64 s | `src/content/enemies/lion-knight.js · cfg` |
+| KRAKEN-KNIGHT | 100 | 17 | 2.5 | 0.54 | 215 | Melee — reach 2.35 m, arc 112°, telegraph 0.62 s, recovery 0.48 s, cooldown 0.62 s | `src/content/enemies/kraken-knight.js · cfg` |
+| TOWER-KNIGHT | 126 | 20 | 2.2 | 0.6 | 250 | Melee — reach 2.3 m, arc 120°, telegraph 0.78 s, recovery 0.55 s, cooldown 0.7 s | `src/content/enemies/tower-knight.js · cfg` |
+| DRAGON-KNIGHT | 138 | 21 | 2.3 | 0.6 | 270 | Melee — reach 2.5 m, arc 120°, telegraph 0.8 s, recovery 0.56 s, cooldown 0.72 s, poise (windup uninterruptible) | `src/content/enemies/dragon-knight.js · cfg` |
+| CROSSBOWMAN | 48 | 12 | 2.8 | 0.44 | 175 | Ranged — band 7.5–11.5 m, volley every 2.6 s, projectile 16 m/s, telegraph 0.6 s | `src/content/enemies/crossbowman.js · cfg` |
+| RUSSET-ARCHER | 36 | 9 | 3.6 | 0.4 | 155 | Ranged — band 8.5–12.5 m, volley every 1.7 s, projectile 13.5 m/s, telegraph 0.44 s | `src/content/enemies/russet-archer.js · cfg` |
+| TEAL-ARCHER | 42 | 10 | 3.35 | 0.41 | 165 | Ranged — band 8–12 m, volley every 2 s, projectile 12.5 m/s, telegraph 0.48 s | `src/content/enemies/teal-archer.js · cfg` |
 
 ## Items & pickups
 

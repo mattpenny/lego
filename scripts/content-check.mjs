@@ -52,7 +52,11 @@ function run(script, args = []) {
   errors.push(...e.map((x) => 'schema: ' + x));
   warnings.push(...w);
   info.push('registry  ' + describeRegistry(REGISTRY));
-  const expected = { HEROES: 7, FIGURES: 13, ENEMIES: 7, BOSSES: 3,
+  /* Expected registry sizes. HEROES / FIGURES / ENEMIES all move when new
+     content lands, so reconcile this line once after concurrent branches
+     (heroes and enemies) have merged — it is a shared integration point.
+     (Wording adopted from the heraldic-enemies handoff, AB-NET-8.) */
+  const expected = { HEROES: 7, FIGURES: 28, ENEMIES: 22, BOSSES: 3,
                      ITEMS: 3, PROPS: 14, MAPS: 3, UPGRADES: 9 };
   for (const [k, v] of Object.entries(expected)) {
     if (counts[k] !== v) errors.push(`schema: expected ${v} ${k}, found ${counts[k]}`);

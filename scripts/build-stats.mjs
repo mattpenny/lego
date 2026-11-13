@@ -134,7 +134,10 @@ for (const kind of Object.keys(ENEMIES)) {
   const atk = c.volley
     ? `Ranged — band ${fmt(c.minRange)}–${fmt(c.maxRange)} m, volley every ${fmt(c.volley)} s, projectile ${fmt(c.projSpeed)} m/s${c.splash ? `, splash ${fmt(c.splash)} m` : ''}${c.tele ? `, telegraph ${fmt(c.tele)} s` : ''}`
     : `Melee — reach ${fmt(c.reach || ENEMY_CFG.strikeRange)} m, arc ${c.arcDeg || ENEMY_CFG.strikeArcDeg}°, telegraph ${fmt(c.tele || ENEMY_CFG.telegraph)} s, recovery ${fmt(c.recovery || ENEMY_CFG.recovery)} s${c.cd ? `, cooldown ${fmt(c.cd)} s` : ''}${c.poise ? ', poise (windup uninterruptible)' : ''}`;
-  L.push(`| ${ENEMIES[kind].displayName || kind.toUpperCase()} | ${c.hp} | ${c.dmg} | ${fmt(c.speed)} | ${fmt(c.radius)} | ${c.score} | ${atk} | \`${sourceFileFor(kind, 'enemies')} · cfg\` |`);
+  /* Descriptor exports are camelCase (ravenKnight) while kinds are
+     kebab-case (raven-knight) — convert before the source lookup. */
+  const exportName = kind.replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
+  L.push(`| ${ENEMIES[kind].displayName || kind.toUpperCase()} | ${c.hp} | ${c.dmg} | ${fmt(c.speed)} | ${fmt(c.radius)} | ${c.score} | ${atk} | \`${sourceFileFor(exportName, 'enemies')} · cfg\` |`);
 }
 L.push('');
 
