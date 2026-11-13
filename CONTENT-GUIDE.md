@@ -308,9 +308,18 @@ descriptor fields affect presentation only:
   `HERO_SLASH_TINTS`. The hero's swings draw the slim crescent (same
   geometry, timing and brightness envelope as the default) from a
   palette with these colours baked in. The EARTH DWARF's hammer arc is
-  pale red: core `[1.0, 0.70, 0.63]` (#ffb3a1), rim
-  `[0.98, 0.80, 0.74]` (baked at 36% brightness, like the default's
-  rim). Everyone else keeps the luminous blue-white original.
+  pale orange: core `[1.0, 0.50, 0.08]` (#ff8014), rim
+  `[1.0, 0.58, 0.20]` (baked at 36% brightness, like the default's
+  rim). Everyone else keeps the luminous blue-white original. (The
+  arc's first tint — pale red #ffb3a1 — washed out to near-white under
+  the additive blend in phone play; Matt reported a "white crescent".
+  Deepening the CORE, not the geometry or envelope, fixed the read:
+  capture-measured added-light hue moved from ~21° to ~36° median.
+  The dwarf figure likewise carries an oversized hammer head —
+  0.84 m bright-steel block, gold striking faces and centre band —
+  after the original 0.52 m dark-steel head read as a small stick at
+  game distance. Both changes are figure/descriptor view data only;
+  the combined digest did not move.)
 - `trait: '…'` — the one-line tradeoff shown on the hero's
   CHOOSE YOUR HERO card ("Ranged arrows · lighter damage" / "Heavy
   hammer · slower, short roll" / "Balanced sword & shield"), read from

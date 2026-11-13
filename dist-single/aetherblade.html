@@ -55619,12 +55619,12 @@ const dwarf = {
   default: false,
   figure: 'dwarf',
   slashTip: { b: 8, o: [0, 0.66, 0] },
-  slashTint: { core: [1.0, 0.70, 0.63], rim: [0.98, 0.80, 0.74] },
+  slashTint: { core: [1.0, 0.50, 0.08], rim: [1.0, 0.58, 0.20] },
   magic: { kind: 'earth', push: 6, bossPush: 3 },
   stats: { dmgMul: 1.25, speedMul: 0.9, rollDistMul: 0.8, rollCdMul: 1.3 },
   trait: 'Heavy hammer · slower, short roll',
   added: '2026-11-13',
-  notes: 'Signature magic EARTHQUAKE: the 60-dmg blast also knocks survivors 6 m directly away from the caster (boss 3 m), clamped to ARENA_R - radius. Instant sim displacement, hashed by simDigest. His hammer swing keeps the standard sword sim but draws its slim crescent in PALE RED (slashTint: core #ffb3a1, paler rim) — view-only, derived into HERO_SLASH_TINTS, NOT part of SIM_CONTENT.',
+  notes: 'Signature magic EARTHQUAKE: the 60-dmg blast also knocks survivors 6 m directly away from the caster (boss 3 m), clamped to ARENA_R - radius. Instant sim displacement, hashed by simDigest. His hammer swing keeps the standard sword sim but draws its slim crescent in PALE ORANGE (slashTint: core #ff8014, rim #ff9433 — deepened from the original pale red #ffb3a1, which washed out to near-white under the additive blend in phone play) — view-only, derived into HERO_SLASH_TINTS, NOT part of SIM_CONTENT.',
 };
 
 
@@ -56648,6 +56648,10 @@ __fns["src/content/figures/dwarf.js"] = function(__req, __exports){
    red-brown beard (the 'cloth' slot) layered in three braids down his
    chest almost to his knees. His two-handed war hammer rides on
    joint 8 (handR) with the head up; the slash tip sits on the head.
+   The head is deliberately OVERSIZED (0.84 m block, bright 'blade'
+   steel with gold striking faces and a gold centre band): the first
+   version's 0.52 m dark-steel head read as a small stick at game
+   distance on Matt's phone.
    Original brick build in the spirit of Matt's reference photo.
    c = tint slot name; 'INK' is the shared near-black face-print colour. */
 
@@ -56725,13 +56729,14 @@ const dwarf = {
     { j:7, g:'box', o:[0,-0.33,0], s:[0.32,0.07,0.36], c:'trim' },
     { j:8, g:'cyl12', o:[0,-0.04,0], s:[0.28,0.12,0.28], c:'skin', r:[1.570796,0,0] },
     { j:8, g:'box', o:[0,-0.12,0.05], s:[0.12,0.12,0.16], c:'skin' },
-    { j:8, g:'cyl', o:[0,0.10,0], s:[0.075,1.00,0.075], c:'dark' },
-    { j:8, g:'cyl', o:[0,-0.12,0], s:[0.095,0.06,0.095], c:'trim' },
-    { j:8, g:'sph', o:[0,-0.44,0], s:[0.12,0.12,0.12], c:'trim' },
-    { j:8, g:'box', o:[0,0.58,0], s:[0.52,0.30,0.30], c:'metal' },
-    { j:8, g:'box', o:[0.27,0.58,0], s:[0.06,0.32,0.32], c:'trim' },
-    { j:8, g:'box', o:[-0.27,0.58,0], s:[0.06,0.32,0.32], c:'trim' },
-    { j:8, g:'cone', o:[0,0.83,0], s:[0.14,0.22,0.14], c:'blade' },
+    { j:8, g:'cyl', o:[0,0.14,0], s:[0.085,1.20,0.085], c:'dark' },
+    { j:8, g:'cyl', o:[0,-0.12,0], s:[0.105,0.06,0.105], c:'trim' },
+    { j:8, g:'sph', o:[0,-0.50,0], s:[0.13,0.13,0.13], c:'trim' },
+    { j:8, g:'box', o:[0,0.66,0], s:[0.84,0.40,0.40], c:'blade' },
+    { j:8, g:'box', o:[0,0.66,0], s:[0.86,0.11,0.42], c:'trim' },
+    { j:8, g:'box', o:[0.44,0.66,0], s:[0.08,0.42,0.42], c:'trim' },
+    { j:8, g:'box', o:[-0.44,0.66,0], s:[0.08,0.42,0.42], c:'trim' },
+    { j:8, g:'cone', o:[0,0.99,0], s:[0.16,0.26,0.16], c:'blade' },
     { j:9, g:'box', o:[0,-0.20,0], s:[0.36,0.42,0.38], c:'cloth' },
     { j:10, g:'box', o:[0,-0.20,0], s:[0.34,0.38,0.36], c:'armor' },
     { j:10, g:'box', o:[0,-0.40,0.10], s:[0.38,0.15,0.50], c:'dark' },

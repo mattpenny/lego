@@ -5,6 +5,10 @@
    red-brown beard (the 'cloth' slot) layered in three braids down his
    chest almost to his knees. His two-handed war hammer rides on
    joint 8 (handR) with the head up; the slash tip sits on the head.
+   The head is deliberately OVERSIZED (0.84 m block, bright 'blade'
+   steel with gold striking faces and a gold centre band): the first
+   version's 0.52 m dark-steel head read as a small stick at game
+   distance on Matt's phone.
    Original brick build in the spirit of Matt's reference photo.
    c = tint slot name; 'INK' is the shared near-black face-print colour. */
 
@@ -82,13 +86,14 @@ export const dwarf = {
     { j:7, g:'box', o:[0,-0.33,0], s:[0.32,0.07,0.36], c:'trim' },
     { j:8, g:'cyl12', o:[0,-0.04,0], s:[0.28,0.12,0.28], c:'skin', r:[1.570796,0,0] },
     { j:8, g:'box', o:[0,-0.12,0.05], s:[0.12,0.12,0.16], c:'skin' },
-    { j:8, g:'cyl', o:[0,0.10,0], s:[0.075,1.00,0.075], c:'dark' },
-    { j:8, g:'cyl', o:[0,-0.12,0], s:[0.095,0.06,0.095], c:'trim' },
-    { j:8, g:'sph', o:[0,-0.44,0], s:[0.12,0.12,0.12], c:'trim' },
-    { j:8, g:'box', o:[0,0.58,0], s:[0.52,0.30,0.30], c:'metal' },
-    { j:8, g:'box', o:[0.27,0.58,0], s:[0.06,0.32,0.32], c:'trim' },
-    { j:8, g:'box', o:[-0.27,0.58,0], s:[0.06,0.32,0.32], c:'trim' },
-    { j:8, g:'cone', o:[0,0.83,0], s:[0.14,0.22,0.14], c:'blade' },
+    { j:8, g:'cyl', o:[0,0.14,0], s:[0.085,1.20,0.085], c:'dark' },
+    { j:8, g:'cyl', o:[0,-0.12,0], s:[0.105,0.06,0.105], c:'trim' },
+    { j:8, g:'sph', o:[0,-0.50,0], s:[0.13,0.13,0.13], c:'trim' },
+    { j:8, g:'box', o:[0,0.66,0], s:[0.84,0.40,0.40], c:'blade' },
+    { j:8, g:'box', o:[0,0.66,0], s:[0.86,0.11,0.42], c:'trim' },
+    { j:8, g:'box', o:[0.44,0.66,0], s:[0.08,0.42,0.42], c:'trim' },
+    { j:8, g:'box', o:[-0.44,0.66,0], s:[0.08,0.42,0.42], c:'trim' },
+    { j:8, g:'cone', o:[0,0.99,0], s:[0.16,0.26,0.16], c:'blade' },
     { j:9, g:'box', o:[0,-0.20,0], s:[0.36,0.42,0.38], c:'cloth' },
     { j:10, g:'box', o:[0,-0.20,0], s:[0.34,0.38,0.36], c:'armor' },
     { j:10, g:'box', o:[0,-0.40,0.10], s:[0.38,0.15,0.50], c:'dark' },
