@@ -1,6 +1,6 @@
 {
-  "sourceSha256": "613f1c7e18aeead4b928954db3d08203e53b44de43102ec1233dec1a7ce11513",
-  "build": "AB-NET-9",
+  "sourceSha256": "188c78d62cda932de8a63f4d4a9143938153664d1f9530a0751804d268d799d1",
+  "build": "AB-NET-10",
   "heroCosts": {
     "soldier": 150,
     "archer": 200,
@@ -9,13 +9,13 @@
     "frostarcher": 350,
     "dwarf": 400
   },
-  "simContentSha256": "abd0b3e795668d44213dee4714ef7b8a36a7fb6cc19b557b0f16304cdd8bc6a4",
+  "simContentSha256": "c26543bae135ee898f116be9f0d2bef96af77d3c291809922676067fa06f0b6e",
   "checks": {
     "fresh": "83c6cea8f26fe95c",
     "idle600": "7395ea20f64ad578",
-    "combat3600": "a5c5d24022ddf4cc",
-    "combat3600_altSeed": "890b8ed1449057cd",
+    "combat3600": "0ae5d0ca8778d35a",
+    "combat3600_altSeed": "24a9c1f0519936a0",
     "coop1200": "0c060f8d9aa52fc1"
   },
-  "combined": "2f7d79829994b07aecae627566651f08cb9292544051a606806c7bd2ea22fd98"
+  "combined": "477d9e003376bc50d82b2c9d9fac6cf5cccfd860bda1f9c04903e9ebb9e54baf"
 }

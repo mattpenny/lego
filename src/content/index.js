@@ -51,6 +51,27 @@ export const REGISTRY = deepFreeze({
 });
 
 /**
+ * Per-chapter fill pools. A map descriptor may carry `map.fill` —
+ * {kind: {from, weight}} overrides applied to the global FILL_POOL
+ * for that chapter only (same kinds, same load-bearing order; only
+ * the gated `from` and the `weight` change). Chapters without the
+ * block are absent here and the sim falls back to FILL_POOL, so
+ * their pools are bit-identical to the pre-override game.
+ */
+export const FILL_POOLS = deepFreeze(Object.fromEntries(
+  Object.values(MAPS)
+    .filter((m) => m.map.fill)
+    .map((m) => [m.chapter, FILL_POOL.map((f) => {
+      const ov = m.map.fill[f.kind];
+      if (!ov) return f;
+      return { kind: f.kind,
+        weight: ov.weight !== undefined ? ov.weight : f.weight,
+        ramp: ov.ramp !== undefined ? ov.ramp : f.ramp,
+        from: ov.from !== undefined ? ov.from : f.from };
+    })]),
+));
+
+/**
  * SIM_CONTENT — ONLY the numbers the deterministic simulation reads.
  * scripts/content-check.mjs hashes this (stable, sorted JSON) into
  * scripts/content-baseline.json. Editing a simulation number in ANY
@@ -63,6 +84,7 @@ export const SIM_CONTENT = deepFreeze({
   heroCosts: HERO_COSTS, slashTips: HERO_SLASH_TIPS, heroMagic: HERO_MAGIC,
   heroAttack: HERO_ATTACK, heroStats: HERO_STATS,
   enemies: ENEMY_CFG, caps: ENEMY_CAPS, wave: WAVE_RULES, fillPool: FILL_POOL,
+  fillPools: FILL_POOLS,
   scheduledElites: SCHEDULED_ELITES, openerKind: OPENER_KIND,
   boss: BOSS_CFG, boss2: BOSS_PHASE2, bossByChapter: BOSS_CFG_BY_CHAPTER,
   heal: HEAL_CFG, potion: POTION_CFG, eliteKinds: ELITE_KINDS,

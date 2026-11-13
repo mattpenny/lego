@@ -589,3 +589,41 @@ renders this table ("Multiplayer scaling") — it is the adjustment
 surface. Baseline note for AB-NET-9: the table landing moved ONLY the
 `coop1200` digest (N=2 enemies now spawn at ×2.2 HP); the four solo
 digests are bit-identical to AB-NET-8.
+
+## 8. Per-chapter fill overrides (AB-NET-10)
+
+The weighted fill pool is **global** by default — one `FILL_POOL`
+derived from the enemy descriptors' `fill {order, weight, ramp, from}`.
+A map descriptor may narrow it for its own chapter: `map.fill` in
+`src/content/maps/<id>.js` maps kind → `{from?, weight?, ramp?}`, and
+`src/content/index.js` derives `FILL_POOLS[chapter]` (same kinds, same
+load-bearing order; only the named fields are replaced). `spawnEnemy()`
+rolls `FILL_POOLS[s.chapter] || FILL_POOL`. Chapters without the block
+are bit-identical to the pre-override game — the Chapter 2/3 director
+audits reproduce the AB-NET-8 first-spawn tables exactly.
+
+Today only **Chapter 1 (Grassland)** carries overrides, staggering
+Matt's 15 heraldic kinds across the first wave (they previously pooled
+at weights 7–11 from 18–105 s and barely showed): early trio
+(raven/crossbowman/russet, from 18/22/28 s), mid group (eagle → crimson,
+52–82 s), late group (axe → kraken, 100–132 s), and tower + dragon as
+heavy-weight showcase singles (150/158 s — a cap-1 kind leaves the pool
+while alive, so a heavy weight buys one prompt appearance, not
+pressure). The always-eligible base kinds (soldier/brute/runner) carry
+negative ramps in this chapter so they hand the late-game share to the
+tail. Spawn interval, per-kind caps and the global alive cap are NOT
+overridable — composition substitutes, it never adds. `map.fill` is
+schema-validated (kinds must be fill-pool enemies; fields numeric) and
+hashed into `SIM_CONTENT` twice over (via `maps` and `fillPools`), so
+any edit is a sim change: re-record the baseline and bump the net
+stamp. STATS.md renders the table ("Chapter fill composition").
+
+**Difficulty note (measured, AB-NET-10):** the denser heraldic mix is
+tougher for the weak no-refill canary bot — 5-seed median survival
+5499 → 3776 ticks, median kills 35 → 16 (earlier death on 5/5 seeds)
+versus the AB-NET-9 pool — while the competent audit bot still clears
+Chapter 1 on every seed. Matt settled the AB-NET-8 difficulty and then
+ordered this visibility change; the delta is recorded here and in
+PLAN.md rather than silently tuned away. If he wants Chapter 1 softer,
+the lever is the `map.fill` table in `grassland.js` (lower the early
+trio's weights first).

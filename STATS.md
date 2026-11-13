@@ -143,3 +143,30 @@ Co-op runs scale with the roster size **N locked at run start** (a mid-run depar
 | 4 | ×5.2 | ×1.3 | 12 | 395 | 2059 | `src/content/rules.js · playerScaling[4]` |
 
 Tune the proportions in `src/content/rules.js · playerScaling` — this table is generated from that single source. The N=1 row is exactly the solo game (all ×1.0, cap 8).
+
+## Chapter fill composition — per-chapter pool overrides
+
+The weighted fill pool is global (each kind's `fill {from, weight, ramp}` in its enemy descriptor), except where a map descriptor carries `map.fill` overrides — `{from, weight, ramp}` replace the global entry **in that chapter only** (same kinds, same pool order, same per-kind caps, same global alive cap, same spawn interval). Chapters without overrides use the global pool unchanged.
+
+### Chapter 1 — GRASSLAND (overrides)
+
+| Enemy | Global from (s) / weight / ramp | This chapter from (s) / weight / ramp | Source |
+|---|---|---|---|
+| SOLDIER | 0 / 34 / 0 | **0 / 34 / -0.06** | `src/content/maps/grassland.js · map.fill` |
+| BRUTE | 0 / 26 / 0 | **0 / 26 / -0.1** | `src/content/maps/grassland.js · map.fill` |
+| RUNNER | 0 / 22 / 0 | **0 / 22 / -0.08** | `src/content/maps/grassland.js · map.fill` |
+| RAVEN-KNIGHT | 18 / 10 / 0 | **18 / 30 / -0.1** | `src/content/maps/grassland.js · map.fill` |
+| EAGLE-KNIGHT | 24 / 10 / 0 | **52 / 30 / -0.06** | `src/content/maps/grassland.js · map.fill` |
+| CRIMSON-KNIGHT | 32 / 9 / 0 | **82 / 24 / -0.04** | `src/content/maps/grassland.js · map.fill` |
+| AXE-KNIGHT | 38 / 9 / 0 | **100 / 26 / 0** | `src/content/maps/grassland.js · map.fill` |
+| SUN-KNIGHT | 45 / 8 / 0 | **64 / 26 / -0.05** | `src/content/maps/grassland.js · map.fill` |
+| AZURE-KNIGHT | 52 / 9 / 0 | **72 / 30 / -0.05** | `src/content/maps/grassland.js · map.fill` |
+| OBSIDIAN-KNIGHT | 60 / 8 / 0 | **108 / 34 / 0** | `src/content/maps/grassland.js · map.fill` |
+| UNICORN-KNIGHT | 68 / 8 / 0 | **116 / 56 / 0** | `src/content/maps/grassland.js · map.fill` |
+| LION-KNIGHT | 76 / 9 / 0 | **124 / 48 / 0** | `src/content/maps/grassland.js · map.fill` |
+| KRAKEN-KNIGHT | 84 / 8 / 0 | **132 / 44 / 0** | `src/content/maps/grassland.js · map.fill` |
+| TOWER-KNIGHT | 92 / 8 / 0 | **150 / 100 / 0** | `src/content/maps/grassland.js · map.fill` |
+| DRAGON-KNIGHT | 105 / 7 / 0 | **158 / 110 / 0** | `src/content/maps/grassland.js · map.fill` |
+| CROSSBOWMAN | 22 / 11 / 0 | **22 / 26 / -0.08** | `src/content/maps/grassland.js · map.fill` |
+| RUSSET-ARCHER | 28 / 11 / 0 | **28 / 26 / -0.08** | `src/content/maps/grassland.js · map.fill` |
+| TEAL-ARCHER | 40 / 10 / 0 | **58 / 28 / -0.06** | `src/content/maps/grassland.js · map.fill` |

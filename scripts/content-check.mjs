@@ -92,7 +92,7 @@ function run(script, args = []) {
     ['const UPGRADES = UPGRADE_LIST', 'level-up cards derived from descriptors'],
     ['FIGURES[kind]||FIGURES.hero', 'rigParts resolved from FIGURES'],
     ['FIGURE_SCALES[kind]', 'view scale derived from FIGURES'],
-    ['for(const f of FILL_POOL)', 'fill pool derived from ENEMIES'],
+    ['FILL_POOLS[s.chapter]||FILL_POOL', 'fill pool derived from ENEMIES (+ per-chapter map overrides)'],
     ['for(const k of SCHEDULED_ELITES)', 'scheduled elites derived from ENEMIES'],
     ['by[OPENER_KIND]', 'opening spawn derived from ENEMIES'],
     ['ITEM_DROPS.gem', 'drop table derived from ITEMS'],
@@ -152,6 +152,14 @@ function run(script, args = []) {
   for (const f of FILL_POOL) {
     if (!ENEMY_CAPS[f.kind] && !(WAVE_RULES[f.kind] && WAVE_RULES[f.kind].cap))
       errors.push(`refs: FILL_POOL kind "${f.kind}" has no alive cap`);
+  }
+  /* Per-chapter fill overrides (map.fill) must name real pool kinds. */
+  for (const m of Object.values(MAPS)) {
+    if (!m.map.fill) continue;
+    for (const kind of Object.keys(m.map.fill)) {
+      if (!ENEMIES[kind] || !ENEMIES[kind].fill)
+        errors.push(`refs: MAPS.${m.id} map.fill kind "${kind}" is not a fill-pool enemy`);
+    }
   }
   if (UPGRADE_IDS.length !== Object.keys(UPGRADES).length)
     errors.push('refs: UPGRADE_IDS length does not match UPGRADES');

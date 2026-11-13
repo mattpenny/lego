@@ -17,6 +17,7 @@ import {
   HEROES, HERO_IDS, HERO_MAGIC, HERO_ATTACK, HERO_STATS, RULES,
   BOSSES, BOSS_CFG_BY_CHAPTER, BOSS_PHASE2, ENEMY_CFG, ENEMIES,
   ITEMS, ITEM_DROPS, GEM_XP, GEM_SCORE, UPGRADE_LIST, FIGURE_SCALES,
+  MAPS, FILL_POOL, FILL_POOLS,
 } from '../src/content/index.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -205,6 +206,26 @@ L.push('|---|---|---|---|---|---|---|');
 L.push('');
 L.push('Tune the proportions in `src/content/rules.js · playerScaling` — this table is generated from that single source. The N=1 row is exactly the solo game (all ×1.0, cap 8).');
 L.push('');
+
+/* ---------------- Chapter fill composition ---------------- */
+L.push('## Chapter fill composition — per-chapter pool overrides');
+L.push('');
+L.push('The weighted fill pool is global (each kind\'s `fill {from, weight, ramp}` in its enemy descriptor), except where a map descriptor carries `map.fill` overrides — `{from, weight, ramp}` replace the global entry **in that chapter only** (same kinds, same pool order, same per-kind caps, same global alive cap, same spawn interval). Chapters without overrides use the global pool unchanged.');
+L.push('');
+for (const m of Object.values(MAPS)) {
+  if (!m.map.fill) continue;
+  const pool = FILL_POOLS[m.chapter];
+  L.push(`### Chapter ${m.chapter} — ${m.displayName} (overrides)`);
+  L.push('');
+  L.push('| Enemy | Global from (s) / weight / ramp | This chapter from (s) / weight / ramp | Source |');
+  L.push('|---|---|---|---|');
+  for (const f of pool) {
+    if (!m.map.fill[f.kind]) continue;
+    const g = FILL_POOL.find((x) => x.kind === f.kind);
+    L.push(`| ${ENEMIES[f.kind].displayName || f.kind.toUpperCase()} | ${fmt(g.from)} / ${fmt(g.weight)} / ${fmt(g.ramp)} | **${fmt(f.from)} / ${fmt(f.weight)} / ${fmt(f.ramp)}** | \`src/content/maps/${m.id}.js · map.fill\` |`);
+  }
+  L.push('');
+}
 
 writeFileSync(join(ROOT, 'STATS.md'), L.join('\n'));
 console.log('wrote STATS.md —', L.length, 'lines');

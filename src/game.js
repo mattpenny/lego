@@ -11,7 +11,7 @@ import {
   RULES, REGISTRY, SIM_CONTENT, contentSummary, assertRegistry,
   HEROES, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC, HERO_ATTACK, HERO_SLASH_TINTS, HERO_STATS, heroName, safeHero,
   FIGURES, FIGURE_INK, TINTS, FIGURE_SCALES,
-  ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL, SCHEDULED_ELITES, OPENER_KIND,
+  ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL, FILL_POOLS, SCHEDULED_ELITES, OPENER_KIND,
   ENEMIES,
   BOSS_CFG, BOSS_PHASE2, BOSS_NAMES, BOSSES, BOSS_CFG_BY_CHAPTER,
   ITEM_DROPS, HEAL_CFG, POTION_CFG, ELITE_KINDS, GEM_SCORE,
@@ -1060,10 +1060,12 @@ function spawnEnemy(s){
   }
   /* ---- 2. weighted fill: only unlocked types, never over their cap ---- */
   if(!type){
-    /* FILL_POOL is derived from the enemy descriptors. ORDER IS LOAD-BEARING:
+    /* The fill pool is derived from the enemy descriptors (FILL_POOL),
+       with per-chapter overrides where a map descriptor carries them
+       (FILL_POOLS — today only chapter 1). ORDER IS LOAD-BEARING:
        it fixes how the weighted roll below consumes sim.rng. */
     const pool=[];
-    for(const f of FILL_POOL){
+    for(const f of FILL_POOLS[s.chapter]||FILL_POOL){
       if(elapsed<f.from)continue;
       if((by[f.kind]||0)>=capOf(f.kind))continue;
       pool.push({t:f.kind,w:f.weight+elapsed*f.ramp});

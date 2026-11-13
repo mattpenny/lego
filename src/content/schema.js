@@ -334,6 +334,16 @@ function checkMap(d, key, errors, warnings) {
                    'torches', 'lavaPools', 'reeds'])
     if (!isInt(m[f])) errors.push(`${w}: map.${f} must be an integer`);
   if (!Array.isArray(m.eventPack)) errors.push(`${w}: map.eventPack must be an array`);
+  /* Optional per-chapter fill-pool overrides: {kind: {from?, weight?}}. */
+  if (m.fill !== undefined) {
+    if (!isObj(m.fill)) errors.push(`${w}: map.fill must be an object`);
+    else for (const [kind, ov] of Object.entries(m.fill)) {
+      if (!isObj(ov)) { errors.push(`${w}: map.fill.${kind} must be an object`); continue; }
+      if (ov.from !== undefined && !isNum(ov.from)) errors.push(`${w}: map.fill.${kind}.from must be numeric`);
+      if (ov.weight !== undefined && !isNum(ov.weight)) errors.push(`${w}: map.fill.${kind}.weight must be numeric`);
+      if (ov.ramp !== undefined && !isNum(ov.ramp)) errors.push(`${w}: map.fill.${kind}.ramp must be numeric`);
+    }
+  }
 }
 
 function checkUpgrade(d, key, errors, warnings) {

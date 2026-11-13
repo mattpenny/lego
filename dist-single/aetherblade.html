@@ -55291,6 +55291,16 @@ function checkMap(d, key, errors, warnings) {
                    'torches', 'lavaPools', 'reeds'])
     if (!isInt(m[f])) errors.push(`${w}: map.${f} must be an integer`);
   if (!Array.isArray(m.eventPack)) errors.push(`${w}: map.eventPack must be an array`);
+  /* Optional per-chapter fill-pool overrides: {kind: {from?, weight?}}. */
+  if (m.fill !== undefined) {
+    if (!isObj(m.fill)) errors.push(`${w}: map.fill must be an object`);
+    else for (const [kind, ov] of Object.entries(m.fill)) {
+      if (!isObj(ov)) { errors.push(`${w}: map.fill.${kind} must be an object`); continue; }
+      if (ov.from !== undefined && !isNum(ov.from)) errors.push(`${w}: map.fill.${kind}.from must be numeric`);
+      if (ov.weight !== undefined && !isNum(ov.weight)) errors.push(`${w}: map.fill.${kind}.weight must be numeric`);
+      if (ov.ramp !== undefined && !isNum(ov.ramp)) errors.push(`${w}: map.fill.${kind}.ramp must be numeric`);
+    }
+  }
 }
 
 function checkUpgrade(d, key, errors, warnings) {
@@ -55425,7 +55435,7 @@ const RULES = deepFreeze({
     relay: 'wss://dragon-alley-relay.ccac-church.workers.dev/ws',
     /* LOAD-BEARING: co-op peers must agree. Bump ONLY when sim behaviour
        actually changes. A view-only content edit must NOT bump this. */
-    build: 'AB-NET-9',
+    build: 'AB-NET-10',
     graceMs: 60000,
   },
 
@@ -59867,6 +59877,48 @@ const grassland = {
     rocks: 24, pillars: 8, stones: 0,
     fenceRuns: 6, hills: 64, torches: 12, lavaPools: 0, reeds: 18,
     eventPack: ['knight'],       // 90-second chapter event
+    /* CHAPTER-1-ONLY fill-pool overrides (AB-NET-10): {from, weight}
+       replace the kind's global fill entry IN THIS CHAPTER ONLY, so
+       Matt's 15 heraldic kinds actually show up across the first map's
+       3-minute wave in a deliberate stagger (globals in the enemy
+       descriptors still govern chapters 2-3). Substitution, not
+       addition: the spawn interval, the alive cap and every per-kind
+       cap are untouched — heraldic spawns replace base-kind spawns.
+       Early ~20-45 s: raven / crossbowman / russet (light bodies).
+       Mid ~50-90 s: eagle / teal / sun / azure / crimson.
+       Late ~100-150 s: axe / obsidian / unicorn / lion / kraken.
+       Final stretch 150 s+: tower + dragon as showcase singles.
+       Weights on the cap-1 kinds are deliberately heavy: a capped
+       kind leaves the pool while it is alive, so a heavy weight buys
+       ONE prompt appearance (the showcase single), not pressure —
+       the alive cap, not the weight, bounds how many can press the
+       hero at once. The early/mid kinds carry a small negative ramp
+       for the mirror-image reason: they have had their appearances
+       by the late game and should stop eating the tail rolls. */
+    fill: {
+      /* The three always-eligible base kinds DECAY over the wave
+         (negative ramp, this chapter only), handing the late-game
+         share to the heraldic tail instead of crowding it out.
+         Weights stay positive all wave: 34->23, 26->8, 22->8. */
+      'soldier':        { ramp: -0.06 },
+      'brute':          { ramp: -0.10 },
+      'runner':         { ramp: -0.08 },
+      'raven-knight':   { from: 18,  weight: 30, ramp: -0.10 },
+      'crossbowman':    { from: 22,  weight: 26, ramp: -0.08 },
+      'russet-archer':  { from: 28,  weight: 26, ramp: -0.08 },
+      'eagle-knight':   { from: 52,  weight: 30, ramp: -0.06 },
+      'teal-archer':    { from: 58,  weight: 28, ramp: -0.06 },
+      'sun-knight':     { from: 64,  weight: 26, ramp: -0.05 },
+      'azure-knight':   { from: 72,  weight: 30, ramp: -0.05 },
+      'crimson-knight': { from: 82,  weight: 24, ramp: -0.04 },
+      'axe-knight':     { from: 100, weight: 26 },
+      'obsidian-knight': { from: 108, weight: 34 },
+      'unicorn-knight': { from: 116, weight: 56 },
+      'lion-knight':    { from: 124, weight: 48 },
+      'kraken-knight':  { from: 132, weight: 44 },
+      'tower-knight':   { from: 150, weight: 100 },
+      'dragon-knight':  { from: 158, weight: 110 },
+    },
   },
   added: '2026-11-13',
   notes: 'Windmill tower (block kind 0) plus four millstones (kind 1).',
@@ -60161,6 +60213,27 @@ const REGISTRY = deepFreeze({
 });
 
 /**
+ * Per-chapter fill pools. A map descriptor may carry `map.fill` —
+ * {kind: {from, weight}} overrides applied to the global FILL_POOL
+ * for that chapter only (same kinds, same load-bearing order; only
+ * the gated `from` and the `weight` change). Chapters without the
+ * block are absent here and the sim falls back to FILL_POOL, so
+ * their pools are bit-identical to the pre-override game.
+ */
+const FILL_POOLS = deepFreeze(Object.fromEntries(
+  Object.values(MAPS)
+    .filter((m) => m.map.fill)
+    .map((m) => [m.chapter, FILL_POOL.map((f) => {
+      const ov = m.map.fill[f.kind];
+      if (!ov) return f;
+      return { kind: f.kind,
+        weight: ov.weight !== undefined ? ov.weight : f.weight,
+        ramp: ov.ramp !== undefined ? ov.ramp : f.ramp,
+        from: ov.from !== undefined ? ov.from : f.from };
+    })]),
+));
+
+/**
  * SIM_CONTENT — ONLY the numbers the deterministic simulation reads.
  * scripts/content-check.mjs hashes this (stable, sorted JSON) into
  * scripts/content-baseline.json. Editing a simulation number in ANY
@@ -60173,6 +60246,7 @@ const SIM_CONTENT = deepFreeze({
   heroCosts: HERO_COSTS, slashTips: HERO_SLASH_TIPS, heroMagic: HERO_MAGIC,
   heroAttack: HERO_ATTACK, heroStats: HERO_STATS,
   enemies: ENEMY_CFG, caps: ENEMY_CAPS, wave: WAVE_RULES, fillPool: FILL_POOL,
+  fillPools: FILL_POOLS,
   scheduledElites: SCHEDULED_ELITES, openerKind: OPENER_KIND,
   boss: BOSS_CFG, boss2: BOSS_PHASE2, bossByChapter: BOSS_CFG_BY_CHAPTER,
   heal: HEAL_CFG, potion: POTION_CFG, eliteKinds: ELITE_KINDS,
@@ -60199,6 +60273,7 @@ function contentSummary() {
 
 
 __exports["REGISTRY"] = REGISTRY;
+__exports["FILL_POOLS"] = FILL_POOLS;
 __exports["SIM_CONTENT"] = SIM_CONTENT;
 __exports["contentSummary"] = contentSummary;
 __exports["deepFreeze"] = deepFreeze;
@@ -60281,7 +60356,7 @@ __fns["src/game.js"] = function(__req, __exports){
    NOTHING below this line hard-codes a hero, figure, enemy, boss, item,
    prop, map or upgrade number. Every one of them is traced back to its own
    descriptor file under src/content/. See CONTENT-GUIDE.md section 6. */
-const { RULES, REGISTRY, SIM_CONTENT, contentSummary, assertRegistry, HEROES, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC, HERO_ATTACK, HERO_SLASH_TINTS, HERO_STATS, heroName, safeHero, FIGURES, FIGURE_INK, TINTS, FIGURE_SCALES, ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL, SCHEDULED_ELITES, OPENER_KIND, ENEMIES, BOSS_CFG, BOSS_PHASE2, BOSS_NAMES, BOSSES, BOSS_CFG_BY_CHAPTER, ITEM_DROPS, HEAL_CFG, POTION_CFG, ELITE_KINDS, GEM_SCORE, PROPS, PLACE_RADII, BLOCK_R, BLOCK_FALLBACK_R, WALL_KIND, WALL_HALF_LENGTH, WALL_RADIUS, POND_PAD, FENCE_RADIUS, TORCH_RADIUS, PALETTES, MAP_CONFIGS, EVENT_PACKS, UPGRADE_LIST } = __req("src/content/index.js");
+const { RULES, REGISTRY, SIM_CONTENT, contentSummary, assertRegistry, HEROES, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC, HERO_ATTACK, HERO_SLASH_TINTS, HERO_STATS, heroName, safeHero, FIGURES, FIGURE_INK, TINTS, FIGURE_SCALES, ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL, FILL_POOLS, SCHEDULED_ELITES, OPENER_KIND, ENEMIES, BOSS_CFG, BOSS_PHASE2, BOSS_NAMES, BOSSES, BOSS_CFG_BY_CHAPTER, ITEM_DROPS, HEAL_CFG, POTION_CFG, ELITE_KINDS, GEM_SCORE, PROPS, PLACE_RADII, BLOCK_R, BLOCK_FALLBACK_R, WALL_KIND, WALL_HALF_LENGTH, WALL_RADIUS, POND_PAD, FENCE_RADIUS, TORCH_RADIUS, PALETTES, MAP_CONFIGS, EVENT_PACKS, UPGRADE_LIST } = __req("src/content/index.js");
 
 /* Fail loudly at boot on an invalid content descriptor. A missing figure,
    a dangling cross-reference or a missing spawn entry would otherwise
@@ -61322,10 +61397,12 @@ function spawnEnemy(s){
   }
   /* ---- 2. weighted fill: only unlocked types, never over their cap ---- */
   if(!type){
-    /* FILL_POOL is derived from the enemy descriptors. ORDER IS LOAD-BEARING:
+    /* The fill pool is derived from the enemy descriptors (FILL_POOL),
+       with per-chapter overrides where a map descriptor carries them
+       (FILL_POOLS — today only chapter 1). ORDER IS LOAD-BEARING:
        it fixes how the weighted roll below consumes sim.rng. */
     const pool=[];
-    for(const f of FILL_POOL){
+    for(const f of FILL_POOLS[s.chapter]||FILL_POOL){
       if(elapsed<f.from)continue;
       if((by[f.kind]||0)>=capOf(f.kind))continue;
       pool.push({t:f.kind,w:f.weight+elapsed*f.ramp});
