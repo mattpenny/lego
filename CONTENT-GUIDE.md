@@ -1693,3 +1693,42 @@ Rig lesson worth keeping: headless Chromium starves rAF without
 screenshot pumping, which batches `consumeEvents` — kill cues then
 appear to "drop" (the 45 ms cooldown eats the batch). Pump
 screenshots before every log read; the game was never at fault.
+
+## 20. Iron Lancer +20% (2026-11-15, view-only, no stamp bump)
+
+Matt, 2026-11-15: "iron lancer could be 20% larger." The
+`knight-mount` figure's `meshScale` goes 1.5 → **1.8** in the
+hand-authored descriptor (`src/content/figures/knight-mount.js`) —
+the §17 boss rule (×1.5) plus a lancer-only fifth. The figure is
+shared, so the Ch.3 Iron Lancer AND the Ch.6 siege-lancer
+placeholder both grow. `FIGURE_SCALES` derives from the descriptor;
+the custom builder applies it at `root.scale.setScalar(...)`
+(game.js comment updated to match). STATS.md regenerated (both
+lancer rows ×1.8; the generator's boss-size note now lists the
+lancer as the third exception).
+
+**Visual only, like §17.** Sim radius stays 1.755; HP, damage and
+speeds untouched. `meshScale` is excluded from `SIM_CONTENT`, so
+`digest:check` passes against the AB-NET-20 baseline
+(`f09f8782…`) with NO re-record and NO stamp bump — this round
+rebased onto AB-NET-20 (§18) before landing.
+
+**Proof.** Difference imaging with the §17 method at identical
+staging (`crane/ab-lancer20-shotsA.mjs`, the AB-NET-19 rig trimmed
+to the lancer): pixel-height mean 128.0 (×1.5 build) → 155.8 and
+157.0 in two after-runs (pre- and post-rebase builds) = ×1.217 /
+×1.227 against the ×1.20 target; captures
+`rig/ab-lancer20-{before,afterA,afterFinal}-lancer.png` read by
+eye — plainly a fifth larger beside the pinned hero. Natural-path
+Ch.3 (`crane/ab-lancer20-ch3.mjs`, PASS on both builds): spawns on
+the real timer (tick 11881) at 27.7–27.8 m with 8 escorts kept,
+descriptor radius 1.755, closes and lands 3 boss hits; states
+include chargeTele/charge and slamTele/slam. Rig lessons: the
+sim's per-chapter boss cfg is `REGISTRY.BOSSES[chapter].cfg` —
+`__GAME.CFG.boss` is the SHARED default (radius 1.495) and reads
+wrong for any chapter whose boss overrides it; and a
+union-envelope diff variant was tried and abandoned — under
+SwiftShader the long evaluate starves rAF, the pose freezes at a
+random gallop phase, and the raised sword (detached inside the
+scan strip) turns top measurements into a pose lottery. The §17
+gap-broken main-mass mean is the robust statistic.
