@@ -27,6 +27,12 @@ export const RULES = deepFreeze({
 
   waveSeconds: 180,
   eventAt: 90,                 // chapter elite pack fires at 90 s
+  /* Co-op level-up safety net: sim steps the party may sit in the
+     level-up state with no pick before the sim auto-applies the FIRST
+     offered upgrade (1200 steps ≈ 20 game-seconds). Multiplayer sims
+     only (s.players > 1) — a solo player may think forever. Counted
+     inside simStep, so every client fires it on the same tick. */
+  pickTimeoutSteps: 1200,
 
   magic: {
     perKill: 1, cost: 20, dmg: 60, radius: 14, stopMs: 250,
@@ -54,7 +60,7 @@ export const RULES = deepFreeze({
     relay: 'wss://dragon-alley-relay.ccac-church.workers.dev/ws',
     /* LOAD-BEARING: co-op peers must agree. Bump ONLY when sim behaviour
        actually changes. A view-only content edit must NOT bump this. */
-    build: 'AB-NET-15',
+    build: 'AB-NET-16',
     graceMs: 60000,
   },
 

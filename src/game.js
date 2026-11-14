@@ -373,7 +373,7 @@ function newSim(seed,players){
     enemies:[], projectiles:[], arrows:[], gems:[], heals:[], boss:null,
     nextId:1, score:0, kills:0, level:1, xp:0, xpNeed:8,
     up:{edge:0,tempo:0,reach:0,boots:0,reflex:0,magnet:0,crit:0,siphon:0},
-    choices:[], hitStop:0, spawnTimer:1.2, chapterClearTimer:0,
+    choices:[], pickWait:0, hitStop:0, spawnTimer:1.2, chapterClearTimer:0,
     events:[], bossFirstHitTick:-1, bossSpawnTick:-1,
     knightNextAt:0, sorcererNextAt:0,
     magic:0, potions:[], eventDone:false, eventQueue:[],
@@ -1220,7 +1220,7 @@ function applyUpgrade(s,idx){
   const id=s.choices[idx]; if(!id)return;
   const u=UPGRADES.find(x=>x.id===id); if(u)u.apply(s);
   emit('upgrade',{id,name:u?u.name:''});
-  s.choices=[]; s.phase=s.resume||'play';
+  s.choices=[]; s.pickWait=0; s.phase=s.resume||'play';
 }
 function collectPickups(s){
   const st=heroStats(s), pr=st.pickup, pr2=pr*pr;
@@ -1231,7 +1231,7 @@ function collectPickups(s){
       s.xp+=g.v; s.score+=GEM_SCORE; emit('gem',{x:g.x,z:g.z});
       if(s.xp>=s.xpNeed){
         s.xp-=s.xpNeed; s.level++; s.xpNeed=8+(s.level-1)*6;
-        s.resume=s.phase; s.phase='levelup'; s.choices=pickChoices(s);
+        s.resume=s.phase; s.phase='levelup'; s.choices=pickChoices(s); s.pickWait=0;
         emit('levelup',{level:s.level});
       }
     }else gems.push(g);
@@ -1381,6 +1381,16 @@ function simStep(raw){
        only one that ever carries one. */
     const pick=inps.find(x=>x.upgrade>=0);
     if(pick)applyUpgrade(s,pick.upgrade);
+    else if(s.players>1){
+      /* Safety net (AB-NET-16): a co-op run can never sit on this
+         screen forever — a downed or idle picker once soft-locked a
+         real run (Matt, 2026-11-14). The wait is counted HERE, in
+         sim steps, from identical state on every client, so the
+         auto-pick (the first offered upgrade) lands on the same tick
+         everywhere. Solo is exempt: one player, nobody held hostage. */
+      s.pickWait++;
+      if(s.pickWait>=CFG.pickTimeoutSteps)applyUpgrade(s,0);
+    }
     return;
   }
   if(s.phase==='clear'){
@@ -4506,9 +4516,12 @@ function syncOverlay(){
     const cards=s.choices.map(id=>UPGRADES.find(u=>u.id===id)).filter(Boolean);
     let pickNote='The arena is paused.';
     if(NET&&NET.active){
-      if(NET.players&&NET.players.length>2)
-        pickNote=(NET.mySlot===NET.pickerSlot)?'You are choosing for the party.':('P'+(NET.pickerSlot+1)+' is choosing for the party.');
-      else if(NET.role==='guest')pickNote='The host is choosing for the party.';
+      /* One caption rule for every party size, naming the ACTUAL
+         picker (the pre-AB-NET-16 2P text hard-coded "The host is
+         choosing" — wrong, and a dead end, whenever the host was
+         downed and picking had passed to a guest). */
+      const pk=netPickerSlot(NET); NET.pickerSlot=pk;
+      pickNote=(NET.mySlot===pk)?'You are choosing for the party.':('P'+(pk+1)+' is choosing for the party.');
     }
     setOverlay(key,'LEVEL '+s.level,'CHOOSE AN UPGRADE',pickNote,
       '<div style="text-align:center">Upgrades and score carry across all '+CHAPTER_COUNT+' chapters.</div>',
@@ -4660,14 +4673,30 @@ function netSlotIdx(sess,slot){
   for(let i=0;i<sess.players.length;i++)if(sess.players[i].slot===slot)return i;
   return -1;
 }
+/* The level-up picker: the lowest-numbered REMAINING player who is
+   still STANDING. Removed slots are out of the run (the AB-NET-9 drop
+   rule); downed heroes are spectating and must not hold the party on
+   the upgrade screen — before AB-NET-16 a downed host stayed picker,
+   the living guest's taps were silently discarded, and the run hung
+   forever (Matt, 2026-11-14). Derived from the sim's downed flags, so
+   every client computes the same picker from the same state; the
+   stamp gate in netSample only decides whose latch may ride a frame —
+   the frames themselves stay the shared truth, so a derivation caught
+   mid-transition can delay a pick a few ticks, never desync it. If
+   every remaining player is downed the run is ending anyway: fall
+   back to the lowest remaining slot, the pre-fix answer. */
 function netPickerSlot(sess){
   if(!sess.players)return 0;
-  let best=0,found=false;
+  let best=0,found=false,fallback=0,fbFound=false;
   for(const p of sess.players){
     if(sess.removed[p.slot]!=null)continue;
+    if(!fbFound||p.slot<fallback){ fallback=p.slot; fbFound=true; }
+    const idx=netSlotIdx(sess,p.slot);
+    const h=idx>=0?SIM.heroes[idx]:null;
+    if(h&&h.downed)continue;
     if(!found||p.slot<best){ best=p.slot; found=true; }
   }
-  return best;
+  return found?best:fallback;
 }
 function netRemovedList(sess){
   return Object.keys(sess.removed).map(k=>({slot:+k,step:sess.removed[k]}));
@@ -4969,6 +4998,9 @@ function netCheckDesync(t){
 }
 function netSample(){
   const sess=NET; if(!sess||!sess.active||sess.dropped)return;
+  /* The picker is derived live: downed state changes inside sim steps,
+     with no net event to mirror it on (removals have one; downs don't). */
+  sess.pickerSlot=netPickerSlot(sess);
   const recs=sess.recs[sess.myIdx];
   let first=true;
   while(sess.nextSend<=sess.step+CFG.net.delay){
