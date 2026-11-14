@@ -381,6 +381,25 @@ Remember the standing proof rule: verify on the **natural path** (boss spawns
 from the 3:00 timer at 26–30 m and walks in), never by teleporting it next to
 the hero.
 
+**Boss arrival keeps the field (AB-NET-13, Matt's call).** `spawnBoss()`
+no longer clears `s.enemies`: whatever is alive at tick 10800 stays —
+current HP, current state — and keeps fighting alongside the boss
+(targeting, damage, drops, XP all normal; the alive cap governs
+*spawning* only, so boss + a full leftover field is expected). Wave
+spawning still stops at the spawn (the spawn block runs only in phase
+`play`); phase-2 summons add on top of the remains; in-flight enemy
+projectiles still clear at the spawn (transient, not field enemies);
+chapter advance (`phase 'clear'`) still resets the field for the next
+chapter. The `spawnBossNow()` test hook still stages a clear field on
+purpose — it is a staging tool, not the game flow. Verified by census
+A/B (rig `ab-boss-escorts.mjs`): identical fields at tick 10799 on
+both builds; old build 8 → 0 at the spawn, new build 8 → 8 with
+identical ids/HPs. The director-audit bot kills the Ch.1 boss with
+escorts on 3/3 seeds and advances; the honest no-refill canary's one
+boss-reaching seed flipped from a 38-HP-margin kill to a death — a
+full leftover field is a real difficulty step for a marginal fighter,
+recorded in PLAN.md, deliberately not tuned away.
+
 ---
 
 ## 4. Items, props, maps, upgrades

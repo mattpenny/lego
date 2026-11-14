@@ -1152,7 +1152,13 @@ function spawnBoss(s){
     const hr=Math.sqrt(ah.x*ah.x+ah.z*ah.z)||1;
     x=ah.x-ah.x/hr*rr; z=ah.z-ah.z/hr*rr;
   }
-  s.enemies=[]; s.projectiles=[];
+  /* AB-NET-13 (Matt): the field does NOT clear when the boss arrives.
+     Enemies already spawned stay — current HP, current state — and keep
+     fighting alongside the boss; wave spawning has already stopped
+     (the spawn block only runs in phase 'play'). In-flight projectiles
+     still clear: they are transient, not field enemies. Chapter advance
+     (phase 'clear') still resets the field as before. */
+  s.projectiles=[];
   const bhp=Math.round(BC.hp*s.hpScale);   // bosses share the enemy HP scaling rule
   s.boss={id:s.nextId++,x,z,yaw:Math.atan2(ah.x-x,ah.z-z),lockYaw:0,
     hp:bhp,maxHp:bhp,state:'approach',timer:0,cd:2.2,slamCd:0,
