@@ -1804,6 +1804,22 @@ const CLIPS={
     {t:0.44, p:pose({0:[0.10,0,0],1:[0.16,0,0],3:[0.15,0,0.25],4:[-0.15,0,0],6:[0.35,0,0],7:[-0.45,0,0],8:[-0.10,0,0]})},
     {t:0.625,p:pose({})}
   ]),
+  /* GROUND SLAM (the Earth Dwarf's Earthquake cast): a one-shot 0.9 s
+     overhead slam, deliberately NOT the attack swing — a bigger, slower
+     raise (weapon arm to -2.90 behind the crown by t=0.20, spine leaned
+     back -0.32), the hammer driven to the ground at the t=0.34 IMPACT
+     key (arm +1.32, spine +0.58, deep hip/knee crouch), a brief hold at
+     the bottom (t=0.52), then recover. View-only: the 'magic' event
+     starts it on the caster's view (see dwarfEarthCast / syncViews) and
+     the earthquake ring + dust fire at SLAM_IMPACT_T, synced to the
+     impact key. Sim cast timing/damage/knockback are untouched. */
+  groundslam: CLIP(0.9,false,[
+    {t:0,    p:pose({1:[-0.06,0,0],3:[-0.30,0,0.15],4:[-0.30,0,0],6:[-0.70,0,-0.10],7:[-0.50,0,0],8:[0.25,0,0]})},
+    {t:0.20, p:pose({0:[-0.08,0,0],1:[-0.32,0,0],2:[-0.20,0,0],3:[-2.35,0,0.50],4:[-0.65,0,0],6:[-2.90,0,-0.10],7:[-0.95,0,0],8:[0.60,0,0],9:[0.10,0,0],11:[-0.10,0,0]})},
+    {t:0.34, p:pose({0:[0.36,0,0],1:[0.58,0,0],2:[0.24,0,0],3:[0.85,0,0.28],4:[-0.18,0,0],6:[1.32,0,0.04],7:[-0.05,0,0],8:[-0.38,0,0],9:[-0.58,0,0],10:[0.72,0,0],11:[-0.50,0,0],12:[0.64,0,0]})},
+    {t:0.52, p:pose({0:[0.30,0,0],1:[0.50,0,0],2:[0.20,0,0],3:[0.70,0,0.26],4:[-0.22,0,0],6:[1.20,0,0.04],7:[-0.14,0,0],8:[-0.30,0,0],9:[-0.48,0,0],10:[0.62,0,0],11:[-0.42,0,0],12:[0.55,0,0]})},
+    {t:0.90, p:pose({})}
+  ]),
   /* BOW SHOT (ranged heroes): same 0.625 s envelope as the sword swing.
      The bow arm (3/4/5) holds the bow up toward facing for the whole
      clip; the draw arm (6/7/8) pulls the string to the cheek during the
@@ -1881,7 +1897,7 @@ function makeView(kind,id){
   // View scale comes from the figure descriptor (src/content/figures/<id>.js).
   mesh.scale.setScalar(FIGURE_SCALES[kind]||1);
   scene.add(mesh);
-  const v={kind,id,mesh,bones,baseScale:mesh.scale.x,
+  const v={kind,id,mesh,bones,baseScale:mesh.scale.x,slamT:-1,
     anim:{cur:'idle',prev:null,t:0,prevT:0,blend:1,weightSum:1},lastClip:'idle'};
   VIEWS.set(id,v);
   return v;
@@ -1897,7 +1913,7 @@ function updateAnim(v,dt,stateTime){
   const a=v.anim;
   a.t+=dt; a.prevT+=dt;
   a.blend=Math.min(1,a.blend+dt/CROSSFADE);
-  const pB=sampleClip(CLIPS[a.cur]||CLIPS.idle,(a.cur==='attack'||a.cur==='shoot'||a.cur==='hammer')?stateTime:a.t);
+  const pB=sampleClip(CLIPS[a.cur]||CLIPS.idle,(a.cur==='attack'||a.cur==='shoot'||a.cur==='hammer'||a.cur==='groundslam')?stateTime:a.t);
   const wA=a.prev?1-a.blend:0, wB=1-wA;
   const pA=a.prev?sampleClip(CLIPS[a.prev]||CLIPS.idle,a.prevT):null;
   a.weightSum=wA+wB;                       // EXACTLY 1.0 by construction
@@ -1939,8 +1955,17 @@ function syncViews(s,dt){
        slash pose: swap in the hammer clip while his sim state is
        'attack'. Same envelope, same hit frame — view layer only. */
     if(hs==='attack'&&h.heroId==='dwarf')hClip='hammer';
-    setClip(hv,hClip,h.state==='attack'?h.st:undefined);
-    updateAnim(hv,dt,h.state==='attack'?h.st:0);
+    /* EARTHQUAKE CAST (view-only): a pending ground slam — started by
+       the 'magic' event in consumeEvents (dwarfEarthCast) — overrides
+       the state clip until it has played out, sampled on its own clock
+       exactly like attack/hammer are sampled on sim state time. */
+    if(hv.slamT>=0){
+      hv.slamT+=dt;
+      if(hs==='dead'||hv.slamT>CLIPS.groundslam.dur)hv.slamT=-1;
+      else hClip='groundslam';
+    }
+    setClip(hv,hClip,hClip==='groundslam'?hv.slamT:(h.state==='attack'?h.st:undefined));
+    updateAnim(hv,dt,hClip==='groundslam'?hv.slamT:(h.state==='attack'?h.st:0));
     /* ROLL = a real forward somersault, not a dash. The mesh pitches a full
        360 deg about its own (yawed) X axis while the position is compensated
        so the body rotates around its centre of mass instead of its feet. */
@@ -3087,6 +3112,83 @@ function updateRings(dt){
     sigRingMeshes[i].visible=st.t<RING_LIFE;
   }
 }
+/* ---------- dwarf earthquake FX (cosmetic only) ----------
+   The Earth Dwarf's cast is a GROUND SLAM, not a sparkle: the 'magic'
+   event (sig 'earth') starts the one-shot groundslam clip on the
+   caster's view (syncViews reads v.slamT) and queues the impact here.
+   SLAM_IMPACT_T later — the frame the hammer head lands — a dusty
+   shockwave ring expands toward the blast radius over QUAKE_LIFE with
+   a dust disc under it and dust bursts at the impact point in front of
+   him. Pure view state: the sim's blast, knockback and shake are
+   untouched, and every other hero's cast keeps the generic treatment
+   in consumeEvents. */
+const QUAKE_POOL=3, QUAKE_LIFE=0.45, SLAM_IMPACT_T=0.34, QUAKE_SHAKE=0.5;
+let quakeMeshes=[], quakeState=[], quakePending=[];
+function setupQuakes(){
+  for(let i=0;i<QUAKE_POOL;i++){
+    const ring=new T.Mesh(new T.RingGeometry(0.90,1.0,64),
+      new T.MeshBasicMaterial({color:0xc2611a,transparent:true,opacity:0,
+        side:T.DoubleSide,depthWrite:false,fog:false}));
+    ring.rotation.x=-Math.PI/2; ring.position.y=0.07; ring.visible=false; ring.frustumCulled=false;
+    const disc=new T.Mesh(new T.CircleGeometry(1,48),
+      new T.MeshBasicMaterial({color:0x8f6a38,transparent:true,opacity:0,
+        side:T.DoubleSide,depthWrite:false,fog:false}));
+    disc.rotation.x=-Math.PI/2; disc.position.y=0.05; disc.visible=false; disc.frustumCulled=false;
+    scene.add(ring); scene.add(disc);
+    quakeMeshes.push({ring,disc}); quakeState.push({t:9,maxR:14});
+  }
+}
+function fireQuake(x,z,maxR){
+  let idx=quakeState.findIndex(q=>q.t>=QUAKE_LIFE);
+  if(idx<0)idx=0;
+  quakeState[idx].t=0; quakeState[idx].maxR=maxR;
+  const m=quakeMeshes[idx];
+  m.ring.position.x=x; m.ring.position.z=z; m.ring.visible=true;
+  m.disc.position.x=x; m.disc.position.z=z; m.disc.visible=true;
+}
+function dwarfEarthCast(e){
+  /* The caster is the hero whose signature is 'earth' (only the Earth
+     Dwarf has one). In co-op, match the nearest such hero to the event
+     position — the event carries the caster's cast-time position. */
+  let best=-1,bd=Infinity,yaw=0;
+  for(let hi=0;hi<SIM.heroes.length;hi++){
+    const h=SIM.heroes[hi];
+    if(((HERO_MAGIC[h.heroId]||{}).kind)!=='earth')continue;
+    const d=(h.x-e.x)*(h.x-e.x)+(h.z-e.z)*(h.z-e.z);
+    if(d<bd){bd=d;best=hi;yaw=h.yaw;}
+  }
+  if(best>=0){
+    const v=VIEWS.get(best===0?0:-best);
+    if(v)v.slamT=0;
+  }
+  quakePending.push({x:e.x,z:e.z,
+    ix:e.x+Math.sin(yaw)*0.9, iz:e.z+Math.cos(yaw)*0.9,
+    r:e.r||CFG.magic.radius, t:-SLAM_IMPACT_T});
+}
+function updateQuakes(dt){
+  for(let i=quakePending.length-1;i>=0;i--){
+    const q=quakePending[i]; q.t+=dt;
+    if(q.t<0)continue;
+    quakePending.splice(i,1);
+    fireQuake(q.x,q.z,q.r);
+    burst(q.ix,0.5,q.iz,[.66,.47,.26],40,8.5);
+    burst(q.ix,0.25,q.iz,[.48,.34,.19],26,6.0);
+    FXSHAKE(QUAKE_SHAKE);
+  }
+  for(let i=0;i<QUAKE_POOL;i++){
+    const st=quakeState[i], m=quakeMeshes[i];
+    if(st.t>=QUAKE_LIFE){ m.ring.visible=false; m.disc.visible=false; continue; }
+    st.t+=dt;
+    const u=Math.min(1,st.t/QUAKE_LIFE), ease=1-(1-u)*(1-u)*(1-u);
+    const r=Math.max(0.05,st.maxR*ease);
+    m.ring.scale.set(r,r,r);
+    m.ring.material.opacity=0.95*(1-u);
+    const dr=Math.max(0.05,st.maxR*0.5*ease);
+    m.disc.scale.set(dr,dr,dr);
+    m.disc.material.opacity=0.38*(1-u);
+    m.ring.visible=st.t<QUAKE_LIFE; m.disc.visible=st.t<QUAKE_LIFE;
+  }
+}
 const ICE_POOL=18;
 let iceShells=[];
 function setupIce(){
@@ -3172,8 +3274,7 @@ function consumeEvents(){
       case 'magic': {
         if(e.sig==='frost'){ burst(e.x,1.2,e.z,[.72,.90,1],46,7.0); burst(e.x,0.5,e.z,[.85,.96,1],30,9.0);
           fireRing(e.x,e.z,0x9fd9ff,e.r||14); }
-        else if(e.sig==='earth'){ burst(e.x,1.0,e.z,[.78,.58,.34],46,7.0); burst(e.x,0.4,e.z,[.62,.45,.28],34,9.5);
-          fireRing(e.x,e.z,0xc79a5e,e.r||14); }
+        else if(e.sig==='earth'){ dwarfEarthCast(e); }  /* ground slam + deferred quake (updateQuakes) */
         else { burst(e.x,1.2,e.z,[.77,.42,1],46,7.0); burst(e.x,0.5,e.z,[.9,.7,1],30,9.0); }
         const fl=$('flash'); fl.style.transition='none'; fl.style.opacity='0.5';
         requestAnimationFrame(()=>{ fl.style.transition='opacity .45s'; fl.style.opacity='0'; });
@@ -3254,7 +3355,7 @@ const Audio=(function(){
 /* =====================================================================
    PART 4 — UI / INPUT / MAIN LOOP / VERIFICATION HOOKS
    ===================================================================== */
-setupPickupMeshes(); setupVFX(); setupRings(); setupIce(); buildMapMeshes(SIM);
+setupPickupMeshes(); setupVFX(); setupRings(); setupIce(); setupQuakes(); buildMapMeshes(SIM);
 
 /* BOSS_NAMES is derived from src/content/enemies/bosses/*.js (chapter order). */
 const UI={tiltX:0,tiltY:0,stickActive:false,stickId:null,attack:false,atkBuf:0,
@@ -4975,6 +5076,7 @@ function frame(now){
   updateSlashFX(s,dt); updateArrowFX(s);
   updateBolts(dt);
   updateRings(dt);
+  updateQuakes(dt);
   syncIceShells(s);
   updatePickupMeshes(s,RTIME);
   updateVFX(dt,RTIME);

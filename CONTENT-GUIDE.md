@@ -334,6 +334,29 @@ descriptor fields affect presentation only:
   crests over him and lands with the hit step. Other heroes' slots
   keep `rx=0` and the original yaw sweep — regression-captured
   unchanged. All view-only; digests bit-identical.
+- The dwarf's CAST is a ground slam (2026-11-14): `CLIPS.groundslam`
+  in game.js — a dedicated one-shot 0.9 s overhead slam for his
+  Earthquake, distinct from the attack swing (bigger raise to −2.90
+  behind the crown at t=0.20, hammer driven down at the t=0.34 impact
+  key with spine +0.58 and a deep crouch, a hold at the bottom, then
+  recover). The sim's 'magic' event (whose payload carries `sig`)
+  starts it: consumeEvents routes `sig==='earth'` to
+  `dwarfEarthCast()`, which finds the caster's view (the hero whose
+  HERO_MAGIC kind is 'earth', nearest the event position in co-op)
+  and sets `v.slamT=0`; syncViews then overrides that hero's clip
+  until the slam plays out, sampled on the slam clock like
+  attack/hammer are sampled on sim state time. At the impact frame
+  (SLAM_IMPACT_T = 0.34, queued by dwarfEarthCast) `updateQuakes()`
+  fires the earthquake read: a burnt-orange shockwave ring
+  (0xc2611a) expanding to the blast radius over 0.45 s over a dust
+  disc, plus dust bursts at the impact point 0.9 m in front of him
+  and a small camera shake. This REPLACES the old immediate tan
+  ring/bursts for earth casts; Frost Nova and the plain blast keep
+  their existing treatment exactly. All view-only — the event
+  payload is unchanged, no sim or content file is touched, digests
+  bit-identical (capture sequence: raise → impact ring at his feet →
+  ring at full expansion; rig `ab-quake-cast.mjs`, frames in
+  rig/ab-quake-*.png).
 - `trait: '…'` — the one-line tradeoff shown on the hero's
   CHOOSE YOUR HERO card ("Ranged arrows · lighter damage" / "Heavy
   hammer · slower, short roll" / "Balanced sword & shield"), read from
