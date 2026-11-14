@@ -107,6 +107,10 @@ Shared melee defaults: telegraph 0.55 s, strike range 1.8 m, arc 120°, recovery
 | TEAL-ARCHER | 46 | 11 | 3.35 | 0.41 | 165 | Ranged — band 8–12 m, volley every 2 s, projectile 12.5 m/s, telegraph 0.48 s | `src/content/enemies/teal-archer.js · cfg` |
 | BLACK-RAVEN | 132 | 22 | 2.8 | 0.52 | 260 | Melee — reach 2.8 m, arc 130°, telegraph 0.6 s, recovery 0.5 s, cooldown 0.7 s | `src/content/enemies/black-raven.js · cfg` |
 | SPEARMAN | 58 | 12 | 2.35 | 0.44 | 130 | Melee — reach 3.15 m, arc 42°, telegraph 0.46 s, recovery 0.36 s, cooldown 0.64 s | `src/content/enemies/spearman.js · cfg` |
+| KETTLE-ARCHER | 42 | 9 | 3.5 | 0.45 | 75 | Ranged — band 6–17 m, volley every 2.9 s, projectile 15 m/s, telegraph 0.75 s | `src/content/enemies/kettle-archer.js · cfg` |
+| CROSSBOW-HERALD | 58 | 14 | 3.1 | 0.5 | 110 | Ranged — band 18–21 m, volley every 3.6 s, projectile 26 m/s, telegraph 0.9 s | `src/content/enemies/crossbow-herald.js · cfg` |
+| AZURE-CROSSBOW-CAPTAIN | 165 | 18 | 3.3 | 0.55 | 850 | Ranged — band 11–18 m, volley every 3.2 s, projectile 24 m/s, telegraph 0.8 s | `src/content/enemies/azure-crossbow-captain.js · cfg` |
+| HERALDIC-BANNER-KNIGHT | 185 | 24 | 2.9 | 0.6 | 950 | Melee — reach 2.1 m, arc 100°, telegraph 0.65 s, recovery 0.75 s, cooldown 1.8 s | `src/content/enemies/heraldic-banner-knight.js · cfg` |
 
 ## Items & pickups
 

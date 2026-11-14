@@ -17,7 +17,7 @@ export const volcanoCastle = {
     trees: 12, canopyKind: 2, canopyScale: 1.25,
     rocks: 30, pillars: 18, stones: 0,
     fenceRuns: 6, hills: 64, torches: 12, lavaPools: 9, reeds: 18,
-    eventPack: ['knight', 'sorcerer'],
+    eventPack: ['knight', 'sorcerer', 'heraldic-banner-knight'],
   },
   added: '2026-11-13',
   notes: 'Six castle walls (block kind 4, capsule colliders) around a central keep (kind 5). Victory is here.',

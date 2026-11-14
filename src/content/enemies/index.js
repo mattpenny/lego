@@ -41,6 +41,14 @@ import { tealArcher } from './teal-archer.js';
    pool sequence; their stat blocks are the pack's, verbatim. */
 import { blackRaven } from './black-raven.js';
 import { spearman } from './spearman.js';
+/* Archery pack 2026-11-14 (AB-NET-20): two regular ranged kinds (fill
+   orders 22/23 continue the pool sequence) and two event-only elites
+   whose signature mechanics (Marked Volley, banner) ride flattened
+   cfg blocks — see their descriptors and CONTENT-GUIDE section 17. */
+import { kettleArcher } from './kettle-archer.js';
+import { crossbowHerald } from './crossbow-herald.js';
+import { azureCrossbowCaptain } from './azure-crossbow-captain.js';
+import { heraldicBannerKnight } from './heraldic-banner-knight.js';
 import { MELEE_DEFAULTS, GLOBAL_ENEMY_CAP } from './shared.js';
 import { BOSSES, BOSS_NAMES, BOSS_CFG, BOSS_PHASE2, BOSS_FIGURE, BOSS_IDS, BOSS_CFG_BY_CHAPTER } from './bosses/index.js';
 
@@ -54,6 +62,9 @@ export const ENEMIES = deepFreeze({
   'tower-knight': towerKnight, 'dragon-knight': dragonKnight,
   crossbowman, 'russet-archer': russetArcher, 'teal-archer': tealArcher,
   'black-raven': blackRaven, spearman,
+  'kettle-archer': kettleArcher, 'crossbow-herald': crossbowHerald,
+  'azure-crossbow-captain': azureCrossbowCaptain,
+  'heraldic-banner-knight': heraldicBannerKnight,
 });
 export const ENEMY_KINDS = deepFreeze(Object.keys(ENEMIES));
 

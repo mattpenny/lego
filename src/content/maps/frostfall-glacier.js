@@ -36,7 +36,7 @@ export const frostfallGlacier = {
     trees: 30, canopyKind: 3, canopyScale: 1.35,
     rocks: 20, pillars: 20, stones: 0,
     fenceRuns: 5, hills: 64, torches: 12, lavaPools: 0, reeds: 22,
-    eventPack: ["raven-knight", "crossbowman", "teal-archer"],
+    eventPack: ["raven-knight", "crossbowman", "teal-archer", "azure-crossbow-captain", "heraldic-banner-knight"],
     landmarkBlocks: [
       { kind: 4, x: 8.838, z: 1.7, s: 1, rot: 1.76 },
       { kind: 4, x: 5.048, z: 7.451, s: 1, rot: 2.55 },

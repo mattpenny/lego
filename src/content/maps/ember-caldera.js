@@ -35,7 +35,7 @@ export const emberCaldera = {
     trees: 0, canopyKind: 2, canopyScale: 1.2,
     rocks: 8, pillars: 0, stones: 0,
     fenceRuns: 0, hills: 0, torches: 10, lavaPools: 0, reeds: 8,
-    eventPack: ["obsidian-knight", "dragon-knight", "sorcerer"],
+    eventPack: ["obsidian-knight", "dragon-knight", "sorcerer", "azure-crossbow-captain", "heraldic-banner-knight"],
     landmarkBlocks: [
       { kind: 6, x: 24.839, z: 7.684, s: 1, rot: 0.3 },
       { kind: 6, x: 9.479, z: 24.21, s: 1, rot: 1.2 },

@@ -39,6 +39,14 @@ import { spikedOgre } from './ogre.js';
 import { ogreRust } from './ogre-rust.js';
 import { blackRaven } from './black-raven.js';
 import { spearman } from './spearman.js';
+/* Archery pack 2026-11-14 (AB-NET-20): two regular ranged kinds and the
+   two event elites' figures, merged by hand — the pack's shipped
+   figures/index.js was a complete replacement from an older snapshot
+   and was NOT used. */
+import { kettleArcher } from './kettle-archer.js';
+import { crossbowHerald } from './crossbow-herald.js';
+import { azureCrossbowCaptain } from './azure-crossbow-captain.js';
+import { heraldicBannerKnight } from './heraldic-banner-knight.js';
 
 export const FIGURES = deepFreeze({
   hero, knight, soldier, brute, runner, ranger, archer, sorcerer, boss,
@@ -52,6 +60,9 @@ export const FIGURES = deepFreeze({
   crossbowman, 'russet-archer': russetArcher, 'teal-archer': tealArcher,
   ansum, ogre: spikedOgre, 'ogre-rust': ogreRust,
   'black-raven': blackRaven, spearman,
+  'kettle-archer': kettleArcher, 'crossbow-herald': crossbowHerald,
+  'azure-crossbow-captain': azureCrossbowCaptain,
+  'heraldic-banner-knight': heraldicBannerKnight,
 });
 export const FIGURE_IDS = deepFreeze(Object.keys(FIGURES));
 

@@ -257,6 +257,20 @@ function checkEnemy(d, key, errors, warnings) {
       if (!isNum(d.cfg[f])) errors.push(`${w}: cfg.${f} must be numeric`);
     if (d.cls === 'ranged' && !isNum(d.cfg.minRange))
       errors.push(`${w}: a ranged kind needs cfg.minRange/maxRange/volley/projSpeed/projR`);
+    /* Optional kiting speed while retreating inside minRange (archery
+       pack, AB-NET-20); absent means the retreat uses cfg.speed. */
+    if (d.cfg.fleeSpeed !== undefined && !isNum(d.cfg.fleeSpeed))
+      errors.push(`${w}: cfg.fleeSpeed must be numeric`);
+    /* Optional ELITE signature blocks, flattened into cfg (the same
+       treatment the Spiked Ogre's spin/super got in boss cfg): the
+       Marked Volley ring (azure-crossbow-captain) and the destroyable
+       healing banner (heraldic-banner-knight). All-or-nothing groups. */
+    if (d.cfg.volleyDmg !== undefined)
+      for (const f of ['volleyRange', 'volleyTele', 'volleyRadius', 'volleyCd', 'volleyActive'])
+        if (!isNum(d.cfg[f])) errors.push(`${w}: cfg.${f} must be numeric (Marked Volley block)`);
+    if (d.cfg.bannerHp !== undefined)
+      for (const f of ['bannerTele', 'bannerZone', 'bannerHealPerSec', 'bannerHealTick', 'bannerDur', 'bannerCd', 'bannerRange'])
+        if (!isNum(d.cfg[f])) errors.push(`${w}: cfg.${f} must be numeric (banner block)`);
   }
   if (!isId(d.figure)) errors.push(`${w}: figure must name a known figure kind`);
   if (!isInt(d.cap) || d.cap <= 0) errors.push(`${w}: cap must be a positive integer`);

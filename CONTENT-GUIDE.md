@@ -1518,3 +1518,98 @@ the sovereign spawns on the real timer (tick 11881) at 29.66 m with
 hits — anti-trap watchdog and boss fence behaviour unregressed at
 the new visual size (radii never moved, so this was the formality it
 was expected to be — proven anyway, per the standing rule).
+
+## 18. The archery pack: two ranged fills, Marked Volley, the banner (AB-NET-20)
+
+Matt's AB-ARCHERY-ELITES pack (authored to CONTENT-PROMPTS.md against
+AB-NET-17) integrated per §16's rules — new files as-is, shared files
+never overwritten, stats verbatim. STAMP NOTE: this round was built
+as AB-NET-18, but the boss-size round landed first and took
+AB-NET-19, so the stamp was renumbered to AB-NET-20 before pushing —
+stamps never move backwards.
+
+Four kinds (ENEMIES 24 → 28, FIGURES 33 → 37):
+
+- **kettle-archer** (regular ranged): HP 42, arrow 9, band 6–17 m,
+  tele 0.75, arrow speed 15, recovery 0.85, volley 2.9, cap 6, fill
+  from 18 s. **crossbow-herald** (regular ranged): HP 58, bolt 14,
+  band 18–21 m, tele 0.9, bolt speed 26, recovery 1.0, volley 3.6,
+  cap 4, fill from 55 s. The pack's `attack` block was translated to
+  the live ranged schema (minRange/maxRange/volley/projSpeed/projR/
+  tele/recovery/dmg); every number kept its meaning. Two judgement
+  calls, both flagged to Matt: fill weights rescaled 0.9/0.55 → 13/8
+  (the pack's scale is not the live pool's 7–200; the ratio is
+  preserved), and the captain's minRange 11 is an integrator
+  translation (pack gave only its 18 m attack range; ~0.61× is the
+  family ratio). The pack's projR values (0.08/0.06/0.07) are kept
+  verbatim — tighter than crossbowman's 0.28, deliberate.
+- **fleeSpeed** (new optional cfg field, schema-validated): the
+  ranged retreat branch uses `cfg.fleeSpeed || cfg.speed`. The pack
+  specified sub-chase-speed backpedals (kettle 2.0 inside 6 m, herald
+  1.8 inside 8 m) that the old all-or-nothing retreat could not
+  express; the watchdog thresholds still read cfg.speed.
+- **azure-crossbow-captain** (ELITE, cap 1): HP 165, bolt 18, plus
+  **Marked Volley** every 8 s — a fixed 2.4 m ring snapped at the
+  target hero's position at telegraph start (0.85 s), one 22-damage
+  tick inside a 0.2 s strike window, roll i-frames avoid it (the
+  tick routes through hurtHero). Sim: `volleyTele`/`volleyStrike`
+  states on the enemy, following the boss fixed-ring pattern; the
+  view reuses the WARN pool (4 → 6) via an `eliteWindup` event.
+  Telegraphs are NOT in damageEnemy's cancel set — like boss
+  telegraphs, the counter is movement, not interruption. After the
+  strike the captain takes its normal recovery (the punish window).
+- **heraldic-banner-knight** (ELITE, cap 1): HP 185, melee 24, plus
+  **Banner** every 12 s — 0.8 s plant telegraph (hero within 8 m,
+  one living banner per knight), a destroyable 40 HP banner entity
+  (`s.banners`), 4 m zone healing TRASH only at 5 HP/s (+1 HP per
+  0.2 s integer accumulator), 12 s life. Hero swords AND projectiles
+  damage banners (`damageBanner`); magic blast deliberately does
+  not. Banners persist if the knight dies; they clear at chapter
+  advance. View: pole/crimson cloth/gold finial + gold zone rim and
+  faint green disc; SD blob shadow like other entities. Note the
+  engine's standing quirk: melee `cfg.cd` is registry data the sim
+  never consumed (cycle = tele + recovery + 0.35) — the knight's
+  pack cd 1.8 is kept verbatim, effective cycle ≈1.75 s, the same
+  footing as spearman/black-raven.
+- **Digest discipline**: signature state is hashed CONDITIONALLY —
+  `volCd`/`volX`/`volZ`/`banCd` fields exist only on carrier kinds,
+  and the banners block (`BN…`) is emitted only while a banner
+  lives. fresh/idle600/coop1200 stayed bit-identical to AB-NET-17;
+  only the two combat scenarios moved (the new fill kinds), and the
+  baseline was re-recorded once for the round.
+- **Placement**: elites are in EVENT PACKS only (captain ch 4–6,
+  banner knight ch 3–6) — the pack's own "eventPack only"
+  instruction; they were NOT added to SCHEDULED_ELITES (no schedule
+  numbers exist for them, and inventing any would be retuning) and
+  NOT added to the potion ELITE_KINDS (black-raven precedent).
+  Signature cooldowns start READY at spawn; trigger range gates the
+  first use.
+- **Id alignment**: the registry rule `figure id == kind` (§ schema
+  cross-reference) aligned the pack's `azure-crossbow-herald` figure
+  to `crossbow-herald`; the azure display name is unchanged.
+- **Proof** (rig/ab-archery-vm.json, 25/25): pinned-clock census
+  (kettle from 18 s, herald from 55 s, black-raven still out of ch1);
+  a natural 11,880-tick ch1 wave (both kinds spawn, caps 6/4/8
+  respected); kettle arrow exactly 9, herald bolt exactly 14;
+  backpedal measured 3 → 4.00 m in 0.5 s at fleeSpeed 2.0 vs the
+  legacy archer's 4.78 at full speed; volley ring snaps the hero's
+  position, standing hero takes exactly 22 once, a hero rolling
+  inside the ring under i-frames takes 0; banner plants with
+  banCd = 12.000, heals exactly +5 HP in 1 s (elite and out-of-zone
+  controls at 0), sword destruction stops the heal, arrows destroy
+  it too, expiry at 11.98 s with ≈59 HP healed over the life and a
+  hard stop after; natural 90 s events fire the knight in ch3 and
+  both elites in ch4; a staged volley+banner scenario is
+  bit-identical across two VM runs (the mechanics' determinism
+  route — a bot window cannot reliably reach a 90 s event in the
+  browser rig). First figure renders read by the integrator
+  (rig/ab-archery-fig-*.png): kettle brim, azure herald + plume,
+  captain's gold trim, and the knight's back banner all read as
+  their concepts; captain vs herald distinction rests on the gold
+  trim — noted, not retuned (pack art is Matt's call).
+- **Rig lesson worth keeping**: `makeEnemy` SELF-REGISTERS
+  (pushes into s.enemies) — staging code that pushes the returned
+  enemy again updates the same object twice per step, which
+  masquerades as a doubled engine dt. The digest harness's
+  `setSim` is a method shorthand assigning the module `SIM`;
+  anything else silently steps the boot sim forever.

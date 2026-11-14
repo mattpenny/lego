@@ -88,6 +88,7 @@ const TAU = Math.PI*2;
 const DEG = Math.PI/180;
 const ARENA_R = 40;          // movement boundary; rocky hills begin right here
 const HERO_R = 0.42;
+const BANNER_R = 0.5;        // banner entity body radius (hero hit tests)
 
 /* ---- exact combat spec numbers, ALL DERIVED FROM THE CONTENT REGISTRY.
    RULES holds the cross-cutting global tuning (src/content/rules.js);
@@ -372,6 +373,7 @@ function newSim(seed,players){
     waveLeft:CFG.waveSeconds, bossSpawned:false, bossHits:0,
     heroes:[], players:1, resume:null,
     enemies:[], projectiles:[], arrows:[], gems:[], heals:[], bosses:[],
+    banners:[],
     nextId:1, score:0, kills:0, level:1, xp:0, xpNeed:8,
     up:{edge:0,tempo:0,reach:0,boots:0,reflex:0,magnet:0,crit:0,siphon:0},
     choices:[], pickWait:0, hitStop:0, spawnTimer:1.2, chapterClearTimer:0,
@@ -621,6 +623,20 @@ function damageBoss(s,b,dmg,crit){
   }
 }
 
+/* The banner entity (heraldic-banner-knight): a hero damage target
+   that is neither enemy nor boss — no score, no drops, no kill count.
+   It takes damage through the same hit path (hit-stop + floating
+   number via the 'hit' event) and is swept by updateBanners once its
+   HP is gone, so its heal zone ends the same step-cycle everywhere. */
+function damageBanner(s,bn,dmg,crit){
+  if(bn.hp<=0)return;
+  bn.hp=Math.max(0,bn.hp-dmg); bn.hitFlash=1;
+  emit('hit',{x:bn.x,z:bn.z,y:1.2,dmg:Math.round(dmg),crit,type:'banner'});
+  addHitStop(s,CFG.hitStopMs.hit);
+  emit('shake',{v:0.20});
+  if(bn.hp<=0)emit('bannerDown',{x:bn.x,z:bn.z});
+}
+
 /* Signature magic, applied to one SURVIVOR of the blast (damage always
    lands first — see castMagic). `t` is an enemy or the boss; `radius` is
    that target's own body radius, used only by the earthquake clamp.
@@ -711,6 +727,16 @@ function doHeroHit(s,h,st){
       damageBoss(s,b,st.dmg*(crit?1.7:1),crit);
     }
   }
+  /* Banners are hero targets too: destroying the knight's banner is
+     the clean counter to its heal zone (archery pack, AB-NET-20). */
+  for(const bn of s.banners){
+    if(bn.hp<=0)continue;
+    const dx=bn.x-h.x, dz=bn.z-h.z, d=Math.sqrt(dx*dx+dz*dz);
+    if(d>st.range+BANNER_R)continue;
+    if(!inArc(dx,dz,d,BANNER_R))continue;
+    const crit=rnd(s)<st.crit;
+    damageBanner(s,bn,st.dmg*(crit?1.7:1),crit);
+  }
 }
 
 /* RANGED HERO ATTACK (hero descriptor `attack` block → HERO_ATTACK).
@@ -776,7 +802,7 @@ function updateArrows(s,dt){
     const stepLen=spd*dt;
     const go=Math.min(stepLen, a.max-a.dist);      // never fly past max range
     const segX=a.vx/spd*go, segZ=a.vz/spd*go;      // this step's segment delta
-    let hitT=Infinity, hitE=null, hitB=null;
+    let hitT=Infinity, hitE=null, hitB=null, hitBn=null;
     const testBody=(tx,tz,tr)=>{
       const rr=tr+a.r;
       const ox=a.x-tx, oz=a.z-tz;
@@ -800,11 +826,20 @@ function updateArrows(s,dt){
     for(const b of s.bosses){
       if(b.hp<=0)continue;
       const t=testBody(b.x,b.z,bossCfgOf(s).radius);
-      if(t>=0&&t<hitT){ hitT=t; hitE=null; hitB=b; }
+      if(t>=0&&t<hitT){ hitT=t; hitE=null; hitB=b; hitBn=null; }
     }
-    if(hitE||hitB){
+    /* Banners block arrows like any other body — Penny can shoot the
+       banner down (archery pack, AB-NET-20). Scanned last, so an exact
+       tie goes to the enemy/boss in front of it. */
+    for(const bn of s.banners){
+      if(bn.hp<=0)continue;
+      const t=testBody(bn.x,bn.z,BANNER_R);
+      if(t>=0&&t<hitT){ hitT=t; hitE=null; hitB=null; hitBn=bn; }
+    }
+    if(hitE||hitB||hitBn){
       const crit=rnd(s)<a.critP;
       if(hitB)damageBoss(s,hitB,a.dmg*(crit?1.7:1),crit);
+      else if(hitBn)damageBanner(s,hitBn,a.dmg*(crit?1.7:1),crit);
       else damageEnemy(s,hitE,a.dmg*(crit?1.7:1),crit);
       continue;                                  // first hit only — the arrow dies
     }
@@ -937,14 +972,36 @@ function updateEnemies(s,dt){
        hit and killed (damage functions never consult this timer). */
     if((e.frozen||0)>0){ e.frozen--; e.vx=0; e.vz=0; continue; }
     e.cd=Math.max(0,(e.cd||0)-dt);
+    if(e.volCd!==undefined)e.volCd=Math.max(0,e.volCd-dt);
+    if(e.banCd!==undefined)e.banCd=Math.max(0,e.banCd-dt);
     const h=nearestHero(s,e.x,e.z); e.tgt=h;
     const dx=h.x-e.x, dz=h.z-e.z, d=Math.sqrt(dx*dx+dz*dz)||0.001;
     let vx=0,vz=0;
     if(e.state==='chase'){
       e.yaw=Math.atan2(dx,dz);
       let wantMode=0;
+      /* Elite signatures take the action slot when their cooldown is
+         ready — the boss priority rule one level down (archery pack,
+         AB-NET-20). The Marked Volley snapshots the target hero's
+         position NOW: the fixed ring is where he stood when the
+         telegraph began, which is what makes sidestepping it fair.
+         The banner plant additionally requires no living banner of
+         this knight's own (one alive per elite). */
+      let signed=false;
+      if(cfg.volleyDmg!==undefined && e.volCd<=0 && d<=cfg.volleyRange){
+        e.volX=h.x; e.volZ=h.z; e.lockYaw=e.yaw;
+        e.state='volleyTele'; e.timer=cfg.volleyTele; e.volCd=cfg.volleyCd;
+        emit('eliteWindup',{x:e.volX,z:e.volZ,r:cfg.volleyRadius,kind:'volley'});
+        signed=true;
+      }else if(cfg.bannerHp!==undefined && e.banCd<=0 && d<=cfg.bannerRange
+               && !s.banners.some(bn=>bn.owner===e.id&&bn.hp>0)){
+        e.lockYaw=e.yaw;
+        e.state='plantTele'; e.timer=cfg.bannerTele;
+        signed=true;
+      }
+      if(!signed){
       if(cfg.minRange){                                   // archer / sorcerer / ranger
-        if(d<cfg.minRange){ vx=-dx/d*cfg.speed; vz=-dz/d*cfg.speed; wantMode=-1; }
+        if(d<cfg.minRange){ const fs=cfg.fleeSpeed||cfg.speed; vx=-dx/d*fs; vz=-dz/d*fs; wantMode=-1; }
         else if(d>cfg.maxRange){ vx=dx/d*cfg.speed*0.85; vz=dz/d*cfg.speed*0.85; wantMode=1; }
         else { vx=-dz/d*cfg.speed*0.36; vz=dx/d*cfg.speed*0.36; }
         if(e.cd<=0 && d<=cfg.maxRange+1.5)startTelegraph(e,'cast');
@@ -953,6 +1010,7 @@ function updateEnemies(s,dt){
         const stand=Math.max(1.45,reach-0.35);
         if(d>stand){ vx=dx/d*cfg.speed; vz=dz/d*cfg.speed; wantMode=1; }
         if(d<=reach-0.1 && e.cd<=0)startTelegraph(e,'melee');
+      }
       }
       /* (f) stuck watchdog + detour (see the helpers' header). Progress
          is judged against LAST step's intent (e.wantMode) and LAST
@@ -995,6 +1053,37 @@ function updateEnemies(s,dt){
     }else if(e.state==='recovery'){
       e.timer-=dt;
       if(e.timer<=0){ e.state='chase'; e.cd=cfg.minRange?cfg.volley*0.45:0.35; }
+    }else if(e.state==='volleyTele'){
+      /* MARKED VOLLEY telegraph: stationary, facing locked, the fixed
+         warning ring already on the ground at the snapped centre
+         (eliteWindup). Not a 'telegraph' state — hero hits do not
+         cancel a zone mark, exactly as boss telegraphs cannot be
+         cancelled; the counter is movement, not interruption. */
+      e.timer-=dt; e.yaw=e.lockYaw;
+      if(e.timer<=0){ e.state='volleyStrike'; e.timer=cfg.volleyActive; }
+    }else if(e.state==='volleyStrike'){
+      /* The 0.2 s strike window: a hero inside the ring takes the one
+         tick — hurtHero's own invulnerability (roll i-frames, the
+         post-hit grace) gates repeats within the window. Exits into
+         the captain's normal recovery, the pack's punish window. */
+      e.timer-=dt;
+      for(const t of s.heroes){
+        if(t.downed)continue;
+        const td=Math.sqrt((t.x-e.volX)*(t.x-e.volX)+(t.z-e.volZ)*(t.z-e.volZ));
+        if(td<=cfg.volleyRadius)hurtHero(s,t,Math.round(cfg.volleyDmg*s.dmgScale),e.type);
+      }
+      if(e.timer<=0){ e.state='recovery'; e.timer=cfg.recovery||C.recovery; }
+    }else if(e.state==='plantTele'){
+      /* BANNER plant telegraph: stationary, facing locked. */
+      e.timer-=dt; e.yaw=e.lockYaw;
+      if(e.timer<=0){
+        s.banners.push({id:s.nextId++,kind:e.type,owner:e.id,x:e.x,z:e.z,
+          hp:cfg.bannerHp,maxHp:cfg.bannerHp,zone:cfg.bannerZone,
+          dur:cfg.bannerDur,t:0,healAcc:0,hitFlash:0});
+        e.banCd=cfg.bannerCd;               // 12 s FROM PLANT (pack rule)
+        e.state='chase'; e.cd=0.35;
+        emit('bannerPlant',{x:e.x,z:e.z});
+      }
     }
     e.vx=vx; e.vz=vz;
     moveWithCollision(s,e,vx*dt,vz*dt,cfg.radius);
@@ -1005,6 +1094,45 @@ function updateEnemies(s,dt){
   }
   // compact dead bodies (views are driven by cosmetic events)
   if(s.enemies.some(e=>e.dead))s.enemies=s.enemies.filter(e=>!e.dead);
+}
+
+/* Banner entities (heraldic-banner-knight, archery pack AB-NET-20).
+   A planted banner heals TRASH enemies inside its zone: +1 HP per
+   healTick (0.2 s) — the pack's 5 HP/s expressed as an integer
+   accumulator, so heals land on exact ticks. Elites are never healed
+   (the knight is one, so it cannot heal itself) and bosses are not
+   enemies. The banner is swept the step its HP is gone or its
+   duration ends, so destruction by hero attacks stops the heal from
+   the next update onward, identically on every client. */
+function updateBanners(s,dt){
+  if(!s.banners.length)return;
+  const out=[];
+  for(const bn of s.banners){
+    if(bn.hp>0){
+      bn.t+=dt;
+      bn.hitFlash=Math.max(0,(bn.hitFlash||0)-dt*4);
+      if(bn.t<bn.dur){
+        const bc=CFG.enemy[bn.kind];
+        bn.healAcc+=dt;
+        let guard=0;
+        while(bn.healAcc>=bc.bannerHealTick&&guard++<8){
+          bn.healAcc-=bc.bannerHealTick;
+          const amt=Math.round(bc.bannerHealPerSec*bc.bannerHealTick);
+          let healed=false;
+          for(const e of s.enemies){
+            if(e.dead||e.hp>=e.maxHp)continue;
+            if((ENEMIES[e.type]||{}).elite)continue;
+            const dx=e.x-bn.x, dz=e.z-bn.z;
+            if(dx*dx+dz*dz<=bn.zone*bn.zone){ e.hp=Math.min(e.maxHp,e.hp+amt); healed=true; }
+          }
+          if(healed)emit('bannerHeal',{x:bn.x,z:bn.z});
+        }
+      }
+    }
+    if(bn.hp>0&&bn.t<bn.dur)out.push(bn);
+    else if(bn.hp>0)emit('bannerEnd',{x:bn.x,z:bn.z});
+  }
+  s.banners=out;
 }
 
 function updateProjectiles(s,dt){
@@ -1417,6 +1545,13 @@ function makeEnemy(s,type,x,z,cd){
     lockYaw:0,hp:shp,maxHp:shp,state:'chase',timer:0,cd:cd||0.5,
     slamCd:0,attackKind:'melee',vx:0,vz:0,hitFlash:0,cancelFlash:0,dead:false,frozen:0,
     stuckT:0,detourT:0,detourS:1,lastD:-1,wantMode:0,watchX:x,watchZ:z};
+  /* Elite signature state (archery pack, AB-NET-20) — only kinds whose
+     cfg carries the blocks get the fields, so every other kind's digest
+     line and memory shape stay exactly as before. Cooldowns start
+     READY: the trigger conditions (hero in range) gate the first use,
+     and the pack's cadence numbers describe the cycle from there. */
+  if(C.volleyDmg!==undefined){ e.volCd=0; e.volX=0; e.volZ=0; }
+  if(C.bannerHp!==undefined){ e.banCd=0; }
   s.enemies.push(e);return e;
 }
 function spawnBoss(s){
@@ -1502,6 +1637,7 @@ function simStep(raw){
         s.chapter++; s.map=buildMapData(s.chapter);
         s.waveLeft=CFG.waveSeconds; s.bossSpawned=false; s.boss=null;
         s.enemies=[]; s.projectiles=[]; s.arrows=[]; s.gems=[]; s.heals=[]; s.potions=[];
+        s.banners=[];
         s.eventDone=false; s.eventQueue=[];
         s.heroes.forEach((h,i)=>{
           const sp=heroSpawnPos(i,s.players);
@@ -1544,6 +1680,7 @@ function simStep(raw){
     }
   }
   updateEnemies(s,FIXED);
+  updateBanners(s,FIXED);
   updateProjectiles(s,FIXED);
   updateArrows(s,FIXED);
   for(const b of s.bosses)updateBoss(s,b,FIXED);
@@ -1581,7 +1718,20 @@ function simDigest(s){
     for(const h of s.heroes){ put((h.mods.crit||0).toFixed(4)); put(h.mods.magicDmg||0); }
   }
   put('E'+s.enemies.length);
-  for(const e of s.enemies){ for(const v of [e.id,e.x,e.z,e.yaw,e.lockYaw,e.hp,e.timer,e.cd,e.state==='telegraph'?1:0,e.vx,e.vz])put(q(v)); put(e.state); put(e.attackKind||''); put(e.frozen||0); }
+  for(const e of s.enemies){ for(const v of [e.id,e.x,e.z,e.yaw,e.lockYaw,e.hp,e.timer,e.cd,e.state==='telegraph'?1:0,e.vx,e.vz])put(q(v)); put(e.state); put(e.attackKind||''); put(e.frozen||0);
+    /* Elite signature state (AB-NET-20) is hashed CONDITIONALLY — only
+       kinds carrying the fields emit them, so every pre-existing
+       kind's line is byte-identical to before. The volley ring centre
+       is hashed at the standard q() precision: it is the damage zone,
+       and a peer disagreement about it is a desync by definition. */
+    if(e.volCd!==undefined){ put(q(e.volCd)); put(q(e.volX)); put(q(e.volZ)); }
+    if(e.banCd!==undefined)put(q(e.banCd)); }
+  /* Banners: hashed only while any exist (the hero-arrow discipline),
+     so runs and scenarios without a banner knight keep their stream. */
+  if(s.banners.length){
+    put('BN'+s.banners.length);
+    for(const bn of s.banners)for(const v of [bn.id,bn.x,bn.z,bn.hp,bn.owner,bn.t,bn.healAcc])put(q(v));
+  }
   put('P'+s.projectiles.length);
   for(const p of s.projectiles)for(const v of [p.id,p.x,p.z,p.vx,p.vz,p.life,p.tx||0,p.tz||0])put(q(v));
   /* Hero arrows are hashed ONLY while any are in flight. Every shipped
@@ -2291,6 +2441,8 @@ function clipFor(kind,st,speed){
   if(st==='chargeTele')return 'charge';
   if(st==='charge')return 'run';
   if(st==='recovery'||st==='recover'||st==='slamTele'||st==='spinTele'||st==='superTele')return 'telegraph';
+  if(st==='volleyTele'||st==='plantTele')return 'telegraph';   // elite signature wind-ups (AB-NET-20)
+  if(st==='volleyStrike')return 'attack';
   if(st==='run'||st==='approach'||st==='chase')return speed>0.45?'run':'idle';
   return 'idle';
 }
@@ -2392,6 +2544,57 @@ function syncViews(s,dt){
   if(hselView)seen.add(HSEL_ID);   // hero-select preview survives the reap while open
   for(const [id,v] of VIEWS){
     if(!seen.has(id)){ scene.remove(v.mesh); if(v.dispose)v.dispose(); else v.mesh.material.dispose(); VIEWS.delete(id); }
+  }
+  syncBannerViews(s);
+}
+
+/* ---------- banner views (heraldic-banner-knight, AB-NET-20) --------
+   A planted banner is a static dressing entity, not a rig: pole,
+   crimson cloth, gold finial, and its heal zone drawn on the ground
+   as a gold rim over a faint green disc — green reads "healing" at
+   gameplay distance, and the rim is exactly the sim's zone radius.
+   Views key on the banner's sim id and reap when it leaves s.banners
+   (destroyed, expired, or chapter change), mirroring the VIEWS reap. */
+const BANNER_VIEWS=new Map();
+function makeBannerView(bn){
+  const g=new T.Group();
+  const pole=new T.Mesh(new T.CylinderGeometry(0.045,0.045,1.9,8),MAT(0x2a2a30));
+  pole.position.y=0.95; pole.frustumCulled=false;
+  const cloth=new T.Mesh(new T.BoxGeometry(0.62,0.78,0.04),
+    new T.MeshLambertMaterial({color:0xae211e}));
+  cloth.position.set(0.34,1.44,0); cloth.frustumCulled=false;
+  const finial=new T.Mesh(new T.SphereGeometry(0.09,10,8),MAT(0xdea832));
+  finial.position.y=1.96; finial.frustumCulled=false;
+  const rim=new T.Mesh(new T.RingGeometry(0.965,1.0,56),
+    new T.MeshBasicMaterial({color:0xffd76a,transparent:true,opacity:0.55,
+      side:T.DoubleSide,depthWrite:false,fog:false}));
+  rim.rotation.x=-Math.PI/2; rim.position.y=0.07; rim.scale.set(bn.zone,bn.zone,1);
+  rim.frustumCulled=false;
+  const disc=new T.Mesh(new T.CircleGeometry(1,48),
+    new T.MeshBasicMaterial({color:0x51ff7a,transparent:true,opacity:0.07,
+      side:T.DoubleSide,depthWrite:false,fog:false}));
+  disc.rotation.x=-Math.PI/2; disc.position.y=0.05; disc.scale.set(bn.zone,bn.zone,1);
+  disc.frustumCulled=false;
+  g.add(pole,cloth,finial,rim,disc);
+  scene.add(g);
+  return {mesh:g,cloth};
+}
+function syncBannerViews(s){
+  const seen=new Set();
+  for(const bn of s.banners){
+    if(bn.hp<=0)continue;
+    seen.add(bn.id);
+    let v=BANNER_VIEWS.get(bn.id);
+    if(!v){ v=makeBannerView(bn); BANNER_VIEWS.set(bn.id,v); }
+    v.mesh.position.set(bn.x,0,bn.z);
+    v.cloth.material.color.setHex(bn.hitFlash>0.3?0xff7a68:0xae211e);
+  }
+  for(const [id,v] of BANNER_VIEWS){
+    if(!seen.has(id)){
+      scene.remove(v.mesh);
+      v.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); });
+      BANNER_VIEWS.delete(id);
+    }
   }
 }
 
@@ -3001,6 +3204,7 @@ function updatePickupMeshes(s,time){
   if(!GFX_HIGH){
     for(const h of s.heroes)put(h.x,h.z,0.55);
     for(const e of s.enemies)put(e.x,e.z,0.5);
+    for(const bn of s.banners)if(bn.hp>0)put(bn.x,bn.z,0.5);
     for(const b of s.bosses)if(b.hp>0){ const bf=b.fig||(BOSSES[s.chapter]||{}).figure;
       put(b.x,b.z,(FIGURES[bf]&&FIGURES[bf].custom)?3.055:1.625); }  // blob shadow x1.3 with the boss size buff
   }
@@ -3502,9 +3706,10 @@ function updateRings(dt){
    and pulsing for the length of a boss wind-up. The expanding fireRing
    above is wrong for this: a telegraph has to show exactly where the
    damage will land, so the radius must not grow. Used by the Spiked
-   Ogre's 360-degree spin and its super slam. Pool is 4 (not the pack's
-   2) because chapter 4 fields TWO ogres whose telegraphs can overlap. */
-const WARN_POOL=4, WARN_LIFE=1.1;
+   Ogre's 360-degree spin and its super slam. Pool is 6 (not the pack's
+   2): chapter 4 fields TWO ogres whose telegraphs can overlap, and an
+   event captain's Marked Volley (AB-NET-20) draws from the same pool. */
+const WARN_POOL=6, WARN_LIFE=1.1;
 let warnMeshes=[], warnState=[];
 function setupWarnRings(){
   for(let i=0;i<WARN_POOL;i++){
@@ -3709,6 +3914,14 @@ function consumeEvents(){
       /* --- Spiked Ogre: fixed danger rings, dust, 360-degree sweep --- */
       case 'bossWindup': fireWarn(e.x,e.z,e.r,e.kind==='super'?1.05:0.85);
         Audio.whoosh(0.9);break;
+      /* --- Archery elites (AB-NET-20): the captain's fixed volley ring
+         reuses the boss danger-ring pool verbatim; banner events are
+         dust + a soft chime of particles at plant, a burst on fall. --- */
+      case 'eliteWindup': fireWarn(e.x,e.z,e.r,0.9); Audio.whoosh(0.9);break;
+      case 'bannerPlant': dustRing(e.x,e.z,1.1,[0.85,0.66,0.20],12,2.6); Audio.whoosh(0.8);break;
+      case 'bannerDown': burst(e.x,0.9,e.z,[0.85,0.25,0.2],18,4.2); Audio.kill();break;
+      case 'bannerEnd': burst(e.x,0.7,e.z,[0.6,0.55,0.45],8,2.2);break;
+      case 'bannerHeal': break;   // the zone ring on the banner view carries the read
       case 'bossSuperSlam': {
         fireRing(e.x,e.z,0xff8a2a,e.r*1.15);
         fireWarn(e.x,e.z,e.r,0.28);

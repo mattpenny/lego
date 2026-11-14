@@ -56,7 +56,7 @@ function run(script, args = []) {
      content lands, so reconcile this line once after concurrent branches
      (heroes and enemies) have merged — it is a shared integration point.
      (Wording adopted from the heraldic-enemies handoff, AB-NET-8.) */
-  const expected = { HEROES: 8, FIGURES: 33, ENEMIES: 24, BOSSES: 6,
+  const expected = { HEROES: 8, FIGURES: 37, ENEMIES: 28, BOSSES: 6,
                      ITEMS: 3, PROPS: 14, MAPS: 6, UPGRADES: 9 };
   for (const [k, v] of Object.entries(expected)) {
     if (counts[k] !== v) errors.push(`schema: expected ${v} ${k}, found ${counts[k]}`);

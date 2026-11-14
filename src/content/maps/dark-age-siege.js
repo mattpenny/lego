@@ -35,7 +35,7 @@ export const darkAgeSiege = {
     trees: 26, canopyKind: 1, canopyScale: 1.05,
     rocks: 22, pillars: 16, stones: 22,
     fenceRuns: 9, hills: 64, torches: 18, lavaPools: 0, reeds: 16,
-    eventPack: ["tower-knight", "lion-knight", "russet-archer", "brute"],
+    eventPack: ["tower-knight", "lion-knight", "russet-archer", "brute", "azure-crossbow-captain", "heraldic-banner-knight"],
     landmarkBlocks: [
       { kind: 4, x: 10.735, z: 2.401, s: 1, rot: 1.79 },
       { kind: 4, x: 5.893, z: 9.288, s: 1, rot: 2.58 },
