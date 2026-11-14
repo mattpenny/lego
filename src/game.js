@@ -4501,7 +4501,7 @@ function syncOverlay(){
       btns.push({label:'ACCOUNT',fn:()=>openAccount('account'),ghost:true});
     }
     btns.push({label:'ARMOURY',fn:openArmoury,ghost:true});
-    setOverlay(key,'','AETHERBLADE','',acctChipHTML(),null,btns,'');
+    setOverlay(key,'','ANSUMBLADE','',acctChipHTML(),null,btns,'');
   }else if(s.phase==='levelup'){
     const cards=s.choices.map(id=>UPGRADES.find(u=>u.id===id)).filter(Boolean);
     let pickNote='The arena is paused.';
@@ -4550,7 +4550,7 @@ function syncOverlay(){
       }else{
         META.gold+=Math.floor(s.score/CFG.meta.scoreGoldDivisor)+CFG.meta.victoryBonus;
         if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); } }
-    setOverlay(key,'ALL '+CHAPTER_COUNT+' CHAPTERS CLEARED','VICTORY','AETHERBLADE',
+    setOverlay(key,'ALL '+CHAPTER_COUNT+' CHAPTERS CLEARED','VICTORY','ANSUMBLADE',
       '<div style="text-align:center">Final score '+s.score+' &nbsp;·&nbsp; '+s.kills+' kills &nbsp;·&nbsp; Level '+s.level+'</div>',
       null,(NET&&NET.active)?[{label:'END RUN',fn:()=>netTeardown(true)}]:[{label:'PLAY AGAIN',fn:startRun}],CREDITS_HTML);
   }else if(s.phase==='paused'){
@@ -5330,7 +5330,7 @@ function renderCoop(){
   }else if(st==='mismatch'){
     key='mismatch';
     body='<div class="cstat">VERSION MISMATCH</div>'+
-      '<div>All players need the same AETHERBLADE build to play together.</div>';
+      '<div>All players need the same ANSUMBLADE build to play together.</div>';
     btns=[{label:'BACK',fn:()=>{ netTeardown(false); }}];
     closeLabel='CLOSE'; closeFn=()=>{ netTeardown(false); closeCoop(); };
   }else if(st==='nohost'||st==='full'||st==='failed'){

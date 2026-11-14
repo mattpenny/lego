@@ -96,7 +96,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 #overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
   background:rgba(3,6,12,.80);z-index:20;pointer-events:auto;padding:calc(10px*var(--u))}
 #overlay.on{display:flex}
-#ovCard{width:min(94vw,calc(660px*var(--u)));max-height:96vh;overflow:auto;text-align:center;
+#ovCard{width:min(94vw,calc(660px*var(--u)));max-height:96vh;max-height:96dvh;overflow:auto;text-align:center;
   background:linear-gradient(180deg,rgba(16,24,40,.97),rgba(7,10,19,.97));
   border:1px solid rgba(170,210,255,.3);border-radius:calc(12px*var(--u));padding:calc(16px*var(--u)) calc(18px*var(--u));
   box-shadow:0 18px 60px rgba(0,0,0,.7)}
@@ -167,11 +167,40 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 #overlay.landing .bigbtn.ghost{font-family:"Palatino Linotype","Book Antiqua",Palatino,Georgia,serif;
   font-size:calc(12px*var(--u));letter-spacing:.2em;color:#e8cf96;
   border:1px solid rgba(217,171,78,.55);padding:calc(8px*var(--u)) calc(22px*var(--u))}
+/* ---- landing on short viewports (phone landscape, 2026-11-14) ----
+   The landing stack (emblem + title + 4 stacked buttons) was designed
+   when it carried two buttons; CO-OP and LOG IN / REGISTER pushed
+   ARMOURY past the bottom edge on phone-height viewports (measured:
+   ARMOURY bottom 361.8 in a 360px-tall viewport, overlapping the WASD
+   hint line; 1.6px of clearance at 320px tall). --u cannot absorb it:
+   JS clamps --u to >= 0.78, and real phone serif metrics run taller
+   than desktop ones. So below 430px of height the landing alone
+   compacts — emblem and title shrink, gaps and button padding tighten.
+   Tall/desktop viewports keep the original sizes exactly. The taller
+   5-button state (RETRY ACCOUNT + LOG IN) fits in the headroom too. */
+@media (max-height:430px){
+  #overlay.landing #ovCard{max-height:none;padding:calc(8px*var(--u)) calc(18px*var(--u))}
+  #overlay.landing #ovEmblem svg{width:calc(64px*var(--u))}
+  #overlay.landing #ovRule{margin:calc(6px*var(--u)) auto calc(1px*var(--u))}
+  #overlay.landing #ovTitle{font-size:calc(34px*var(--u));margin:calc(4px*var(--u)) 0 0}
+  #overlay.landing #ovBtns{gap:calc(7px*var(--u));margin-top:calc(9px*var(--u))}
+  #overlay.landing .bigbtn.prime{padding:calc(10px*var(--u)) calc(40px*var(--u))}
+  #overlay.landing .bigbtn.ghost{padding:calc(6px*var(--u)) calc(22px*var(--u))}
+}
+@media (max-height:345px){
+  #overlay.landing #ovCard{padding:calc(6px*var(--u)) calc(18px*var(--u))}
+  #overlay.landing #ovEmblem svg{width:calc(52px*var(--u))}
+  #overlay.landing #ovRule{margin:calc(4px*var(--u)) auto calc(1px*var(--u))}
+  #overlay.landing #ovTitle{font-size:calc(28px*var(--u));margin:calc(3px*var(--u)) 0 0}
+  #overlay.landing #ovBtns{gap:calc(6px*var(--u));margin-top:calc(7px*var(--u))}
+  #overlay.landing .bigbtn.prime{padding:calc(8px*var(--u)) calc(40px*var(--u))}
+  #overlay.landing .bigbtn.ghost{padding:calc(5px*var(--u)) calc(22px*var(--u))}
+}
 /* ---- armoury modal: the meta hall on parchment ---- */
 #armoury{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
   background:rgba(3,5,10,.72);z-index:30;padding:calc(10px*var(--u))}
 #armoury.on{display:flex}
-#armCard{width:min(94vw,calc(620px*var(--u)));max-height:94vh;overflow:auto;text-align:center;
+#armCard{width:min(94vw,calc(620px*var(--u)));max-height:94vh;max-height:94dvh;overflow:auto;text-align:center;
   border-radius:calc(10px*var(--u));padding:calc(16px*var(--u)) calc(18px*var(--u));
   background:linear-gradient(180deg,#f6ead0,#ecdcae 60%,#e0c88f);
   border:2px solid #a97f33;color:#3a2a12;
@@ -196,7 +225,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 #coop{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
   background:rgba(3,5,10,.72);z-index:31;padding:calc(10px*var(--u))}
 #coop.on{display:flex}
-#coopCard{width:min(94vw,calc(560px*var(--u)));max-height:94vh;overflow:auto;text-align:center;
+#coopCard{width:min(94vw,calc(560px*var(--u)));max-height:94vh;max-height:94dvh;overflow:auto;text-align:center;
   border-radius:calc(10px*var(--u));padding:calc(16px*var(--u)) calc(18px*var(--u));
   background:linear-gradient(180deg,#f6ead0,#ecdcae 60%,#e0c88f);
   border:2px solid #a97f33;color:#3a2a12;
@@ -229,7 +258,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 #acct{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
   background:rgba(3,5,10,.72);z-index:31;padding:calc(10px*var(--u))}
 #acct.on{display:flex}
-#acctCard{width:min(94vw,calc(560px*var(--u)));max-height:94vh;overflow:auto;text-align:center;
+#acctCard{width:min(94vw,calc(560px*var(--u)));max-height:94vh;max-height:94dvh;overflow:auto;text-align:center;
   border-radius:calc(10px*var(--u));padding:calc(16px*var(--u)) calc(18px*var(--u));
   background:linear-gradient(180deg,#f6ead0,#ecdcae 60%,#e0c88f);
   border:2px solid #a97f33;color:#3a2a12;

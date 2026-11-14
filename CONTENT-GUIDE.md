@@ -1119,3 +1119,46 @@ sequence converges back to neutral input, and in-game keyboard play
 (move D/W, attack J, roll K, magic G) is verified working in a live
 solo run. Zero page errors. **Digests unchanged** (`42bfc451…`) —
 input handling lives outside the sim; no stamp bump.
+
+## 13. Landing compaction for short viewports + the title is now ANSUMBLADE (2026-11-14)
+
+Two player-facing changes in one view-only round (digests unchanged,
+stamp stays AB-NET-15), built in an isolated clone because the netcode
+fix owned the main one.
+
+**Landing overflow (Matt's phone screenshot).** The landing stack was
+designed for two buttons; CO-OP and LOG IN / REGISTER pushed ARMOURY
+off the bottom of phone-landscape viewports. Measured before (rig
+`crane/ab-layout.mjs`, evidence `rig/ab-layout-{before,after}.json`):
+ARMOURY bottom **361.8** in a 360px-tall viewport (1,050 px² overlap
+with the WASD hint line) and only **1.6 px** of hint clearance at
+640×320 — and real phone serif metrics run taller than the rig's, so
+marginal sizes fail on devices too. `--u` cannot absorb it (JS clamps
+it to ≥ 0.78), and the landing card's `max-height:96vh` + visible
+overflow decentred the spill. Fix, all landing-scoped in `game.css`:
+two height tiers (`max-height:430px`, `max-height:345px`) shrink the
+emblem (84→64→52 ×u), the title (43→34→28 ×u), rule/button margins and
+gaps, and button padding, and uncap the landing card's height so flex
+centring is honest again; the modal cards' `max-height` gained `dvh`
+lines after the `vh` ones. After: every button inside the viewport at
+800×360 / 740×360 / 667×375 / 640×320 with **zero** hint overlap and
+46–73 px of bottom clearance; the 1280×720 control's rects are
+byte-identical to before, so tall/desktop is untouched. The other
+screens were captured at 740×360: account login, hero picker and the
+co-op lobby sit fully in view; the register view and the Armoury
+scroll inside their cards by design (primary actions reachable).
+Note: `#ovBody` (the account status chip) stays `display:none` on the
+landing by the landing stylesheet's own design — it is not part of the
+visible stack and was left as-is.
+
+**Rename: AETHERBLADE → ANSUMBLADE, player-visible strings only.**
+Landing H1 (`syncOverlay`), the VICTORY screen's sub, the co-op
+version-mismatch body, the `#rotate` landscape text, and the document
+`<title>` (authored in the `scripts/sync-dom.mjs` HEAD template, so
+`dom:sync` + `single:build` propagate it). Deliberately NOT renamed,
+or every player loses state: the localStorage keys
+(`aetherblade-meta-v1`, `aetherblade-session-v1`, `aetherblade-api`,
+`aetherblade-relay`), the `aetherblade-api` Worker URL, the co-op
+hello payload `game:'aetherblade'`, the room-code namespacing, the
+repo/folder names, and code comments. `digest:check` unchanged
+(`42bfc451…`) proves no title string lives in hashed content.
