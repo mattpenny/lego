@@ -1732,3 +1732,94 @@ SwiftShader the long evaluate starves rAF, the pose freezes at a
 random gallop phase, and the raised sword (detached inside the
 scan strip) turns top measurements into a pose lottery. The §17
 gap-broken main-mass mean is the robust statistic.
+## 21. Daily challenge + leaderboards (M5, AB-NET-21)
+
+**The shape.** One challenge per Asia/Hong_Kong calendar day. The API
+derives it deterministically from the date — FNV-1a of
+`AB-DAILY-<YYYY-MM-DD>` picks the chapter (1 + hash mod 6) and one of
+four modifiers; a second hash of `AB-DAILY-SEED-<day>` is the run seed.
+Nothing is stored server-side except per-user entries; `GET /daily`
+is a public read. The game never invents a definition: it renders
+what the server serves.
+
+**The four modifiers** (run-config, exactly like the player-scaling
+row — pure functions of the modifier id, hashed into the run via the
+sim digest's conditional daily block; a non-daily run keeps every
+multiplier at exactly 1 and its pre-M5 digest stream):
+- `elite-surge` — the chapter elite pack refires every 45 s
+  (`s.eventNextAt`, simStep play block; the normal 90 s once-only
+  branch is untouched for non-daily runs).
+- `swarm` — alive cap +4, trash HP ×0.8 (`s.trashHpMul` at the single
+  `makeEnemy` choke point; `ELITE_KINDS` are exempt; bosses never go
+  through makeEnemy).
+- `glass-heroes` — score ×1.5 in the sim (`addScore`, the ONLY score
+  entry point: kills, boss kills, gem pickups); hero max HP ×0.7 is
+  applied view-side in `startDailyRun`, mirroring how run mods set
+  maxHp.
+- `blood-moon` — non-boss enemy speed ×1.15 (`spd` local in
+  `updateEnemies`; bosses move in `updateBoss`, untouched), score ×1.3.
+
+**Run lifecycle.** Daily is solo-only, single-chapter: `newSim(seed,
+1, {chapter, modifier})` starts on the day's chapter; `simStep`'s
+clear branch routes a daily sim to phase `dailyDone` instead of
+advancing. The view submits through the existing run pipeline with
+`mode:'daily'` + `dailyDay/dailyChapter/dailyModifier`; the server
+re-derives chapter+modifier from the day key and rejects mismatches
+(409 `daily_mismatch`), a rolled-over day (409 `stale_day`), party
+dailies, and multi-chapter claims. Completion is `stage ===
+'chapter-1'`. `syncOverlay`'s clear branch deliberately does NOT
+settle daily sims (its `chapter-N` stage would be wrong) — the
+`dailyDone` branch settles once with `chapter-1`/1.
+
+**Rewards (server-side, idempotent).** On top of the normal run
+entitlement: first accepted daily submission of the day +30 gold
+(participation); first daily completion +150 gold + 2 shards.
+`daily_entries` claim flags + `economy_ledger` refs
+(`daily:<day>:participation` / `:completion`) make replays safe.
+Guests play for nothing: no local gold, no local records, no board
+entry — the panel says signing in is what counts.
+
+**Boards** (public, top 50, competition ranking; an authed caller
+also gets `me`): daily (best score per user for a day, `?date=`
+defaults to today HKT), top-score (best full-run score all-time),
+fastest-victory (lowest victory durationSec). There is NO per-chapter
+fastest-clear board: run_submissions stores only whole-run durations
+and chapter_scores holds scores, not split times — the data does not
+exist.
+
+**Feature detection (the M3 pattern, generalised).** The API scope
+is a milestone string; the game parses `M<n>` and compares numbers:
+server progression needs ≥3, the daily needs ≥5. (Pre-M5 the
+progression gate compared the string `'M3'` exactly — that would
+have switched progression OFF when the API flipped to M5.)
+`runSubmit` refuses to post a daily submission unless scope ≥5, so a
+daily run against an older API plays unrecorded instead of erroring.
+Against scope <5 the landing button shows a plain not-available
+state and the panel says so; nothing else changes.
+
+**Ordering.** Game ships first (inert against M3), Matt applies
+migration 0004 + deploys the API, /health flips to M5, the daily
+lights up. Old cached builds (strict-'M3' gate) lose server
+progression against M5 until reloaded — the reason the API deploys
+last.
+
+**Verification.** API suite 218 assertions (was 178 at M3). Sim rig
+`ab-daily-sim.mjs`: per-modifier determinism (identical checkpoint
+digests), wiring (surge fires at elx 45.0/90.0/135.0, swarm first
+spawn 42 vs 52 HP, glass first-kill score ×1.5), natural-path ch.1
+run → boss tick 11881 → `dailyDone`, chapter never advances. Browser
+rig `ab-daily-e2e.mjs` vs a local M5 API through the real input path:
+button reflects the served definition, guest plays/earns nothing,
+register via the real form, natural-path completion credits exactly
++180 G/+2◆ with profile/board agreement, second completion pays
+entitlement only, feature-off pass against an M3 shim. Scenario
+digests unchanged; the stamp moved for the new sim paths + scope
+contract. Two finishing-pass fixes worth remembering: the results-screen
+standing line is refreshed from `acctSendRun` when the settle lands —
+refreshing at submit time raced the POST and the board's `me` came back
+null — and the E2E rig relaunches its browser per pass, because the
+SwiftShader renderer does not reliably survive a full run plus a
+context teardown on this VM. The round landed last of the 2026-11-14/15
+batch: rebased over AB-NET-19, AB-NET-20, the SFX round and §20's lancer
+resize; the one code conflict (ranged-enemy movement) merged as
+fleeSpeed under the blood-moon multiplier, digest-exact for normal runs.

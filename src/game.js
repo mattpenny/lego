@@ -32,6 +32,7 @@ import {
   loadSession, saveSession, clearSession,
   apiRegister, apiLogin, apiLogout, apiReset, apiProfile, apiErrorText,
   apiHealth, apiSubmitRun, apiUpgradeEquipment, upgradeCostFor,
+  apiDaily, apiLeaderboard,
   apiSetEmail, apiResetEmailRequest, apiResetEmailConfirm, emailLooksValid,
 } from './account.js';
 
@@ -371,7 +372,7 @@ function nearestHero(s,x,z){
   }
   return best||s.heroes[0];
 }
-function newSim(seed,players){
+function newSim(seed,players,daily){
   const s={
     seed:seed>>>0, rng:(seed>>>0)||0x9e3779b9, rngCalls:0, tick:0,
     phase:'title', chapter:1, map:null,
@@ -385,6 +386,7 @@ function newSim(seed,players){
     events:[], bossFirstHitTick:-1, bossSpawnTick:-1,
     knightNextAt:0, sorcererNextAt:0,
     magic:0, potions:[], eventDone:false, eventQueue:[],
+    daily:null, scoreMul:1, trashHpMul:1, enemySpdMul:1, eventNextAt:0,
     mods:{hp:0,dmg:0,spd:0,crit:0,magicDmg:0}
   };
   s.players=(players>=1&&players<=4)?(players|0):1;
@@ -394,6 +396,19 @@ function newSim(seed,players){
      handshake alone. N=1 is exactly the pre-scaling game (all 1.0). */
   const SC=CFG.playerScaling[s.players]||CFG.playerScaling[1];
   s.hpScale=SC.hpMul; s.dmgScale=SC.dmgMul; s.aliveCap=SC.aliveCap;
+  /* M5 DAILY (solo only): the run is ONE chapter under a day modifier.
+     The derived multipliers are pure functions of the modifier id —
+     the same conditional-config discipline as the player-scaling row
+     above: a normal run (daily=null) keeps every multiplier at exactly
+     1 and stays bit-identical to the pre-M5 game. */
+  if(daily){
+    s.daily={ chapter:daily.chapter|0, modifier:String(daily.modifier||'') };
+    s.chapter=s.daily.chapter;
+    if(s.daily.modifier==='swarm'){ s.aliveCap+=4; s.trashHpMul=0.8; }
+    else if(s.daily.modifier==='glass-heroes'){ s.scoreMul=1.5; }
+    else if(s.daily.modifier==='blood-moon'){ s.enemySpdMul=1.15; s.scoreMul=1.3; }
+    else if(s.daily.modifier==='elite-surge'){ s.eventNextAt=45; }
+  }
   for(let i=0;i<s.players;i++)s.heroes.push(mkHero(i,s.players));
   Object.defineProperty(s,'hero',{enumerable:true,
     get(){ return this.heroes[0]; }, set(v){ this.heroes[0]=v; }});
@@ -405,7 +420,7 @@ function newSim(seed,players){
   Object.defineProperty(s,'boss',{enumerable:true,
     get(){ return this.bosses[0]||null; },
     set(v){ if(v==null)this.bosses.length=0; else if(this.bosses[0]!==v)this.bosses[0]=v; }});
-  s.map=buildMapData(1);
+  s.map=buildMapData(s.chapter);
   return s;
 }
 
@@ -558,10 +573,15 @@ function hurtHero(s,h,dmg,kind){
   return true;
 }
 
+/* Score enters ONLY through here so the daily score multipliers
+   (GLASS HEROES x1.5, BLOOD MOON x1.3) apply at every source — enemy
+   kills, boss kills and gem pickups. s.scoreMul is exactly 1 outside
+   those dailies, so normal runs are bit-identical. */
+function addScore(s,base){ s.score+=Math.round(base*s.scoreMul); }
 function killEnemy(s,e){
   if(e.dead)return;
   e.dead=true;
-  s.kills++; s.score+=CFG.enemy[e.type].score;
+  s.kills++; addScore(s,CFG.enemy[e.type].score);
   s.magic=Math.min(CFG.magic.cost,s.magic+CFG.magic.perKill);
   /* Drop table: src/content/items/{gem,heal,potion}.js. Offsets, gem value
      and the elite-kind list all live in descriptors. RNG call ORDER is
@@ -618,7 +638,7 @@ function damageBoss(s,b,dmg,crit){
     b.furious=true; emit('fury',{x:b.x,z:b.z});
   }
   if(b.hp<=0){
-    s.score+=bossCfgOf(s).score;
+    addScore(s,bossCfgOf(s).score);
     emit('bossDeath',{x:b.x,z:b.z});
     addHitStop(s,CFG.hitStopMs.bossKill);
     emit('shake',{v:1.0});
@@ -969,6 +989,9 @@ function updateEnemies(s,dt){
   for(let i=0;i<s.enemies.length;i++){
     const e=s.enemies[i]; if(e.dead)continue;
     const cfg=C[e.type];
+    /* BLOOD MOON (daily): trash/elite movement runs fast; x1 exactly
+       for every normal run. Bosses move in updateBoss, untouched. */
+    const spd=cfg.speed*s.enemySpdMul;
     e.hitFlash=Math.max(0,(e.hitFlash||0)-dt*4);
     e.cancelFlash=Math.max(0,(e.cancelFlash||0)-dt*3);
     /* FROZEN (Frost Nova): the whole update is skipped — no movement, no
@@ -1006,14 +1029,14 @@ function updateEnemies(s,dt){
       }
       if(!signed){
       if(cfg.minRange){                                   // archer / sorcerer / ranger
-        if(d<cfg.minRange){ const fs=cfg.fleeSpeed||cfg.speed; vx=-dx/d*fs; vz=-dz/d*fs; wantMode=-1; }
-        else if(d>cfg.maxRange){ vx=dx/d*cfg.speed*0.85; vz=dz/d*cfg.speed*0.85; wantMode=1; }
-        else { vx=-dz/d*cfg.speed*0.36; vz=dx/d*cfg.speed*0.36; }
+        if(d<cfg.minRange){ const fs=(cfg.fleeSpeed||cfg.speed)*s.enemySpdMul; vx=-dx/d*fs; vz=-dz/d*fs; wantMode=-1; }
+        else if(d>cfg.maxRange){ vx=dx/d*spd*0.85; vz=dz/d*spd*0.85; wantMode=1; }
+        else { vx=-dz/d*spd*0.36; vz=dx/d*spd*0.36; }
         if(e.cd<=0 && d<=cfg.maxRange+1.5)startTelegraph(e,'cast');
       }else{                                              // melee, per-type reach
         const reach=cfg.reach||C.strikeRange;
         const stand=Math.max(1.45,reach-0.35);
-        if(d>stand){ vx=dx/d*cfg.speed; vz=dz/d*cfg.speed; wantMode=1; }
+        if(d>stand){ vx=dx/d*spd; vz=dz/d*spd; wantMode=1; }
         if(d<=reach-0.1 && e.cd<=0)startTelegraph(e,'melee');
       }
       }
@@ -1034,7 +1057,7 @@ function updateEnemies(s,dt){
         const disp=Math.sqrt((e.x-e.watchX)*(e.x-e.watchX)+(e.z-e.watchZ)*(e.z-e.watchZ));
         const prog=(e.lastD-d)*(e.wantMode||0);
         if(prog>0.03)e.stuckT=0;
-        else if(e.wantMode&&disp<cfg.speed*FIXED*0.35)e.stuckT++;
+        else if(e.wantMode&&disp<spd*FIXED*0.35)e.stuckT++;
         if(e.detourT>0&&e.stuckT>=40){ e.detourS=-e.detourS; e.stuckT=0; }
       }
       e.watchX=e.x; e.watchZ=e.z;
@@ -1046,7 +1069,7 @@ function updateEnemies(s,dt){
       if(e.detourT>0){
         const commit=cfg.minRange?cfg.maxRange+1.5:(cfg.reach||C.strikeRange)+0.6;
         if(d<=commit||pathClear(s,e.x,e.z,h.x,h.z,cfg.radius,false))e.detourT=0;
-        else { vx=-dz/d*cfg.speed*e.detourS; vz=dx/d*cfg.speed*e.detourS; e.yaw=Math.atan2(vx,vz); }
+        else { vx=-dz/d*spd*e.detourS; vz=dx/d*spd*e.detourS; e.yaw=Math.atan2(vx,vz); }
       }
       e.wantMode=wantMode;
     }else if(e.state==='telegraph'){
@@ -1450,7 +1473,7 @@ function collectPickups(s){
   for(let i=0;i<s.gems.length;i++){
     const g=s.gems[i];
     if(s.heroes.some(hh=>!hh.downed&&dist2(hh.x,hh.z,g.x,g.z)<=pr2)){
-      s.xp+=g.v; s.score+=GEM_SCORE; emit('gem',{x:g.x,z:g.z});
+      s.xp+=g.v; addScore(s,GEM_SCORE); emit('gem',{x:g.x,z:g.z});
       if(s.xp>=s.xpNeed){
         s.xp-=s.xpNeed; s.level++; s.xpNeed=8+(s.level-1)*6;
         s.resume=s.phase; s.phase='levelup'; s.choices=pickChoices(s); s.pickWait=0;
@@ -1545,7 +1568,10 @@ function spawnEnemy(s){
 }
 function makeEnemy(s,type,x,z,cd){
   const C=CFG.enemy[type];
-  const shp=Math.round(C.hp*s.hpScale);   // player-count HP scaling (spawn-time, one round)
+  /* SWARM (daily): trash kinds only spawn at x0.8 HP; elites keep full
+     HP. s.trashHpMul is exactly 1 outside SWARM, so the round below is
+     the pre-M5 value for every normal run. */
+  const shp=Math.round(C.hp*s.hpScale*(ELITE_KINDS.includes(type)?1:s.trashHpMul));   // player-count HP scaling (spawn-time, one round)
   const e={id:s.nextId++,type,x,z,yaw:Math.atan2(anchorHero(s).x-x,anchorHero(s).z-z),
     lockYaw:0,hp:shp,maxHp:shp,state:'chase',timer:0,cd:cd||0.5,
     slamCd:0,attackKind:'melee',vx:0,vz:0,hitFlash:0,cancelFlash:0,dead:false,frozen:0,
@@ -1638,7 +1664,8 @@ function simStep(raw){
   if(s.phase==='clear'){
     s.chapterClearTimer-=FIXED;
     if(s.chapterClearTimer<=0){
-      if(s.chapter<CHAPTER_COUNT){
+      if(s.daily){ s.phase='dailyDone'; emit('dailyDone',{}); }
+      else if(s.chapter<CHAPTER_COUNT){
         s.chapter++; s.map=buildMapData(s.chapter);
         s.waveLeft=CFG.waveSeconds; s.bossSpawned=false; s.boss=null;
         s.enemies=[]; s.projectiles=[]; s.arrows=[]; s.gems=[]; s.heals=[]; s.potions=[];
@@ -1679,7 +1706,14 @@ function simStep(raw){
     }
     if(s.waveLeft<=0){ s.waveLeft=0; spawnBoss(s); }
     const elx=CFG.waveSeconds-s.waveLeft;
-    if(!s.eventDone&&elx>=CFG.events.at){
+    if(s.daily&&s.daily.modifier==='elite-surge'){
+      /* ELITE SURGE (daily): the chapter pack refires every 45 s
+         instead of once at 90 s. The normal branch below is untouched,
+         so non-daily runs stay bit-identical. */
+      if(elx>=s.eventNextAt){ s.eventQueue=CFG.events.pack[s.chapter].slice();
+        emit('event',{chapter:s.chapter}); s.eventNextAt+=45; }
+    }
+    else if(!s.eventDone&&elx>=CFG.events.at){
       s.eventDone=true; s.eventQueue=CFG.events.pack[s.chapter].slice();
       emit('event',{chapter:s.chapter});
     }
@@ -1705,6 +1739,9 @@ function simDigest(s){
   put(s.waveLeft.toFixed(4));put(s.hitStop);put(s.score);put(s.kills);put(s.magic);put(s.level);
   put(s.xp);put(s.xpNeed);put(s.nextId);put(s.spawnTimer.toFixed(4));
   put('N'+s.players);
+  /* M5 daily config hashed only for daily sims — a normal run hashes
+     nothing extra and keeps its pre-M5 digest stream bit-identical. */
+  if(s.daily){ put('D'+s.daily.chapter); put(s.daily.modifier); }
   for(const h of s.heroes){
     for(const v of [h.x,h.z,h.yaw,h.vx,h.vz,h.hp,h.maxHp,h.st,h.atkCd,h.rollCd,h.invuln,h.state==='roll'?1:0])put(q(v));
     put(h.state);put(h.hitDone?1:0);put(h.attackId);put(h.downed?1:0);
@@ -4276,6 +4313,10 @@ $('armoury').addEventListener('pointerdown',e=>{if(e.target===$('armoury'))close
 $('hselBack').addEventListener('click',()=>{closeHeroSelect();});
 $('hsel').addEventListener('pointerdown',e=>{if(e.target===$('hsel'))closeHeroSelect();});
 
+/* ---------- daily modal wiring (M5) ---------- */
+$('dailyClose').addEventListener('click',()=>{closeDaily();});
+$('daily').addEventListener('pointerdown',e=>{if(e.target===$('daily'))closeDaily();});
+
 /* ---------- keyboard ---------- */
 const GAME_KEYS=new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' ','j','k','shift','p','m','f','g','enter']);
 /* Typing in a form field must never feed the game. The handler below
@@ -4484,20 +4525,151 @@ function mySnapshot(){
 }
 
 /* ---------- server progression (Phase M3) ----------
-   Active only when signed in AND the API's /health reports scope
-   'M3'. Until the API is redeployed with M3 the live Worker answers
-   'M1' and everything in this section stays inert: signed-in play is
-   exactly the M2 behaviour, local crediting included. That ordering
-   is deliberate — the game ships first, the API catches up, and the
-   mode switches itself on when the health scope flips. */
-function serverProgression(){ return ACCT.state==='account'&&ACCT.scope==='M3'; }
+   Active only when signed in AND the API's /health reports a scope
+   milestone of M3 or later. Until the API is redeployed the live
+   Worker answers an older scope and everything in this section
+   stays inert: signed-in play is exactly the M2 behaviour, local
+   crediting included. That ordering is deliberate — the game ships
+   first, the API catches up, and the mode switches itself on when
+   the health scope flips. */
+function scopeMilestone(){ const m=/^M(\d+)$/.exec(ACCT.scope||''); return m?parseInt(m[1],10):0; }
+function serverProgression(){ return ACCT.state==='account'&&scopeMilestone()>=3; }
 async function acctRefreshScope(){
   try{
     const r=await apiHealth();
     if(r.status===200&&r.body&&typeof r.body.scope==='string'&&ACCT.scope!==r.body.scope){
-      ACCT.scope=r.body.scope; acctChanged();
+      ACCT.scope=r.body.scope; acctChanged(); dailyMaybeFetch();
     }
   }catch(e){ /* scope unknown -> M2 behaviour, the safe default */ }
+}
+
+/* ---------- daily challenge + leaderboards (Phase M5) ----------
+   DAILY mirrors the server's deterministic day definition (GET
+   /daily) plus this player's standing on today's board. Everything
+   here is inert until /health reports scope milestone >= 5: against
+   an older API the landing button shows a plain not-available state
+   and no daily fetch is even attempted. Daily submissions need the
+   account too (dailyServerActive) — the M3 API would reject mode
+   'daily' with a 400, so runSubmit never posts one to it. Boards
+   and /daily are public reads and key off the scope alone. */
+function dailyFeatureOn(){ return scopeMilestone()>=5; }
+function dailyServerActive(){ return ACCT.state==='account'&&scopeMilestone()>=5; }
+const DAILY_MODIFIERS={
+  'elite-surge':{ name:'ELITE SURGE', desc:'Elite events every 45 s instead of once at 90 s.' },
+  'swarm':{ name:'SWARM', desc:'Alive cap +4. Trash enemies spawn with 20% less HP.' },
+  'glass-heroes':{ name:'GLASS HEROES', desc:'Hero max HP \u00D70.7 \u2014 but every score is worth \u00D71.5.' },
+  'blood-moon':{ name:'BLOOD MOON', desc:'Enemies move 15% faster \u2014 every score is worth \u00D71.3.' },
+};
+let DAILY={ def:null, myBest:0, myRank:0, standing:'', lastSettle:null,
+            boards:{}, tab:'today', open:false, rev:0, fetching:false };
+function dailyModName(id){ const m=DAILY_MODIFIERS[id]; return m?m.name:(id||'\u2014'); }
+function dailyModDesc(id){ const m=DAILY_MODIFIERS[id]; return m?m.desc:''; }
+async function dailyMaybeFetch(){
+  if(!dailyFeatureOn()||DAILY.fetching)return;
+  DAILY.fetching=true;
+  try{
+    const r=await apiDaily();
+    if(r.status===200&&r.body&&r.body.day){
+      DAILY.def={ day:r.body.day, chapter:r.body.chapter,
+                  modifierId:r.body.modifierId, seed:r.body.seed };
+      DAILY.rev++;
+    }
+    const sess=loadSession();
+    const b=await apiLeaderboard('daily', sess?{token:sess.token}:{});
+    if(b.status===200&&b.body){ DAILY.boards.daily=b.body;
+      if(b.body.me){ DAILY.myBest=b.body.me.value; DAILY.myRank=b.body.me.rank; }
+      DAILY.rev++; }
+  }catch(e){ /* the daily is decoration until it loads; play never blocks */ }
+  DAILY.fetching=false;
+}
+async function dailyFetchBoard(board){
+  try{
+    const sess=loadSession();
+    const b=await apiLeaderboard(board, sess?{token:sess.token}:{});
+    if(b.status===200&&b.body){ DAILY.boards[board]=b.body; DAILY.rev++; }
+  }catch(e){ /* a board that fails to load renders its empty state */ }
+}
+async function dailyRefreshStanding(){
+  /* After a daily run: today's board again, for the results line. */
+  if(!dailyServerActive())return;
+  const sess=loadSession(); if(!sess)return;
+  try{
+    const b=await apiLeaderboard('daily',{token:sess.token});
+    if(b.status===200&&b.body){ DAILY.boards.daily=b.body;
+      if(b.body.me){ DAILY.myBest=b.body.me.value; DAILY.myRank=b.body.me.rank;
+        DAILY.standing='TODAY: BEST '+b.body.me.value+' \u00B7 RANK #'+b.body.me.rank; }
+      DAILY.rev++; }
+  }catch(e){}
+}
+function dailyLandingBtn(){
+  if(dailyFeatureOn()&&DAILY.def){
+    let t='\u{1F3C6} DAILY \u00B7 CH '+DAILY.def.chapter+' \u00B7 '+dailyModName(DAILY.def.modifierId);
+    if(ACCT.state==='account'&&DAILY.myBest>0)t+=' \u00B7 BEST '+DAILY.myBest;
+    return {label:t,fn:openDaily,ghost:true};
+  }
+  return {label:'\u{1F3C6} DAILY CHALLENGE',fn:openDaily,ghost:true};
+}
+function openDaily(){
+  DAILY.open=true; DAILY.tab='today'; DAILY.rev++;
+  $('daily').classList.add('on');
+  if(dailyFeatureOn()){ dailyMaybeFetch(); dailyFetchBoard('top-score'); dailyFetchBoard('fastest-victory'); }
+  renderDaily();
+  Audio.init();
+}
+function closeDaily(){
+  if(!DAILY.open)return;
+  DAILY.open=false; DAILY.rev++;
+  $('daily').classList.remove('on');
+  if(SIM.phase==='title'){ hideOverlay(); syncOverlay(); }
+}
+function fmtDuration(sec){ sec=Math.max(0,sec|0); return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0'); }
+let dailyRev='';
+function renderDaily(){
+  if(!DAILY.open)return;
+  const key=DAILY.tab+'|'+DAILY.rev+'|'+ACCT.rev+'|'+(DAILY.def?DAILY.def.day:'-');
+  if(key===dailyRev)return;
+  dailyRev=key;
+  const tabs=[['today','TODAY'],['daily','DAILY'],['top-score','TOP SCORE'],['fastest-victory','FASTEST']];
+  let html='<div class="dtabs">'+tabs.map(t=>'<button class="dtab'+(DAILY.tab===t[0]?' sel':'')+'" data-tab="'+t[0]+'">'+t[1]+'</button>').join('')+'</div>';
+  let play=false;
+  if(!dailyFeatureOn()){
+    html+='<div class="cstat">NOT AVAILABLE YET</div>'+
+      'The daily challenge and the leaderboards switch on when the account server is updated \u2014 nothing is missing, check back after the next server deploy.';
+  }else if(DAILY.tab==='today'){
+    const d=DAILY.def;
+    if(!d){ html+='<div class="cstat">LOADING\u2026</div>'; }
+    else{
+      html+='<div class="cstat">CHAPTER '+d.chapter+' \u00B7 '+esc(dailyModName(d.modifierId))+'</div>'+
+        esc(dailyModDesc(d.modifierId))+
+        '<br>One chapter, one boss \u2014 clear it to complete today\u2019s challenge. A new challenge arrives at Hong Kong midnight.';
+      if(ACCT.state==='account'){
+        html+='<br><br>Your best today: <span class="k">'+(DAILY.myBest>0?DAILY.myBest+' \u00B7 rank #'+DAILY.myRank:'no score yet')+'</span>'+
+          '<br>Rewards (once each, every day): <span class="k">+30 G</span> for playing \u00B7 <span class="k">+150 G + 2 \u25C6</span> for completing.';
+      }else{
+        html+='<br><br><span class="k">Guests play for glory only.</span> Sign in to record your score on the board and earn the daily bonuses (+30 G for playing, +150 G + 2 \u25C6 for completing).';
+      }
+      play=true;
+    }
+  }else{
+    const b=DAILY.boards[DAILY.tab];
+    if(!b){ html+='<div class="cstat">LOADING\u2026</div>'; }
+    else{
+      const rows=b.entries||[];
+      if(!rows.length)html+='<div class="cstat">NO SCORES YET</div>Be the first on this board.';
+      else html+='<table class="dtable">'+rows.map(e=>'<tr'+(b.me&&ACCT.user&&e.username===ACCT.user.username?' class="me"':'')+'><td>#'+e.rank+'</td><td>'+esc(e.username)+'</td><td>'+(DAILY.tab==='fastest-victory'?fmtDuration(e.value):e.value)+'</td></tr>').join('')+'</table>';
+      if(b.me)html+='<div class="cstat">YOU: #'+b.me.rank+' \u00B7 '+(DAILY.tab==='fastest-victory'?fmtDuration(b.me.value):b.me.value)+'</div>';
+      else if(ACCT.state==='account')html+='<div class="cstat">YOU: NOT ON THIS BOARD YET</div>';
+    }
+  }
+  const body=$('dailyBody'); body.innerHTML=html;
+  body.querySelectorAll('.dtab').forEach(el=>el.addEventListener('click',()=>{ DAILY.tab=el.getAttribute('data-tab'); DAILY.rev++; renderDaily(); }));
+  const btns=$('dailyBtns'); btns.innerHTML='';
+  if(play){
+    const pb=document.createElement('button');
+    pb.className='bigbtn'; pb.textContent='\u2694 PLAY DAILY';
+    pb.addEventListener('click',()=>{ closeDaily(); openHeroSelect('daily'); });
+    btns.appendChild(pb);
+  }
 }
 
 /* Run tracking for submissions. RUN lives entirely in the view
@@ -4516,9 +4688,9 @@ function newRunId(){
   return 'run-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12)+
          '-'+Math.random().toString(36).slice(2,12);
 }
-function runBegin(id,mode,heroId){
+function runBegin(id,mode,heroId,daily){
   RUN={ id:id||null, mode:mode||'solo', heroId:heroId||'hero',
-        eliteKills:0, chapterScores:{}, pending:[] };
+        eliteKills:0, chapterScores:{}, pending:[], daily:daily||null };
   ACCT.runSaveFailed=false;
 }
 function runPayload(stage,chaptersCleared,victory){
@@ -4530,9 +4702,20 @@ function runPayload(stage,chaptersCleared,victory){
     durationSec:Math.floor(s.tick/60), simTicks:s.tick,
     chapterScores:Object.assign({},RUN.chapterScores) };
   if(RUN.mode==='coop')p.partyRunId=RUN.id;
+  if(RUN.mode==='daily'&&RUN.daily){
+    /* The server re-derives chapter+modifier from the day key and
+       rejects a mismatch, a stale day, or a party daily. */
+    p.dailyDay=RUN.daily.day; p.dailyChapter=RUN.daily.chapter;
+    p.dailyModifier=RUN.daily.modifier;
+  }
   return p;
 }
 function runSubmit(stage,chaptersCleared,victory){
+  /* A daily submission is only meaningful to an M5 API: the M3 API
+     rejects mode 'daily' outright, which would surface as a bogus
+     RUN SAVE FAILED. Against an older API the daily run simply
+     plays unrecorded (guest rules). */
+  if(RUN&&RUN.mode==='daily'&&!dailyServerActive())return;
   if(!serverProgression()||!RUN||!RUN.id)return;
   const payload=runPayload(stage,chaptersCleared,victory);
   RUN.pending=RUN.pending.filter(x=>x.stage!==stage);
@@ -4546,6 +4729,12 @@ async function acctSendRun(payload){
     if(r.status===200&&r.body){
       if(RUN)RUN.pending=RUN.pending.filter(x=>x.stage!==payload.stage);
       if(r.body.profile)acctSetAccount(ACCT.user,r.body.profile);
+      if(r.body.daily){ DAILY.lastSettle=r.body.daily;
+        DAILY.myBest=r.body.daily.bestScore; DAILY.rev++;
+        /* The standing refresh rides the settle: only now does the
+           server hold today's entry, so the board's `me` resolves.
+           (Refreshing at submit time raced the POST and lost.) */
+        dailyRefreshStanding(); }
       if(ACCT.runSaveFailed&&!(RUN&&RUN.pending.length)){ ACCT.runSaveFailed=false; }
       acctChanged();
       return;
@@ -4993,7 +5182,7 @@ function updateHeroPreview(dt){
 }
 function openHeroSelect(mode){
   if(SIM.phase!=='title')return;
-  hselMode=(mode==='coop')?'coop':'solo';
+  hselMode=(mode==='coop')?'coop':(mode==='daily')?'daily':'solo';
   const cur=safeHero(META.heroSkin);
   hselKind=HSEL_HEROES.includes(cur)?cur:'hero';
   hselPicked=false;
@@ -5035,7 +5224,7 @@ function confirmHeroSelect(){
     META.heroSkin=hselKind; META.rev++; saveMeta(); }
   const mode=hselMode;
   closeHeroSelect();
-  if(mode==='coop')openCoop(); else startRun();
+  if(mode==='coop')openCoop(); else if(mode==='daily')startDailyRun(); else startRun();
 }
 function renderHeroSelect(){
   if(!hselOpen)return;
@@ -5064,7 +5253,7 @@ function renderHeroSelect(){
   const b=document.createElement('button');
   b.className='bigbtn';
   if(owned){
-    b.textContent=hselMode==='coop'?'CONTINUE TO CO-OP \u2192':'\u2694 BEGIN RUN';
+    b.textContent=hselMode==='coop'?'CONTINUE TO CO-OP \u2192':(hselMode==='daily'?'\u2694 BEGIN DAILY RUN':'\u2694 BEGIN RUN');
     b.addEventListener('click',confirmHeroSelect);
   }else if(META.gold>=cost){
     b.textContent='UNLOCK \u00B7 '+cost+' G';
@@ -5118,6 +5307,38 @@ function startRun(){
   buildMapMeshes(SIM); resetTilt();UI.attack=false;UI.rollLatch=false;UI.magicLatch=false;
   hideOverlay();Audio.init();
 }
+/* M5: a daily run mirrors startRun, except the sim is built from the
+   day's server definition — its seed drives the RNG, it starts on the
+   day's chapter, and it ends when that chapter's boss falls (the sim
+   routes 'clear' to 'dailyDone'). Solo only in v1. */
+function startDailyRun(){
+  if(!DAILY.def)return;              // no definition, no daily run
+  if(hselOpen)closeHeroSelect();     // the preview never leaks into a run
+  const def=DAILY.def;
+  DAILY.lastSettle=null; DAILY.standing='';
+  runBegin(newRunId(),'daily',activeSkin(),
+    { day:def.day, chapter:def.chapter, modifier:def.modifierId });
+  SIM=newSim(def.seed,1,{ chapter:def.chapter, modifier:def.modifierId });
+  SIM.phase='play';
+  SIM.mods=runBlock();
+  SIM.heroes[0].mods=Object.assign({},SIM.mods);
+  SIM.hero.maxHp=CFG.hero.hp+SIM.mods.hp;
+  /* GLASS HEROES: the x0.7 lives here (view side), mirroring how the
+     mods set maxHp — the sim carries only the score side (x1.5). */
+  if(def.modifierId==='glass-heroes')SIM.hero.maxHp=Math.round(SIM.hero.maxHp*0.7);
+  SIM.hero.hp=SIM.hero.maxHp;
+  HERO_SKIN=activeSkin();
+  SIM.heroes[0].heroId=HERO_SKIN;
+  HERO_SKINS=[HERO_SKIN]; LOCAL_IDX=0;
+  const hv0=VIEWS.get(0);
+  if(hv0&&hv0.kind!==HERO_SKIN){ scene.remove(hv0.mesh); hv0.mesh.material.dispose(); VIEWS.delete(0); }
+  SETTLED={ch:{},ended:false};
+  buildMapMeshes(SIM); resetTilt();UI.attack=false;UI.rollLatch=false;UI.magicLatch=false;
+  hideOverlay();Audio.init();
+}
+function returnToTitle(){
+  RUN=null; SIM=newSim(0x51A7E); buildMapMeshes(SIM); hideOverlay(); syncOverlay();
+}
 function acctChipHTML(){
   if(ACCT.state==='checking')return '<div>CHECKING ACCOUNT\u2026</div>';
   if(ACCT.state==='account'&&ACCT.profile){
@@ -5129,11 +5350,12 @@ function acctChipHTML(){
   return '<div>PLAYING AS GUEST \u2014 no progression earned. Log in to level up, earn gold and upgrade equipment.</div>';
 }
 function syncOverlay(){
-  const s=SIM,key=s.phase+(s.phase==='levelup'?s.level:'')+(s.phase==='clear'?s.chapter:'')+(s.phase==='title'?'m'+META.rev+'a'+ACCT.rev:'');
+  const s=SIM,key=s.phase+(s.phase==='levelup'?s.level:'')+(s.phase==='clear'?s.chapter:'')+(s.phase==='title'?'m'+META.rev+'a'+ACCT.rev+'d'+DAILY.rev:'')+((s.phase==='dailyDone'||(s.phase==='dead'&&s.daily))?'d'+DAILY.rev:'');
   if(key===overlayKey)return;
   if(s.phase==='title'){
     const btns=[{label:'\u2694 START RUN',fn:()=>openHeroSelect('solo'),prime:true},
-       {label:'\u{1F465} CO-OP',fn:()=>openHeroSelect('coop'),ghost:true}];
+       {label:'\u{1F465} CO-OP',fn:()=>openHeroSelect('coop'),ghost:true},
+       dailyLandingBtn()];
     if(ACCT.state!=='account'){
       if(ACCT.stale)btns.push({label:'RETRY ACCOUNT',fn:()=>{ acctBoot(); },ghost:true});
       btns.push({label:ACCT.state==='checking'?'ACCOUNT\u2026':'LOG IN / REGISTER',fn:()=>openAccount('login'),ghost:true});
@@ -5158,7 +5380,7 @@ function syncOverlay(){
       '<div style="text-align:center">Upgrades and score carry across all '+CHAPTER_COUNT+' chapters.</div>',
       cards,null,'');
   }else if(s.phase==='clear'){
-    if(!SETTLED.ch[s.chapter]){ SETTLED.ch[s.chapter]=true;
+    if(!s.daily&&!SETTLED.ch[s.chapter]){ SETTLED.ch[s.chapter]=true;
       if(RUN)RUN.chapterScores[s.chapter]=s.score;
       if(serverProgression()){
         /* M3: the chapter checkpoint is credited by the SERVER; the
@@ -5171,21 +5393,45 @@ function syncOverlay(){
         META.gold+=CFG.meta.clearBonus; META.cleared[s.chapter]=true;
         if(s.score>(META.best[s.chapter]||0))META.best[s.chapter]=s.score;
         if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); } }
-    setOverlay(key,'CHAPTER '+s.chapter,'CHAPTER CLEARED',
-      s.chapter<CHAPTER_COUNT?'NEXT: '+PALETTES[s.chapter].name:'THE ECLIPSE IS BROKEN',
+    setOverlay(key,s.daily?'DAILY CHALLENGE':'CHAPTER '+s.chapter,'CHAPTER CLEARED',
+      s.daily?'THE DAILY FALLS':(s.chapter<CHAPTER_COUNT?'NEXT: '+PALETTES[s.chapter].name:'THE ECLIPSE IS BROKEN'),
       '<div style="text-align:center">Score '+s.score+' &nbsp;·&nbsp; Kills '+s.kills+' &nbsp;·&nbsp; HP '+Math.round(localHero(s).hp)+'</div>',
       null,null,'');
+  }else if(s.phase==='dailyDone'){
+    if(!SETTLED.ended){ SETTLED.ended=true;
+      if(RUN&&RUN.daily)RUN.chapterScores[RUN.daily.chapter]=s.score;
+      runSubmit('chapter-1',1,false);
+      /* standing refreshes when the settle lands (acctSendRun) */
+    }
+    const dn=(RUN&&RUN.daily)?RUN.daily:null;
+    let dBody='<div style="text-align:center">Score '+s.score+' &nbsp;\u00B7&nbsp; Kills '+s.kills+' &nbsp;\u00B7&nbsp; Level '+s.level+'</div>';
+    if(DAILY.lastSettle&&dn&&DAILY.lastSettle.day===dn.day){
+      const c=DAILY.lastSettle.credited||{gold:0,shards:0};
+      if(c.gold||c.shards)dBody+='<div style="text-align:center">DAILY BONUS <span class="k">+'+c.gold+' G'+(c.shards?' \u00B7 +'+c.shards+' \u25C6':'')+'</span></div>';
+    }
+    if(DAILY.standing)dBody+='<div style="text-align:center">'+esc(DAILY.standing)+'</div>';
+    if(!dailyServerActive())dBody+='<div style="text-align:center">Sign in to record daily scores and earn the daily bonuses.</div>';
+    setOverlay(key,'DAILY CHALLENGE','DAILY COMPLETE',
+      'CHAPTER '+(dn?dn.chapter:s.chapter)+' \u00B7 '+dailyModName(dn?dn.modifier:''),
+      dBody,null,
+      [{label:'\u21BB RUN IT AGAIN',fn:()=>startDailyRun()},
+       {label:'TITLE',fn:returnToTitle,ghost:true}],'');
   }else if(s.phase==='dead'){
     if(!SETTLED.ended){ SETTLED.ended=true;
-      if(serverProgression()){
+      if(RUN&&RUN.mode==='daily'){
+        /* Daily runs settle ONLY on the server (participation); a
+           guest's daily death credits nothing locally and sets no
+           local records — signing in is what counts. */
+        if(dailyServerActive()){ runSubmit('death',0,false); }
+      }else if(serverProgression()){
         if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta();
         runSubmit('death',Object.keys(SETTLED.ch).length,false);
       }else{
         META.gold+=Math.floor(s.score/CFG.meta.scoreGoldDivisor);
         if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); } }
-    setOverlay(key,'RUN ENDED','YOU FELL','CHAPTER '+s.chapter,
-      '<div style="text-align:center">Score '+s.score+' &nbsp;·&nbsp; Kills '+s.kills+' &nbsp;·&nbsp; Level '+s.level+'</div>',
-      null,(NET&&NET.active)?[{label:'END RUN',fn:()=>netTeardown(true)}]:[{label:'RETRY',fn:startRun}],'');
+    setOverlay(key,(RUN&&RUN.mode==='daily')?'DAILY CHALLENGE':'RUN ENDED','YOU FELL','CHAPTER '+s.chapter,
+      '<div style="text-align:center">Score '+s.score+' &nbsp;·&nbsp; Kills '+s.kills+' &nbsp;·&nbsp; Level '+s.level+'</div>'+((RUN&&RUN.mode==='daily'&&DAILY.standing)?'<div style="text-align:center">'+esc(DAILY.standing)+'</div>':''),
+      null,(NET&&NET.active)?[{label:'END RUN',fn:()=>netTeardown(true)}]:((RUN&&RUN.mode==='daily')?[{label:'RETRY DAILY',fn:()=>startDailyRun()},{label:'TITLE',fn:returnToTitle,ghost:true}]:[{label:'RETRY',fn:startRun}]),'');
   }else if(s.phase==='victory'){
     if(!SETTLED.ended){ SETTLED.ended=true;
       if(serverProgression()){
@@ -6229,7 +6475,7 @@ function frame(now){
   Audio.setIntensity(Math.min(1,s.enemies.length/7+(s.boss?0.55:0)+s.chapter*0.05));
   updateCamera(dt);
   if(GFX_HIGH)updateSunFollow();
-  syncOverlay(); renderArmoury(); renderCoop(); renderHeroSelect(); renderAccount(); updateNetUI();
+  syncOverlay(); renderArmoury(); renderCoop(); renderHeroSelect(); renderAccount(); renderDaily(); updateNetUI();
   updateHUD(); updateHints();
   renderer.render(scene,camera);
   lastCalls=renderer.info.render.calls;
@@ -6304,6 +6550,11 @@ window.__GAME={
     run:RUN?{id:RUN.id,mode:RUN.mode,eliteKills:RUN.eliteKills,pending:RUN.pending.map(p=>p.stage)}:null}; },
   accountBoot(){ return acctBoot(); },
   accountLogout(){ return acctLogout(); },
+  get daily(){ return { def:DAILY.def, myBest:DAILY.myBest, myRank:DAILY.myRank,
+    standing:DAILY.standing, lastSettle:DAILY.lastSettle, open:DAILY.open,
+    boards:DAILY.boards, featureOn:dailyFeatureOn(), serverActive:dailyServerActive() }; },
+  openDaily(){ return openDaily(); },
+  startDailyRun(){ return startDailyRun(); },
   netCreate(code){ return coopCreate(code); },
   netStart(){ hostStartRun(); },
   netDrop(){ const n=NET; if(n&&n.ws){ const w=n.ws; n.ws=null;

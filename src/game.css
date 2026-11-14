@@ -287,6 +287,40 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 #acctBtns .bigbtn{background:linear-gradient(180deg,#ffe2a0,#dfa83f);
   border:1px solid #8a5f1c;color:#241703}
 #acctBtns .bigbtn.ghost{background:transparent;color:#6e4a10;border:1px solid #a97f33}
+/* ---- daily challenge modal (M5): the acct parchment card, board-flavoured ---- */
+#daily{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(3,5,10,.72);z-index:31;padding:calc(10px*var(--u))}
+#daily.on{display:flex}
+#dailyCard{width:min(94vw,calc(560px*var(--u)));max-height:94vh;max-height:94dvh;overflow:auto;text-align:center;
+  border-radius:calc(10px*var(--u));padding:calc(16px*var(--u)) calc(18px*var(--u));
+  background:linear-gradient(180deg,#f6ead0,#ecdcae 60%,#e0c88f);
+  border:2px solid #a97f33;color:#3a2a12;
+  box-shadow:0 18px 60px rgba(0,0,0,.75),inset 0 0 40px rgba(150,105,30,.18);
+  font-family:"Palatino Linotype","Book Antiqua",Palatino,Georgia,"Times New Roman",serif}
+#dailyTitle{font-size:calc(21px*var(--u));font-weight:bold;letter-spacing:.22em;color:#6e4a10}
+#dailyRule{height:2px;width:72%;margin:calc(9px*var(--u)) auto 0;
+  background:linear-gradient(90deg,transparent,#a97f33,transparent)}
+#dailyBody{font-size:calc(12px*var(--u));line-height:1.7;color:#4a3512;
+  margin:calc(10px*var(--u)) auto;max-width:calc(500px*var(--u))}
+#dailyBody .cstat{font-size:calc(13px*var(--u));letter-spacing:.14em;color:#8a5a08;font-weight:bold}
+#dailyBody .k{color:#8a5a08;font-weight:bold}
+#dailyBtns{display:flex;gap:calc(8px*var(--u));justify-content:center;flex-wrap:wrap;
+  margin-top:calc(10px*var(--u))}
+#dailyBtns .bigbtn{background:linear-gradient(180deg,#ffe2a0,#dfa83f);
+  border:1px solid #8a5f1c;color:#241703}
+.dtabs{display:flex;gap:calc(5px*var(--u));justify-content:center;flex-wrap:wrap;
+  margin-bottom:calc(9px*var(--u))}
+.dtab{cursor:pointer;pointer-events:auto;font-family:inherit;font-weight:bold;
+  font-size:calc(10px*var(--u));letter-spacing:.14em;color:#6e4a10;
+  padding:calc(5px*var(--u)) calc(10px*var(--u));border-radius:calc(7px*var(--u));
+  background:transparent;border:1px solid #a97f33}
+.dtab.sel{background:linear-gradient(180deg,#ffe2a0,#dfa83f);color:#241703;border-color:#8a5f1c}
+.dtable{width:100%;border-collapse:collapse;font-size:calc(11.5px*var(--u))}
+.dtable td{padding:calc(2px*var(--u)) calc(6px*var(--u));text-align:left;
+  border-bottom:1px solid rgba(169,127,51,.35)}
+.dtable td:first-child{width:calc(44px*var(--u));color:#8a5a08;font-weight:bold}
+.dtable td:last-child{text-align:right;font-weight:bold}
+.dtable tr.me td{background:rgba(169,127,51,.18);color:#6e4a10;font-weight:bold}
 .acctpanel{border:1px solid #a97f33;border-radius:calc(8px*var(--u));
   padding:calc(7px*var(--u)) calc(10px*var(--u));margin-bottom:calc(9px*var(--u));
   background:rgba(169,127,51,.10)}

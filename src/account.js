@@ -288,6 +288,19 @@ export const apiSubmitRun = (token, payload) =>
 export const apiUpgradeEquipment = (token, slot, idempotencyKey) =>
   apiCall('/equipment/upgrade', { method: 'POST', token, body: { slot, idempotencyKey } });
 
+/* Phase M5: daily challenge + leaderboards. /daily and the boards are
+   public reads; passing a session token only adds the caller's own
+   rank/best (`me`) to a board response. The game feature-detects
+   these via /health scope 'M5' (milestone >= 5) and otherwise shows
+   a plain not-available state — the game ships before the API. */
+export const apiDaily = () =>
+  apiCall('/daily', {});
+export const apiLeaderboard = (board, opts) => {
+  const o = opts || {};
+  const path = '/leaderboards/' + board + (o.date ? '?date=' + encodeURIComponent(o.date) : '');
+  return apiCall(path, o.token ? { token: o.token } : {});
+};
+
 /* Email (2026-11-14): accounts carry an email for reset-by-email.
    The reset request answers 503 EMAIL_NOT_CONFIGURED until the
    Worker has a RESEND_API_KEY secret; the UI says so plainly and

@@ -1,6 +1,6 @@
 {
-  "sourceSha256": "a26ae03b95c1a60189546a8c9e07a204d04d641d5a7b4e3efaaacad7ba839dba",
-  "build": "AB-NET-20",
+  "sourceSha256": "c40565e95e00cd9770117e3f9480c6108b90303b7b9cbbc0b9bb3b4898e07003",
+  "build": "AB-NET-21",
   "heroCosts": {
     "soldier": 150,
     "archer": 200,
@@ -9,7 +9,7 @@
     "frostarcher": 350,
     "dwarf": 400
   },
-  "simContentSha256": "e6ab99af9c96f9910471c69f467027aa364f68d934ab2ea1ff800eeaa78b8626",
+  "simContentSha256": "cddecb40f073a053f771e208dbf7fab6194f1853de54e5144f1d5c65071b8501",
   "checks": {
     "fresh": "83c6cea8f26fe95c",
     "idle600": "a3447f9a3b1b85b2",
