@@ -55551,7 +55551,7 @@ const RULES = deepFreeze({
     relay: 'wss://dragon-alley-relay.ccac-church.workers.dev/ws',
     /* LOAD-BEARING: co-op peers must agree. Bump ONLY when sim behaviour
        actually changes. A view-only content edit must NOT bump this. */
-    build: 'AB-NET-17',
+    build: 'AB-NET-19',
     graceMs: 60000,
   },
 
@@ -56569,7 +56569,7 @@ const boss = {
     dark: [0.010, 0.010, 0.015],
     glow: [0.980, 0.220, 0.060],
   },
-  meshScale: 2.145,
+  meshScale: 2.475,
   parts: [
     { j:0, g:'box', o:[0,0,0], s:[0.62,0.24,0.36], c:'armor' },
     { j:0, g:'box', o:[0,-0.11,0], s:[0.56,0.1,0.31], c:'trim' },
@@ -56714,10 +56714,10 @@ const knightMount = {
     glow:  [0.930, 0.940, 0.980],   // pale griffin emblem on the tabard
     metal: [0.620, 0.650, 0.710],   // darker steel — chainmail, stirrups
   },
-  meshScale: 1.3,                   // custom builder works in world metres; root scaled x1.3 (boss size buff 2026-11-13)
+  meshScale: 1.5,                   // custom builder works in world metres; root scaled x1.5 (boss size: x1.3 at AB-NET-7, raised to x1.5 at AB-NET-19 — Matt 2026-11-14: all bosses 1.5x except the dragon)
   parts: [],                        // custom figures own no rig parts (schema)
   added: '2026-11-13',
-  notes: 'Mounted boss figure: horse ~2.7 m long, rider to ~2.9 m with plume. Gallop / lean / sword-raise are procedural in game.js. View-only: tint edits never move the digest.',
+  notes: 'Mounted boss figure: horse ~3.1 m long, rider to ~3.3 m with plume (at the x1.5 boss scale, AB-NET-19). Gallop / lean / sword-raise are procedural in game.js. View-only: tint edits never move the digest.',
 };
 
 
@@ -65344,7 +65344,7 @@ function makeKnightMountView(id,b){
   const TN=TINTS['knight-mount'];
   const mat=CHARMAT({vertexColors:true});
   const root=new T.Group(); root.rotation.order='YXZ';
-  root.scale.setScalar(FIGURE_SCALES['knight-mount']||1);   // descriptor meshScale (x1.3 boss size buff)
+  root.scale.setScalar(FIGURE_SCALES['knight-mount']||1);   // descriptor meshScale (x1.5 boss size, AB-NET-19)
   const bodyG=new T.Group(); root.add(bodyG);
   bodyG.add(new T.Mesh(dGeo(knightHorseParts(TN)),mat));
   const neckG=new T.Group(); neckG.position.set(0,1.52,0.78); bodyG.add(neckG);

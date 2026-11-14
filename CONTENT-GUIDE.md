@@ -1474,3 +1474,47 @@ unchanged; combat3600 `1f8cd372…` and altSeed `c7833f01…` moved
 (the fill pool gained two kinds and their caps); combined
 `faea7271…`. Counts: HEROES 8, FIGURES 33 (+5: ansum, black-raven,
 spearman, ogre, ogre-rust), ENEMIES 24, BOSSES 6.
+
+## 17. Boss size ×1.5 — the dragon exempt (AB-NET-19)
+
+Matt, 2026-11-14: "All Boss should be larger size to 1.5 times bigger
+except dragon." The AB-NET-7 size rule (boss figure `meshScale` =
+authored base × 1.3) becomes ×1.5:
+
+- **Warlord** (`boss` figure — Grave Sovereign, Ch.2): authored base
+  1.65, so 2.145 → **2.475**. Changed at the source of truth: the
+  `SCALES` line in `scripts/figures-legacy.txt`, descriptor
+  regenerated with `extract-figures.mjs` (only `boss.js` moved among
+  the 9 generated figures).
+- **KnightMount** (Iron Lancer Ch.3 + the Ch.6 siege-lancer
+  placeholder, one shared figure): 1.3 → **1.5** in the hand-authored
+  descriptor.
+- **EXEMPT — dragon** (Emerald Drake Ch.1, caldera-drake Ch.5): stays
+  ×1.3; `figures/dragon.js` byte-untouched.
+- **Unchanged — the twin Spiked Ogres**: already at their explicit
+  1.55 (AB-NET-17, Matt's own number, ≈ the new rule). No stacking.
+
+**Visual only.** `meshScale` is excluded from `SIM_CONTENT`: every
+scenario digest and the combined digest (`faea7271…`) are
+bit-identical; the baseline re-record moved only `build` (AB-NET-19 —
+this round ships after the archery round's AB-NET-18), the
+SIM_CONTENT hash (the stamp string lives in RULES) and the source
+hash. Sim radii (1.95 / 1.495 / 1.755), HP, damage, speeds — every
+cfg number — untouched. STATS.md regenerated (sovereign ×2.475,
+lancers ×1.5, boss-size note rewritten; counts unchanged).
+
+**Proof.** Difference-imaging rig (`crane/ab-bosssize-shots.mjs`;
+the old sky-scan cannot work on the dark Ch.2/3 backdrops): identical
+staging, 5-sample means of boss pixel height, before → after —
+warlord 195.4 → 219.0, lancer 109.4 → 129.0 (the descriptor ratio is
+exactly ×1.1538; pixel means corroborate within idle-pose noise),
+drake 171.6 → 179.8 (overlapping wing-pose spread; the figure is
+mechanically untouched), ogre 103.2 → 102.0 (unchanged). Captures
+`rig/ab-size19-{before,after}-*.png` read by eye: both bosses read
+clearly larger beside the hero. Natural-path Ch.2
+(`crane/ab-bosssize-ch2.mjs`, evidence `rig/ab-bosssize-ch2.json`):
+the sovereign spawns on the real timer (tick 11881) at 29.66 m with
+8 escorts kept, cfg radius 1.495, closes to 2.09 m and lands slam
+hits — anti-trap watchdog and boss fence behaviour unregressed at
+the new visual size (radii never moved, so this was the formality it
+was expected to be — proven anyway, per the standing rule).
