@@ -62,6 +62,7 @@ const CHAPTER_IDS = Array.from({ length: CHAPTER_COUNT }, (_, i) => i + 1);
 
 const T = { WebGLRenderer, Scene, Color, Fog, PerspectiveCamera, HemisphereLight,
   DirectionalLight, AmbientLight, Mesh, MeshLambertMaterial, MeshBasicMaterial,
+  MeshPhysicalMaterial, PMREMGenerator, PCFSoftShadowMap,
   InstancedMesh, SkinnedMesh, Skeleton, Bone, Group, Object3D, Vector2, Vector3,
   Matrix4, Quaternion, Euler, BoxGeometry, CylinderGeometry, SphereGeometry,
   ConeGeometry, CircleGeometry, PlaneGeometry, DodecahedronGeometry, RingGeometry,
@@ -1521,9 +1522,23 @@ const CRNG = mkRng(0xC05BED);                 // cosmetic-only
 let SHAKE = 0;
 function FXSHAKE(v){ SHAKE=Math.min(1.4,SHAKE+v); }
 
-/* ---------- renderer ---------- */
-const renderer = new T.WebGLRenderer({antialias:false,powerPreference:'high-performance',alpha:false});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.25));
+/* ---------- renderer & graphics quality ---------- */
+/* Graphics quality — view-only and per-device, stored in localStorage
+   key 'ab_gfx' ('high' = HD, anything else = SD). DEFAULT IS SD, and SD
+   is exactly the renderer this game shipped with: Lambert materials
+   everywhere, no shadow maps, no environment map, antialias off,
+   pixelRatio capped at 1.25 — the proven phone path, kept as the
+   default for every existing player. HD (opt-in via the #btnGfx HUD
+   toggle) swaps prop/character materials to clearcoat physical (glossy
+   ABS plastic), adds a procedural PMREM studio environment, hero-
+   following PCFSoft shadows and a pixelRatio cap of 2. Nothing here is
+   read by the sim: digests and the net stamp do not move, and HD/SD
+   players pair freely in co-op. The setting is read BEFORE the
+   renderer is created because antialias is a creation-time choice. */
+let GFX_HIGH=false;
+try{ GFX_HIGH=localStorage.getItem('ab_gfx')==='high'; }catch(e){}
+const renderer = new T.WebGLRenderer({antialias:GFX_HIGH,powerPreference:'high-performance',alpha:false});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,GFX_HIGH?2:1.25));
 renderer.setSize(innerWidth,innerHeight);
 $('stage').appendChild(renderer.domElement);
 const scene = new T.Scene();
@@ -1532,6 +1547,40 @@ const hemi = new T.HemisphereLight(0xbcd8ff,0x30251f,1.0);
 const sun  = new T.DirectionalLight(0xfff0d0,1.25); sun.position.set(28,46,18);
 const amb  = new T.AmbientLight(0xffffff,0.30);
 scene.add(hemi,sun,amb);
+scene.add(sun.target);   // the HD shadow-follow rig aims the sun; inert in SD
+
+/* HD shadow rig: one 2048 PCFSoft map whose camera box (±30 m — a
+   tighter box than the whole arena, for texel density) follows the
+   local hero via updateSunFollow() in the frame loop. Configured
+   unconditionally; with castShadow off (SD) none of it costs anything. */
+if(GFX_HIGH){ renderer.shadowMap.enabled=true; renderer.shadowMap.type=T.PCFSoftShadowMap; }
+sun.castShadow=GFX_HIGH;
+sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera,{near:5,far:120,left:-30,right:30,top:30,bottom:-30});
+sun.shadow.camera.updateProjectionMatrix();
+sun.shadow.bias=-0.0004; sun.shadow.normalBias=0.03;
+
+/* Procedural studio environment (HD only) — two bright panels PMREM'd
+   into an environment map; zero external HDRI files. Built lazily so an
+   SD boot pays nothing, and SD never assigns scene.environment at all. */
+let gfxEnvTex=null;
+function ensureStudioEnv(){
+  if(gfxEnvTex)return gfxEnvTex;
+  const pmrem=new T.PMREMGenerator(renderer);
+  const envScene=new T.Scene();
+  envScene.background=new T.Color(0x28364a);
+  const panelTop=new T.Mesh(new T.PlaneGeometry(30,30),
+    new T.MeshBasicMaterial({color:0xfff8ee,side:T.DoubleSide}));
+  panelTop.position.set(0,18,0); panelTop.rotation.x=Math.PI/2;
+  const panelRim=new T.Mesh(new T.PlaneGeometry(24,14),
+    new T.MeshBasicMaterial({color:0x8cc4ff,side:T.DoubleSide}));
+  panelRim.position.set(-16,8,-14); panelRim.lookAt(0,0,0);
+  envScene.add(panelTop,panelRim);
+  gfxEnvTex=pmrem.fromScene(envScene,0.04).texture;
+  pmrem.dispose();
+  return gfxEnvTex;
+}
+if(GFX_HIGH){ scene.environment=ensureStudioEnv(); scene.environmentIntensity=0.5; }
 
 const dummy = new T.Object3D();
 const _v = new T.Vector3();
@@ -1676,9 +1725,25 @@ function inst(geo,mat,arr,fn,colorFn){
   }
   m.instanceMatrix.needsUpdate=true;
   if(m.instanceColor)m.instanceColor.needsUpdate=true;
+  if(GFX_HIGH){ m.receiveShadow=true;
+    // emissive decals / glow / flames (MeshBasicMaterial) never cast —
+    // a solid shadow from a transparent glow disc would read as a scorch mark
+    if(!mat.isMeshBasicMaterial)m.castShadow=true; }
   mapGroup.add(m); return m;
 }
-const MAT=(color,opts)=>new T.MeshLambertMaterial(Object.assign({color},opts||{}));
+/* Prop materials: Lambert in SD (the shipped look); glossy clearcoat
+   physical in HD. Caller opts win over the HD defaults. */
+const MAT=(color,opts)=>GFX_HIGH
+  ? new T.MeshPhysicalMaterial(Object.assign({color,roughness:0.26,metalness:0.0,clearcoat:0.35,clearcoatRoughness:0.12},opts||{}))
+  : new T.MeshLambertMaterial(Object.assign({color},opts||{}));
+/* Character materials (the three rig builders, the brick pickups, the
+   arrows): same SD/HD split, slightly glossier clearcoat. The class is
+   chosen when the material is BUILT — a live #btnGfx toggle re-skins
+   everything built afterwards (new spawns, the next chapter's map, the
+   reopened picker); the rest follows on next load. */
+const CHARMAT=(opts)=>GFX_HIGH
+  ? new T.MeshPhysicalMaterial(Object.assign({roughness:0.24,metalness:0.0,clearcoat:0.42,clearcoatRoughness:0.10},opts||{}))
+  : new T.MeshLambertMaterial(opts||{});
 
 function buildMapMeshes(sim){
   disposeGroup(mapGroup);
@@ -1689,6 +1754,7 @@ function buildMapMeshes(sim){
   groundMesh=new T.Mesh(new T.PlaneGeometry(V.ground.view.width,V.ground.view.height),
     new T.MeshLambertMaterial({map:gt}));
   groundMesh.rotation.x=-Math.PI/2; groundMesh.position.y=-0.02;
+  groundMesh.receiveShadow=GFX_HIGH;
   mapGroup.add(groundMesh);
 
   /* ---- pond + rim: src/content/props/pond.js ---- */
@@ -2075,11 +2141,11 @@ let hselView=null, hselSpin=0;
 function makeView(kind,id){
   const bones=JOINTS.map(j=>{ const b=new T.Bone(); b.position.set(j.o[0],j.o[1],j.o[2]); return b; });
   JOINTS.forEach((j,i)=>{ if(j.p>=0)bones[j.p].add(bones[i]); });
-  const mesh=new T.SkinnedMesh(rigGeometry(kind),
-    new T.MeshLambertMaterial({vertexColors:true}));
+  const mesh=new T.SkinnedMesh(rigGeometry(kind),CHARMAT({vertexColors:true}));
   mesh.add(bones[0]); mesh.updateMatrixWorld(true);
   mesh.bind(new T.Skeleton(bones));
   mesh.frustumCulled=false;
+  mesh.castShadow=GFX_HIGH;
   // YXZ: yaw first, then pitch about the YAWED X axis -> a true forward somersault
   mesh.rotation.order='YXZ';
   // View scale comes from the figure descriptor (src/content/figures/<id>.js).
@@ -2369,7 +2435,7 @@ function dragonChestParts(TN){
 }
 function makeDragonView(id,b){
   const TN=TINTS.dragon;
-  const mat=new T.MeshLambertMaterial({vertexColors:true});
+  const mat=CHARMAT({vertexColors:true});
   const root=new T.Group(); root.rotation.order='YXZ';
   root.scale.setScalar(FIGURE_SCALES.dragon||1);   // descriptor meshScale (x1.3 boss size buff)
   const torsoG=new T.Group(); root.add(torsoG);
@@ -2407,6 +2473,10 @@ function makeDragonView(id,b){
   chest.position.set(b.x/cd*(ARENA_R+1.5),0.35,b.z/cd*(ARENA_R+1.5));
   chest.rotation.y=Math.atan2(-b.x,-b.z);
   scene.add(chest);
+  // HD: the whole drake (and its hoard) casts; the breath-flame kit
+  // below is additive Basic and is created after this, so it never casts
+  root.traverse(o=>{ if(o.isMesh)o.castShadow=GFX_HIGH; });
+  chest.traverse(o=>{ if(o.isMesh)o.castShadow=GFX_HIGH; });
   /* Breath flame kit (pooled, scene-level): two additive cones + mouth
      glow + ground scorch. Driven per-frame from sim state; invisible
      unless the dragon is telegraphing or breathing. */
@@ -2625,7 +2695,7 @@ function knightArmParts(TN){
 }
 function makeKnightMountView(id,b){
   const TN=TINTS['knight-mount'];
-  const mat=new T.MeshLambertMaterial({vertexColors:true});
+  const mat=CHARMAT({vertexColors:true});
   const root=new T.Group(); root.rotation.order='YXZ';
   root.scale.setScalar(FIGURE_SCALES['knight-mount']||1);   // descriptor meshScale (x1.3 boss size buff)
   const bodyG=new T.Group(); root.add(bodyG);
@@ -2649,6 +2719,7 @@ function makeKnightMountView(id,b){
     g.add(new T.Mesh(legGeo,mat)); root.add(g); legs.push(g);
   }
   scene.add(root);
+  root.traverse(o=>{ if(o.isMesh)o.castShadow=GFX_HIGH; });
   const D={ t:0, phase:0, amp:0, armX:-0.55, lean:0, neckX:-0.55,
     bodyG, neckG, headG, tailG, riderG, plumeG, armG, legs, mat };
   const v={ kind:'knight-mount', id, mesh:root, knight:D, baseScale:FIGURE_SCALES['knight-mount']||1,
@@ -2771,13 +2842,13 @@ function setupPickupMeshes(){
   gemMesh=new T.InstancedMesh(new T.DodecahedronGeometry(0.24,0),
     new T.MeshLambertMaterial({color:0x49c8ff,emissive:0x0d4c78}),64);
   healMesh=new T.InstancedMesh(brickGeo('heal'),
-    new T.MeshLambertMaterial({vertexColors:true,emissive:0x2a0508}),32);
+    CHARMAT({vertexColors:true,emissive:0x2a0508}),32);
   projMesh=new T.InstancedMesh(new T.SphereGeometry(0.34,8,6),
     new T.MeshBasicMaterial({color:0xc46bff}),24);
   shadowMesh=new T.InstancedMesh(new T.CircleGeometry(1,14),
     new T.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.28,depthWrite:false}),CFG.maxEntities);
   potionMesh=new T.InstancedMesh(brickGeo('magic'),
-    new T.MeshLambertMaterial({vertexColors:true,emissive:0x120a2e}),16);
+    CHARMAT({vertexColors:true,emissive:0x120a2e}),16);
   for(const m of [gemMesh,healMesh,projMesh,shadowMesh,potionMesh]){m.frustumCulled=false;m.count=0;scene.add(m);}
 }
 function updatePickupMeshes(s,time){
@@ -2804,15 +2875,19 @@ function updatePickupMeshes(s,time){
     dummy.position.set(p.x,1.0,p.z);dummy.rotation.set(0,0,0);dummy.scale.setScalar(p.r/0.34);
     dummy.updateMatrix();projMesh.setMatrixAt(n++,dummy.matrix); }
   projMesh.count=n;projMesh.instanceMatrix.needsUpdate=true;
-  // blob shadows: hero + enemies + boss, one draw call
+  // blob shadows: hero + enemies + boss, one draw call. SD only — in HD
+  // the real shadow map grounds the characters, and a blob under a cast
+  // shadow would double-darken (and hide the cast shadow in captures).
   n=0;
   const put=(x,z,r)=>{ if(n>=CFG.maxEntities)return;
     dummy.position.set(x,0.025,z);dummy.rotation.set(-Math.PI/2,0,0);
     dummy.scale.set(r, r, 1);dummy.updateMatrix();shadowMesh.setMatrixAt(n++,dummy.matrix); };
-  for(const h of s.heroes)put(h.x,h.z,0.55);
-  for(const e of s.enemies)put(e.x,e.z,0.5);
-  if(s.boss&&s.boss.hp>0){ const bf=(BOSSES[s.chapter]||{}).figure;
-    put(s.boss.x,s.boss.z,(FIGURES[bf]&&FIGURES[bf].custom)?3.055:1.625); }  // blob shadow x1.3 with the boss size buff
+  if(!GFX_HIGH){
+    for(const h of s.heroes)put(h.x,h.z,0.55);
+    for(const e of s.enemies)put(e.x,e.z,0.5);
+    if(s.boss&&s.boss.hp>0){ const bf=(BOSSES[s.chapter]||{}).figure;
+      put(s.boss.x,s.boss.z,(FIGURES[bf]&&FIGURES[bf].custom)?3.055:1.625); }  // blob shadow x1.3 with the boss size buff
+  }
   shadowMesh.count=n;shadowMesh.instanceMatrix.needsUpdate=true;
 }
 
@@ -3175,7 +3250,7 @@ function setupArrowFX(){
   const geo=arrowGeo();
   const tGeo=new T.PlaneGeometry(0.26,1.6); tGeo.rotateX(-Math.PI/2);
   for(let i=0;i<ARROW_POOL;i++){
-    const m=new T.Mesh(geo,new T.MeshLambertMaterial({vertexColors:true}));
+    const m=new T.Mesh(geo,CHARMAT({vertexColors:true}));
     m.frustumCulled=false; m.visible=false; scene.add(m); arrowMeshes.push(m);
     const tr=new T.Mesh(tGeo,new T.MeshBasicMaterial({color:0x7fe3ff,transparent:true,
       opacity:0.60,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide}));
@@ -3687,6 +3762,32 @@ $('btnMute').addEventListener('pointerdown',e=>{
   e.preventDefault();Audio.init();
   const m=Audio.toggle();$('btnMute').innerHTML=m?'&#128263;':'&#9835;';
 });
+
+/* ---------- graphics quality toggle (HD/SD, see the renderer block) -- */
+function syncGfxButton(){ const b=$('btnGfx'); if(!b)return;
+  b.textContent=GFX_HIGH?'HD':'SD'; b.classList.toggle('low',!GFX_HIGH); }
+$('btnGfx').addEventListener('pointerdown',e=>{
+  e.preventDefault();Audio.init();
+  GFX_HIGH=!GFX_HIGH;
+  try{ localStorage.setItem('ab_gfx',GFX_HIGH?'high':'low'); }catch(err){}
+  syncGfxButton();
+  /* Applied live (safe mid-run): pixel ratio, the shadow map switch,
+     the sun's cast flag and the environment intensity — plus a FULL
+     material refresh, because shadow/env state is compiled into every
+     material's program (refreshing only physical materials would leave
+     the Lambert ground/water/crowds in the old state). Material CLASS
+     (Lambert vs physical) and antialias are creation-time: they follow
+     the saved setting on the next load / next material build. The page
+     is never reloaded from here. */
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,GFX_HIGH?2:1.25));
+  renderer.shadowMap.enabled=GFX_HIGH;
+  sun.castShadow=GFX_HIGH;
+  if(GFX_HIGH){ scene.environment=ensureStudioEnv(); scene.environmentIntensity=0.5; }
+  else{ scene.environment=null; scene.environmentIntensity=0; }
+  scene.traverse(o=>{ if(o.material){ const ms=Array.isArray(o.material)?o.material:[o.material];
+    ms.forEach(m=>{ m.needsUpdate=true; }); } });
+});
+syncGfxButton();
 
 /* ---------- armoury modal wiring ---------- */
 $('armClose').addEventListener('click',()=>{closeArmoury();});
@@ -5552,6 +5653,21 @@ function updateCamera(dt){
            camera.position.z+=(CRNG()-0.5)*sh*0.55;}
   camera.lookAt(tx,ty,tz);
 }
+/* HD shadow-follow: keep the sun — and with it the ±30 m shadow camera —
+   centred on the focus character (the hero-select figure while the
+   picker is open, else the local hero), snapped to 0.5 m steps so the
+   shadow texels don't swim as the hero moves. The (28,46,18) offset is
+   preserved exactly, so the light DIRECTION never changes: Lambert
+   shading is identical wherever the rig sits, and SD never calls this. */
+function updateSunFollow(){
+  let fx=0,fz=0;
+  if(hselOpen&&hselView){ fx=hselView.mesh.position.x; fz=hselView.mesh.position.z; }
+  else{ const h=localHero(SIM); fx=h.x; fz=h.z; }
+  fx=Math.round(fx*2)/2; fz=Math.round(fz*2)/2;
+  sun.position.set(fx+28,46,fz+18);
+  sun.target.position.set(fx,0,fz);
+  sun.target.updateMatrixWorld();
+}
 let RTIME=0,lastNow=performance.now(),acc=0,frameCount=0,lastCalls=0;
 let lastChapter=SIM.chapter,camZoom=0.86;
 function frame(now){
@@ -5574,6 +5690,7 @@ function frame(now){
   updateVFX(dt,RTIME);
   Audio.setIntensity(Math.min(1,s.enemies.length/7+(s.boss?0.55:0)+s.chapter*0.05));
   updateCamera(dt);
+  if(GFX_HIGH)updateSunFollow();
   syncOverlay(); renderArmoury(); renderCoop(); renderHeroSelect(); renderAccount(); updateNetUI();
   updateHUD(); updateHints();
   renderer.render(scene,camera);
@@ -5606,7 +5723,7 @@ window.__GAME={
   reset(seed,phase){SIM=newSim((seed>>>0)||0x51A7E);if(phase)SIM.phase=phase;buildMapMeshes(SIM);
     hideOverlay();return simDigest(SIM);},
   runHeadless,
-  uiRects(){ const r={}; for(const id of ['stick','btnAttack','btnRoll','btnMute','btnFs',
+  uiRects(){ const r={}; for(const id of ['stick','btnAttack','btnRoll','btnMute','btnFs','btnGfx',
       'hpWrap','timer','bossWrap','stickZone','actZone','btnMagic']){
       const b=$(id).getBoundingClientRect();r[id]={x:b.x,y:b.y,w:b.width,h:b.height,
         cx:b.x+b.width/2,cy:b.y+b.height/2}; } return r; },

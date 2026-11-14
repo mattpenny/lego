@@ -45,7 +45,8 @@ function stub(label) {
 const engineNames = [
   'WebGLRenderer', 'Scene', 'Color', 'Fog', 'PerspectiveCamera',
   'HemisphereLight', 'DirectionalLight', 'AmbientLight', 'Mesh',
-  'MeshLambertMaterial', 'MeshBasicMaterial', 'InstancedMesh', 'SkinnedMesh',
+  'MeshLambertMaterial', 'MeshBasicMaterial', 'MeshPhysicalMaterial',
+  'PMREMGenerator', 'PCFSoftShadowMap', 'InstancedMesh', 'SkinnedMesh',
   'Skeleton', 'Bone', 'Group', 'Object3D', 'Vector2', 'Vector3', 'Matrix4',
   'Quaternion', 'Euler', 'BoxGeometry', 'CylinderGeometry', 'SphereGeometry',
   'ConeGeometry', 'CircleGeometry', 'PlaneGeometry', 'DodecahedronGeometry',

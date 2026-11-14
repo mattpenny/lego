@@ -1241,3 +1241,111 @@ passes (host removal → pickerSlot 1 on the remaining pages);
 design in the account era (`guestSnapshot`) — seeded META tracks
 do nothing in co-op; the rig fighters are Penny (`frostarcher`)
 kiters, the proven N=2 survivors.
+
+---
+
+## 15. Graphics quality — HD/SD toggle (2026-11-14, view-only, NO net stamp)
+
+An external agent proposed a graphics upgrade (clearcoat physical
+materials, a PMREM studio environment, real shadows, an HD/SD toggle).
+It was audited against the real code first — every cited line was real —
+then implemented in CORRECTED form. This section is the record of what
+shipped, what was deliberately left out, and why.
+
+**The setting.** `localStorage` key **`ab_gfx`**: `'high'` = HD,
+anything else (including absent) = SD. **Default is SD for everyone.**
+It is read once, before the renderer exists (`let GFX_HIGH` in the
+renderer block), because antialias is a creation-time choice. The HUD
+toggle is `#btnGfx` in `#fsRow` (label `HD`/`SD`, `.low` dims it in SD).
+
+**SD is the shipped renderer, exactly.** Lambert materials everywhere,
+`shadowMap` never enabled, `scene.environment` never assigned, antialias
+off, pixelRatio `min(dpr, 1.25)`, blob shadows under characters. This is
+guaranteed by construction, not by discipline: in SD no code path builds
+a `MeshPhysicalMaterial`, assigns an environment, or enables shadows —
+`MAT()`/`CHARMAT()` fall through to the same Lambert constructors with
+the same arguments as before the round, and `ensureStudioEnv()` is never
+called. Proof: side-by-side arena captures of this build's SD against
+the pre-round build (rig `ab-gfx-arena-sd.png` vs
+`ab-gfx-arena-sd-pristine.png`) — same flat palette, same blob shadows;
+the pixel diff (MAD 14.0) is camera-lerp/anim phase between two live
+stagings, not a rendering difference.
+
+**HD changes, all in the view layer of `src/game.js`:**
+
+- **Materials.** `MAT()` (props) returns `MeshPhysicalMaterial`
+  {roughness 0.26, clearcoat 0.35, clearcoatRoughness 0.12};
+  `CHARMAT()` (the three rig builders `makeView` / `makeDragonView` /
+  `makeKnightMountView`, the heal/potion brick pickups, the arrow pool)
+  returns the same class at {roughness 0.24, clearcoat 0.42,
+  clearcoatRoughness 0.10} — glossy ABS plastic. The class is chosen
+  when a material is BUILT: a live toggle re-skins everything built
+  afterwards (new spawns, the next chapter's map meshes, the reopened
+  picker); already-built materials follow on next load.
+- **Environment.** `ensureStudioEnv()` PMREMs a two-panel procedural
+  studio scene (warm top panel, cool rim panel, `0x28364a` backing)
+  into `scene.environment` at intensity 0.5. Zero external HDRI files.
+  Built lazily — an SD boot never pays for it.
+- **Shadows.** `renderer.shadowMap.enabled` + `PCFSoftShadowMap`, sun
+  `castShadow`, one 2048 map. The shadow camera is a **±30 m box that
+  follows the focus character** (`updateSunFollow()`, called from
+  `frame()` after `updateCamera`): the hero-select figure while the
+  picker is open, else the local hero, snapped to 0.5 m steps so texels
+  don't swim. The sun keeps its exact `(28,46,18)` offset from the
+  focus, so the light DIRECTION — and therefore all Lambert shading —
+  is identical wherever the rig sits; only the shadow window moves.
+  Ground and `inst()` props receive; characters and `inst()` props
+  cast — except `MeshBasicMaterial` instances (torch flames, lava
+  discs, glow decals), which never cast: a solid shadow from a
+  transparent glow disc reads as a scorch mark. **Blob shadows are OFF
+  in HD** (`updatePickupMeshes` writes count 0): a blob under a real
+  cast shadow double-darkens and hides it.
+- **Pixel ratio** `min(dpr, 2)`.
+
+**The toggle handler** persists the choice, then applies live what is
+safe mid-run: pixel ratio, `shadowMap.enabled`, `sun.castShadow`, the
+environment assignment/intensity, and a **full scene traverse setting
+`needsUpdate` on every material** — shadow/env state is compiled into
+each material's program, and the external proposal refreshed only
+clearcoat materials, which would have left the Lambert ground, water
+and crowds in the old state. It never reloads the page. Material class
+and antialias follow the saved setting on next load, by design.
+
+**Deliberately NOT done** (the proposal had all of these): ACES
+tone mapping and its re-lit hemi/sun/ambient values — every chapter
+palette and figure tint was tuned under NoToneMapping Lambert and
+brightened in an approved round, so that part was a re-grade, not an
+upgrade; `DataTexture`/`RGBAFormat` in the `T` map (nothing used
+them); a ±44 m shadow box (too coarse: ~4.3 cm/texel); HD as the
+default (the game's 3D direction was approved on a 60 FPS phone gate —
+the heavy path is opt-in until a real phone proves it).
+
+**Invariants.** Pure view layer: `digest:check` unchanged
+(`42bfc451…`), **no net-stamp bump** — HD is a per-device setting, so
+HD and SD players pair freely. `scripts/boot-smoke.mjs` `engineNames`
+gained `MeshPhysicalMaterial`, `PMREMGenerator`, `PCFSoftShadowMap`
+(the list mirrors the `T` map; the smoke installs those globals).
+
+**Proof** (rigs `crane/ab-gfx-shots.mjs`, `ab-gfx-shots2.mjs`,
+`ab-gfx-follow.mjs`, `ab-gfx-followb.mjs`, `ab-gfx-metrics.mjs`,
+`ab-gfx-coop.mjs`; captures in `rig/ab-gfx-*.png`, data in
+`rig/ab-gfx-{metrics,coop,follow}.json`): frame-matched hero-select
+pair — HD shows armour sheen and a figure-shaped cast shadow where SD
+shows the blob; arena ring in both modes; shadow-follow pair 44 m
+apart (24,18) / (−20,14) with cast shadows under the hero in both;
+mixed co-op (host HD, guest SD) through the v6 relay stand-in —
+checkpoints 600 + 1200 agree on both pages (`2450880e…` at 1200),
+hero HP arrays identical after combat, no desync, zero page errors.
+Rig lessons: wall-time waits mis-frame captures (the view clock is
+dt-clamped per rendered frame — wait on `__GAME.frames`), and
+`netHashes` objects are never stringify-equal across pages (`bySlot`
+is keyed by the peer's slot) — compare `lastMine`/`lastTheirs`.
+
+**Performance honesty.** Headless numbers are a RELATIVE signal only:
+on the shared 1.5-CPU VM under SwiftShader (CPU rendering), the staged
+ring measured SD ≈ 783 ms median frame at 1055×487 vs HD ≈ 4933 ms at
+1688×780, draw calls 28 vs 25 — dominated by software rasterisation,
+the 2.56× pixel count and contention with parallel work. They say
+"HD costs much more GPU-side work", nothing more precise. **The real
+verdict is Matt's phone**: if HD holds 60 FPS there, the default can
+be revisited; until then SD remains the default.
