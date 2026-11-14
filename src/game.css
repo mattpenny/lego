@@ -225,6 +225,40 @@ html,body{margin:0;padding:0;width:100%;height:100%;height:100dvh;overflow:hidde
 #coopBtns .bigbtn{background:linear-gradient(180deg,#ffe2a0,#dfa83f);
   border:1px solid #8a5f1c;color:#241703}
 #coopBtns .bigbtn.ghost{background:transparent;color:#6e4a10;border:1px solid #a97f33}
+/* ---- account modal (M2): the coop parchment card, form-flavoured ---- */
+#acct{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(3,5,10,.72);z-index:31;padding:calc(10px*var(--u))}
+#acct.on{display:flex}
+#acctCard{width:min(94vw,calc(560px*var(--u)));max-height:94vh;overflow:auto;text-align:center;
+  border-radius:calc(10px*var(--u));padding:calc(16px*var(--u)) calc(18px*var(--u));
+  background:linear-gradient(180deg,#f6ead0,#ecdcae 60%,#e0c88f);
+  border:2px solid #a97f33;color:#3a2a12;
+  box-shadow:0 18px 60px rgba(0,0,0,.75),inset 0 0 40px rgba(150,105,30,.18);
+  font-family:"Palatino Linotype","Book Antiqua",Palatino,Georgia,"Times New Roman",serif}
+#acctTitle{font-size:calc(21px*var(--u));font-weight:bold;letter-spacing:.22em;color:#6e4a10}
+#acctRule{height:2px;width:72%;margin:calc(9px*var(--u)) auto 0;
+  background:linear-gradient(90deg,transparent,#a97f33,transparent)}
+#acctBody{font-size:calc(12px*var(--u));line-height:1.7;color:#4a3512;
+  margin:calc(10px*var(--u)) auto;max-width:calc(500px*var(--u))}
+#acctBody .cstat{font-size:calc(13px*var(--u));letter-spacing:.14em;color:#8a5a08;font-weight:bold}
+#acctBody .acctwarn{border:1px solid #a97f33;border-radius:calc(8px*var(--u));
+  padding:calc(7px*var(--u)) calc(10px*var(--u));margin-top:calc(9px*var(--u));
+  background:rgba(169,127,51,.10);font-weight:bold;color:#6e4a10}
+#acctBody .acctCode{font-size:calc(24px*var(--u));font-weight:bold;letter-spacing:.12em;
+  color:#6e4a10;margin:calc(10px*var(--u)) 0;word-break:break-all;
+  font-family:ui-monospace,Menlo,Consolas,monospace}
+.acctIn{display:block;width:min(88%,calc(340px*var(--u)));margin:calc(8px*var(--u)) auto 0;
+  text-align:center;font-family:inherit;font-size:calc(15px*var(--u));font-weight:bold;
+  padding:calc(8px*var(--u)) calc(6px*var(--u));border-radius:calc(8px*var(--u));
+  border:2px solid #a97f33;background:#fdf6dd;color:#3a2a12;outline:none}
+#acctBtns{display:flex;gap:calc(8px*var(--u));justify-content:center;flex-wrap:wrap;
+  margin-top:calc(10px*var(--u))}
+#acctBtns .bigbtn{background:linear-gradient(180deg,#ffe2a0,#dfa83f);
+  border:1px solid #8a5f1c;color:#241703}
+#acctBtns .bigbtn.ghost{background:transparent;color:#6e4a10;border:1px solid #a97f33}
+.acctpanel{border:1px solid #a97f33;border-radius:calc(8px*var(--u));
+  padding:calc(7px*var(--u)) calc(10px*var(--u));margin-bottom:calc(9px*var(--u));
+  background:rgba(169,127,51,.10)}
 #netStat{position:fixed;top:calc(8px*var(--u));left:50%;transform:translateX(-50%);
   z-index:14;display:none;align-items:center;gap:calc(6px*var(--u));
   padding:calc(4px*var(--u)) calc(11px*var(--u));border-radius:calc(20px*var(--u));

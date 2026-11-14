@@ -229,5 +229,20 @@ for (const m of Object.values(MAPS)) {
   L.push('');
 }
 
+/* ---------------- Account progression (Phase M2) ---------------- */
+const { ACCOUNT_GAINS, PROGRESSION_VERSION, ECONOMY_VERSION, ACCOUNT_LEVEL_CAP } =
+  await import('../src/account.js');
+L.push('## Account progression — the server profile stat block (M2)');
+L.push('');
+L.push('Rendered from `src/account.js · ACCOUNT_GAINS` (the same table the client derivation runs). Composition (plan §6): the in-run upgrade curves multiply the hero-multiplied content base, and this permanent block is added LAST (`damage = round(34 × heroDmgMul) × 1.20^Edge + P.dmg`, likewise speed; max HP adds P.hp; P.crit joins the base 5% crit chance before the Keen Eye curve; P.magicDmg adds to the 60-damage magic blast): `P.hp = 2·(L−1) + 8·Armour`, `P.dmg = floor((L−1)/2) + 2·Weapon`, `P.spd = 0.01·(L−1) + 0.075·Boots`, `P.crit = 1%·Helm`, `P.magicDmg = 2·Charm`. At level 1 with all equipment 0 the block is exactly zero — bit-identical to the pre-account game. Guests and solo local play use the legacy local tracks instead.');
+L.push('');
+L.push(`Progression version **${PROGRESSION_VERSION}** · economy version **${ECONOMY_VERSION}** · account level cap **${ACCOUNT_LEVEL_CAP}** · level gains: +${ACCOUNT_GAINS.hpPerLevel} HP per level, +${ACCOUNT_GAINS.dmgPerTwoLevels} damage per 2 levels, +${ACCOUNT_GAINS.spdPerLevel} speed per level.`);
+L.push('');
+L.push('| Equipment slot | Per level | Source |');
+L.push('|---|---|---|');
+for (const s of ACCOUNT_GAINS.slots)
+  L.push(`| ${s.label} | +${s.per} ${s.stat} | \`src/account.js · ACCOUNT_GAINS\` |`);
+L.push('');
+
 writeFileSync(join(ROOT, 'STATS.md'), L.join('\n'));
 console.log('wrote STATS.md —', L.length, 'lines');

@@ -184,3 +184,17 @@ The weighted fill pool is global (each kind's `fill {from, weight, ramp}` in its
 | CROSSBOWMAN | 22 / 11 / 0 | **22 / 14 / -0.05** | `src/content/maps/grassland.js · map.fill` |
 | RUSSET-ARCHER | 28 / 11 / 0 | **28 / 14 / -0.05** | `src/content/maps/grassland.js · map.fill` |
 | TEAL-ARCHER | 40 / 10 / 0 | **58 / 28 / -0.06** | `src/content/maps/grassland.js · map.fill` |
+
+## Account progression — the server profile stat block (M2)
+
+Rendered from `src/account.js · ACCOUNT_GAINS` (the same table the client derivation runs). Composition (plan §6): the in-run upgrade curves multiply the hero-multiplied content base, and this permanent block is added LAST (`damage = round(34 × heroDmgMul) × 1.20^Edge + P.dmg`, likewise speed; max HP adds P.hp; P.crit joins the base 5% crit chance before the Keen Eye curve; P.magicDmg adds to the 60-damage magic blast): `P.hp = 2·(L−1) + 8·Armour`, `P.dmg = floor((L−1)/2) + 2·Weapon`, `P.spd = 0.01·(L−1) + 0.075·Boots`, `P.crit = 1%·Helm`, `P.magicDmg = 2·Charm`. At level 1 with all equipment 0 the block is exactly zero — bit-identical to the pre-account game. Guests and solo local play use the legacy local tracks instead.
+
+Progression version **1** · economy version **1** · account level cap **30** · level gains: +2 HP per level, +1 damage per 2 levels, +0.01 speed per level.
+
+| Equipment slot | Per level | Source |
+|---|---|---|
+| WEAPON | +2 damage | `src/account.js · ACCOUNT_GAINS` |
+| ARMOUR | +8 max HP | `src/account.js · ACCOUNT_GAINS` |
+| HELM | +0.01 crit chance | `src/account.js · ACCOUNT_GAINS` |
+| BOOTS | +0.075 move speed | `src/account.js · ACCOUNT_GAINS` |
+| CHARM | +2 magic damage | `src/account.js · ACCOUNT_GAINS` |

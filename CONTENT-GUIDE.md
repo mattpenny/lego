@@ -748,3 +748,103 @@ on two other seeds, and a variant bot killed it on the canonical seed
 in open ground). A human simply walks around the mesa. If Matt wants
 the pocket gone, the lever is data: shrink mesa 2's `cr` or move the
 cone — a sim-visible change, so baseline + stamp per process.
+
+## 10. Account progression — the server profile in game (AB-NET-14, Phase M2)
+
+The account system from `../ACCOUNT-PROGRESSION-PLAN.md` is wired in.
+The M1 API (`https://aetherblade-api.ccac-church.workers.dev`, its own
+Worker + D1 project) owns the profile; the game is a client.
+
+**Client module — `src/account.js`.** Session storage, the auth/profile
+calls, the versioned stat derivation and the co-op snapshot/digest.
+It is view-layer infrastructure: the sim never imports it, nothing runs
+at import time, and the sim only ever sees the DERIVED block in a hero's
+`mods` before tick 0. It deliberately has no `export async function`
+(the single-file bundler has no such form — async functions are declared
+plainly and re-exported via an `export { … }` list). API base resolution
+mirrors the relay override: `?api=` query param, then localStorage
+`aetherblade-api`, then the production Worker. The session token lives
+in localStorage `aetherblade-session-v1` (plan §2).
+
+**The stat block.** `accountStats(level, equipment)` (plan §6):
+`P.hp = 2·(L−1) + 8·Armour`, `P.dmg = floor((L−1)/2) + 2·Weapon`,
+`P.spd = 0.01·(L−1) + 0.075·Boots`, `P.crit = 1%·Helm`,
+`P.magicDmg = 2·Charm`. `ACCOUNT_GAINS` in the same module is the single
+source the STATS.md "Account progression" section renders. Composition
+in `heroStats()`: content base → hero multipliers → in-run upgrade
+curves multiply the hero-multiplied base, the account block's hp/dmg/spd
+added after (exactly where the legacy track mods always landed);
+`md.crit` is added to the base 5% before the Keen Eye curve, and
+`castMagic` deals `CFG.magic.dmg + caster.mods.magicDmg`. Hero `mods`
+therefore carry five fields now: `{hp, dmg, spd, crit, magicDmg}`.
+
+**Who uses which block.** Solo: the account block when signed in
+(profile fetched on boot when a token exists), the LEGACY local tracks
+otherwise — guest play is byte-for-byte the pre-account game. API
+failure degrades to guest with a landing notice ("ACCOUNT UNAVAILABLE —
+PLAYING AS GUEST" + a RETRY ACCOUNT button); a 401 clears the dead
+session. Play is never blocked on the API.
+
+**Digest discipline.** A Lv1 / zero-equipment profile derives the exact
+zero block, and every shipped scenario runs zero blocks: the M2
+re-record moved only `build` (AB-NET-14), `simContentSha256` (the stamp
+string lives in RULES) and `sourceSha256`; combined digest `b288e3cd…`
+and every scenario digest are bit-identical to AB-NET-13. The two new
+sim-visible fields are hashed CONDITONALLY (a `X<n>` extension block in
+`simDigest`, emitted only when some hero carries nonzero crit or
+magicDmg — the same conditional-hash precedent as hero arrows), so
+equipped-account runs are fully hashed without moving zero-block runs.
+
+**Co-op.** The handshake carries the public SNAPSHOT (plan §6:
+displayName, accountLevel, equipment, heroId, progressionVersion,
+economyVersion) inside the existing hello/roster/start messages — no
+relay features; 2P on the live v5 relay works unchanged. Raw mods no
+longer cross the wire: each client derives every block locally via
+`snapshotBlock()`. The host rejects a version-mismatched hello in the
+VERSION MISMATCH style; the start message carries `pdigest`, a SHA-256
+over the canonical (sorted-key) roster of `{slot, snap, block}` that
+each guest recomputes and refuses on mismatch before applying. Guests
+carry the explicit GUEST zero snapshot. Gold, shards, total XP and the
+token NEVER cross the wire.
+
+**UI.** Landing chip (guest notice / account line) + LOG IN / REGISTER
+button; `#acct` modal (login / register / reset / recovery / account
+views) in the coop parchment language. Registration and reset both end
+on the recovery view: the one-time code, large, with an I-SAVED-MY-CODE
+step as the only way out — the reset view states the code was REPLACED.
+The Armoury gains an account panel (username, level + XP progress,
+gold, shards, five equipment rows) above the local hall, and a LOG OUT
+button when signed in.
+
+**Transitional seams (deliberate, flagged in the M2 report).** (1) Hero
+ownership is the UNION of profile heroes and local unlocks when signed
+in (profile-owned heroes show "(ACCOUNT)" and select without purchase).
+(2) Armoury spending stays LOCAL in M2, for guests and signed-in
+players alike — server-side spending is a later phase. (3) Run-end gold
+still credits the LOCAL save for signed-in runs until run-result
+submission lands; nothing is credited server-side in M2. (4) The
+plan's migration import is NOT built (later phase).
+
+**Proof (rig `ab-m2-accounts.mjs`, evidence `rig/ab-m2-accounts.json`).**
+Production E2E from the built dist-single via a loopback forwarder
+(headless Chromium cannot open external CONNECT tunnels in the rig
+sandbox; auth/D1/validation are production — only TCP transport is
+forwarded): register `m2_verify_05` through the game's own UI →
+recovery code shown → Lv1/zero defaults in Armoury + zero block in a
+run → session restored on reload → logout (token cleared) → one
+wrong-password attempt rejected with the server's message → login →
+reset rotated the recovery code → login with the new password. Stubbed
+/profile (forwarder-side only) Lv5 + {Weapon 3, Armour 5, Helm 4,
+Boots 10, Charm 3} → block {hp 48, dmg 8, spd 0.79, crit 0.04,
+magicDmg 6}, maxHp 148; measured in sim: sword hit exactly 42
+(= 34 + 2·3 + floor(4/2)), magic blast exactly 66 (= 60 + 2·3).
+Co-op on the v5 stand-in: stub-account host + guest, blocks identical
+on both pages, checkpoints 600/1200 agree, 1337+ steps, no desync.
+
+**Live-API divergences from the plan (client codes to the API).** The
+plan sketched `/v1/*` paths and profile `economy_version` /
+`profile_version` fields; the deployed Worker serves unversioned routes
+and no version fields, so PROGRESSION_VERSION / ECONOMY_VERSION are
+client constants (= 1) in M2. Validation follows the API (username
+3–16, password 8–128), not the plan's 3–20 / 10–128. Recovery codes as
+issued are 32 characters.

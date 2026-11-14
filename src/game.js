@@ -21,6 +21,18 @@ import {
   UPGRADE_LIST,
 } from './content/index.js';
 
+/* Account progression client (Phase M2): session, API calls, the
+   versioned account stat derivation and the co-op progression
+   snapshot/digest. View-layer only — the sim consumes just the
+   derived block via hero `mods`, inserted before tick 0. */
+import {
+  PROGRESSION_VERSION, ECONOMY_VERSION, ACCOUNT_GAINS,
+  zeroBlock, accountStats, profileBlock, profileSnapshot, guestSnapshot,
+  sanitizeSnapshot, snapshotBlock, rosterDigest,
+  loadSession, saveSession, clearSession,
+  apiRegister, apiLogin, apiLogout, apiReset, apiProfile, apiErrorText,
+} from './account.js';
+
 /* Fail loudly at boot on an invalid content descriptor. A missing figure,
    a dangling cross-reference or a missing spawn entry would otherwise
    render an invisible character or silently never appear. */
@@ -281,7 +293,10 @@ function heroStats(s,h){
     rollCd:C.rollCd*rcMul*Math.pow(0.80,u.reflex),
     rollDist:C.rollDist*rdMul,
     pickup:1.65+0.9*u.magnet,
-    crit:0.05+0.15*u.crit
+    /* Account block (M2): md.crit is the Helm contribution, added to
+       the base 5% BEFORE the in-run Keen Eye curve — the plan section
+       6 composition. Zero for every pre-account path, bit-identical. */
+    crit:0.05+(md.crit||0)+0.15*u.crit
   };
 }
 
@@ -303,7 +318,7 @@ function mkHero(i,n){
            state:'idle', st:0, atkCd:0, rollCd:0, invuln:0,
            hitDone:false, attackId:0, rollX:0, rollZ:0,
            lungeX:0, lungeZ:0, lastHitTick:-999, hitFlash:0,
-           downed:false, mods:{hp:0,dmg:0,spd:0},
+           downed:false, mods:{hp:0,dmg:0,spd:0,crit:0,magicDmg:0},
            /* Which hero (skin) this player runs — cosmetic for the five
               classic skins, but two skins carry a SIGNATURE MAGIC
               (HERO_MAGIC), so the id is sim state: set from the player's
@@ -344,7 +359,7 @@ function newSim(seed,players){
     events:[], bossFirstHitTick:-1, bossSpawnTick:-1,
     knightNextAt:0, sorcererNextAt:0,
     magic:0, potions:[], eventDone:false, eventQueue:[],
-    mods:{hp:0,dmg:0,spd:0}
+    mods:{hp:0,dmg:0,spd:0,crit:0,magicDmg:0}
   };
   s.players=(players>=1&&players<=4)?(players|0):1;
   /* Player-count difficulty scaling (RULES.playerScaling, in
@@ -539,15 +554,18 @@ function castMagic(s,h){
   /* The CASTER's own hero decides the signature (in co-op each player's
      selected hero); skins without one keep the plain blast. */
   const sig=HERO_MAGIC[h.heroId]||null;
+  /* The CASTER's account block feeds the blast (Charm, plan section
+     6): 60 + P.magicDmg. Zero for guests/legacy — bit-identical. */
+  const blast=CFG.magic.dmg+((h.mods&&h.mods.magicDmg)||0);
   for(let i=0;i<s.enemies.length;i++){
     const e=s.enemies[i]; if(e.dead)continue;
     const rr=R+CFG.enemy[e.type].radius;
-    if(dist2(e.x,e.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:e.x,z:e.z}); damageEnemy(s,e,CFG.magic.dmg,false);
+    if(dist2(e.x,e.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:e.x,z:e.z}); damageEnemy(s,e,blast,false);
       if(sig&&!e.dead)applyMagicSig(s,h,sig,e,CFG.enemy[e.type].radius,false); }
   }
   const b=s.boss;
   if(b&&b.hp>0){ const rr=R+bossCfgOf(s).radius;
-    if(dist2(b.x,b.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:b.x,z:b.z,boss:1}); damageBoss(s,b,CFG.magic.dmg,false);
+    if(dist2(b.x,b.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:b.x,z:b.z,boss:1}); damageBoss(s,b,blast,false);
       if(sig&&b.hp>0)applyMagicSig(s,h,sig,b,bossCfgOf(s).radius,true); } }
   emit('magic',{x:h.x,z:h.z,r:R,sig:sig?sig.kind:''});
   if(sig&&sig.kind==='earth')emit('shake',{v:0.9});
@@ -1260,6 +1278,17 @@ function simDigest(s){
     put(h.state);put(h.hitDone?1:0);put(h.attackId);put(h.downed?1:0);
     put(h.mods.hp);put(h.mods.dmg);put(h.mods.spd.toFixed(3));
     put(h.heroId||'hero');
+  }
+  /* Account-block extensions (crit / magicDmg from Helm / Charm) are
+     hashed ONLY when some hero actually carries them — the same
+     conditional-hash discipline as hero arrows below. Every shipped
+     scenario runs zero blocks, so its digest stream is untouched;
+     when an equipped account plays, the fields are full sim state
+     (crit feeds damage rolls, magicDmg feeds castMagic) and hashed
+     like everything else. */
+  if(s.heroes.some(h=>(h.mods.crit||0)!==0||(h.mods.magicDmg||0)!==0)){
+    put('X'+s.heroes.length);
+    for(const h of s.heroes){ put((h.mods.crit||0).toFixed(4)); put(h.mods.magicDmg||0); }
   }
   put('E'+s.enemies.length);
   for(const e of s.enemies){ for(const v of [e.id,e.x,e.z,e.yaw,e.lockYaw,e.hp,e.timer,e.cd,e.state==='telegraph'?1:0,e.vx,e.vz])put(q(v)); put(e.state); put(e.attackKind||''); put(e.frozen||0); }
@@ -3440,7 +3469,8 @@ function setOverlay(key,kick,title,sub,body,cards,btns,credits){
 function hideOverlay(){overlayKey='';$('overlay').classList.remove('on');closeArmoury();}
 const CREDITS_HTML='three.js r170 &mdash; MIT, &copy; 2010-2024 three.js authors (vendored inline). '+
   'Mesh2Motion-style humanoid rig + animation clips &mdash; CC0 1.0, authored procedurally in this file. '+
-  'No third-party model, texture, font or audio files. All terrain, gear, VFX and music are generated in code. Zero network requests.';
+  'No third-party model, texture, font or audio files. All terrain, gear, VFX and music are generated in code. '+
+  'The game files themselves are fetched once and make no asset requests; optional account sign-in and co-op play use the network.';
 
 /* ---------- meta progression (localStorage, view-layer only) ---------- */
 const META_KEY='aetherblade-meta-v1';
@@ -3468,12 +3498,78 @@ let LOCAL_IDX=0;              // hero the camera / HUD / hints follow
 function localHero(s){ return s.heroes[LOCAL_IDX]||s.heroes[0]; }
 let SETTLED={ch:{},ended:false};
 function saveMeta(){ try{ localStorage.setItem(META_KEY,JSON.stringify(META)); }catch(e){} }
+
+/* ---------- account progression (Phase M2, server profile) ----------
+   ACCT is the view-layer account state. 'account' means a session
+   token exists AND the profile was fetched from the API: runs then
+   derive their permanent stat block from the profile (plan section
+   6) instead of the local tracks. Every other state plays exactly
+   the pre-account game: local tracks, local gold — the guest/demo
+   path, unchanged. API failure NEVER blocks play (plan section 8):
+   it only means the account block is unavailable for that visit. */
+let ACCT={ state:'guest', user:null, profile:null, block:zeroBlock(),
+           notice:'', stale:false, rev:0 };
+function acctChanged(){ ACCT.rev++; armouryRev=-1; }
+function acctSetAccount(user,profile){
+  ACCT.state='account'; ACCT.user=user||null; ACCT.profile=profile||null;
+  ACCT.block=profileBlock(profile); ACCT.notice=''; ACCT.stale=false;
+  acctChanged();
+}
+function acctSetGuest(notice,stale){
+  ACCT.state='guest'; ACCT.user=null; ACCT.profile=null; ACCT.block=zeroBlock();
+  ACCT.notice=notice||''; ACCT.stale=!!stale; acctChanged();
+}
+/* The permanent block a SOLO run starts with: the account block when
+   signed in, the legacy local tracks otherwise. */
+function runBlock(){
+  if(ACCT.state==='account')return Object.assign({},ACCT.block);
+  return { hp:META.tracks.hp*CFG.meta.hpPer, dmg:META.tracks.dmg*CFG.meta.dmgPer,
+           spd:META.tracks.spd*CFG.meta.spdPer, crit:0, magicDmg:0 };
+}
+function profileOwns(k){
+  return ACCT.state==='account'&&ACCT.profile&&Array.isArray(ACCT.profile.heroes)&&
+    ACCT.profile.heroes.indexOf(k)>=0;
+}
+/* Boot: a stored session re-fetches its profile. 401 clears the dead
+   session; a transport failure keeps the token (retryable) but plays
+   as guest — rewards are online-only in v1 (plan section 8). */
+async function acctBoot(){
+  const sess=loadSession();
+  if(!sess){ acctSetGuest(''); return; }
+  ACCT.state='checking'; acctChanged();
+  try{
+    const r=await apiProfile(sess.token);
+    if(r.status===200&&r.body){ acctSetAccount(r.body.user,r.body.profile); return; }
+    if(r.status===401){ clearSession(); acctSetGuest('SESSION EXPIRED — PLAYING AS GUEST'); return; }
+    acctSetGuest('ACCOUNT UNAVAILABLE — PLAYING AS GUEST',true);
+  }catch(e){ acctSetGuest('ACCOUNT UNAVAILABLE — PLAYING AS GUEST',true); }
+}
+async function acctLogout(){
+  const sess=loadSession();
+  if(sess){ try{ await apiLogout(sess.token); }catch(e){ /* revoke is best-effort */ } }
+  clearSession(); acctSetGuest('');
+  showBanner('LOGGED OUT',1600);
+}
+/* The public snapshot this player carries into a co-op handshake. */
+function mySnapshot(){
+  const skin=safeHero(META.heroSkin);
+  if(ACCT.state==='account'&&ACCT.profile)
+    return profileSnapshot(ACCT.profile,ACCT.user,skin);
+  return guestSnapshot(skin);
+}
 function buyTrack(id){
   const lv=META.tracks[id]; if(lv>=CFG.meta.steps)return;
   const c=CFG.meta.costs[lv]; if(META.gold<c)return;
   META.gold-=c; META.tracks[id]++; META.rev++; saveMeta(); Audio.init();
 }
 function heroBtn(k){
+  if(!META.heroes[k]&&profileOwns(k)){
+    /* Owned on the account profile: selection only — the purchase
+       branch below is for local (guest) unlocks. */
+    META.heroSkin=(META.heroSkin===k?'hero':k);
+    META.rev++; saveMeta(); Audio.init();
+    return;
+  }
   if(!META.heroes[k]){
     const c=CFG.meta.heroCosts[k]; if(META.gold<c)return;
     META.gold-=c; META.heroes[k]=true; META.rev++; saveMeta(); Audio.init();
@@ -3497,7 +3593,7 @@ function metaButtons(){
   for(const k of Object.keys(HEROES)){
     if(HEROES[k].default)continue;      // the free default hero is never sold
     const nm=heroLabel(k);
-    if(META.heroes[k])bs.push({label:(META.heroSkin===k?'\u2713 HERO: ':'USE HERO: ')+nm,fn:()=>heroBtn(k)});
+    if(META.heroes[k]||profileOwns(k))bs.push({label:(META.heroSkin===k?'\u2713 HERO: ':'USE HERO: ')+nm+(profileOwns(k)&&!META.heroes[k]?' (ACCOUNT)':''),fn:()=>heroBtn(k)});
     else bs.push({label:'UNLOCK HERO: '+nm+' \u00B7 '+CFG.meta.heroCosts[k]+' G',fn:()=>heroBtn(k)});
   }
   return bs;
@@ -3508,17 +3604,181 @@ function openArmoury(){ armouryOpen=true; armouryRev=-1;
   $('armoury').classList.add('on'); renderArmoury(); Audio.init(); }
 function closeArmoury(){ armouryOpen=false;
   const a=$('armoury'); if(a)a.classList.remove('on'); }
+function acctFmtN(n){ return n%1===0?String(n|0):String(+n.toFixed(2)); }
+function armouryAccountHTML(){
+  if(ACCT.state==='checking')
+    return '<div class="acctpanel"><div>CHECKING ACCOUNT\u2026</div></div>';
+  if(ACCT.state!=='account'||!ACCT.profile)
+    return '<div class="acctpanel"><div>NOT LOGGED IN \u2014 the Armoury below is your local guest progression. '+
+      'Log in from the landing to play on your account: account level and equipment replace the local tracks in your runs.</div></div>';
+  const p=ACCT.profile, u=ACCT.user||{};
+  const xpLine=p.nextLevelXp==null
+    ? 'ACCOUNT LV '+p.level+' \u2014 MAX LEVEL \u00B7 '+p.xp+' XP'
+    : 'ACCOUNT LV '+p.level+' \u00B7 XP '+p.xpIntoCurrentLevel+' / '+p.nextLevelXp+' TO LV '+(p.level+1);
+  const eq=ACCOUNT_GAINS.slots.map(sl=>{
+    const lv=(p.equipment&&p.equipment[sl.api])||0;
+    const gain=sl.key==='helm'?('+'+lv+'% '+sl.stat):('+'+acctFmtN(sl.per*lv)+' '+sl.stat);
+    return sl.label+' LV '+lv+' <span class="k">'+gain+'</span>';
+  }).join(' &nbsp;\u00B7&nbsp; ');
+  return '<div class="acctpanel">'+
+    '<div>\u269C <span class="k">'+esc(u.username||'')+'</span> &nbsp;\u00B7&nbsp; '+xpLine+'</div>'+
+    '<div>\u{1FA99} GOLD <span class="k">'+p.gold+'</span> &nbsp;\u00B7&nbsp; \u25C6 AETHER SHARDS <span class="k">'+p.shards+'</span></div>'+
+    '<div>EQUIPMENT \u2014 '+eq+'</div>'+
+    '<div>Your runs use this account block. Equipment upgrades and hero unlocks move server-side in the next account update; the local hall below still serves guest play.</div>'+
+  '</div>';
+}
 function armouryBodyHTML(){
-  return '<div>\u{1FA99} GOLD <span class="k">'+META.gold+'</span> &nbsp;\u00B7&nbsp; BEST '+META.bestTotal+
+  return armouryAccountHTML()+
+  '<div>\u{1FA99} GOLD <span class="k">'+META.gold+'</span> &nbsp;\u00B7&nbsp; BEST '+META.bestTotal+
     ' &nbsp;\u00B7&nbsp; '+CHAPTER_IDS.map(c=>(META.cleared[c]?'\u2605':'\u2606')+' CH'+c+(META.best[c]?' \u00B7 '+META.best[c]:'')).join(' &nbsp; ')+
     ' &nbsp;\u00B7&nbsp; HERO: '+esc(heroLabel(safeHero(META.heroSkin)))+'</div>'+
   '<div>Spend gold below: permanent upgrades and hero skins carry across every run. Magic: fill the meter with kills, then unleash 60 damage on everything near.</div>';
 }
 function renderArmoury(){
-  if(!armouryOpen||armouryRev===META.rev)return;
-  armouryRev=META.rev;
+  if(!armouryOpen)return;
+  const rk=META.rev+':'+ACCT.rev;
+  if(armouryRev===rk)return;
+  armouryRev=rk;
   $('armBody').innerHTML=armouryBodyHTML();
-  fillBtns($('armBtns'),metaButtons());
+  const bs=metaButtons();
+  if(ACCT.state==='account')
+    bs.unshift({label:'LOG OUT \u00B7 '+((ACCT.user&&ACCT.user.username)||''),fn:()=>{ acctLogout(); }});
+  fillBtns($('armBtns'),bs);
+}
+
+/* ---------- account modal: login / register / recovery reset ----------
+   The landing's LOG IN / REGISTER button opens this. Registration
+   ends on the recovery-code view: the code is shown ONCE, big, with
+   an explicit I-SAVED-IT step before the player proceeds (plan
+   section 2). A password reset likewise surfaces the REPLACEMENT
+   code before returning to the login view. */
+let acctOpen=false, acctView='login', acctErr='', acctBusy=false,
+    acctRecovery=null, acctRecoveryKind='', acctFormUser='', acctRev='';
+function openAccount(view){
+  if(SIM.phase!=='title')return;
+  closeArmoury(); closeCoop();
+  acctOpen=true; acctErr=''; acctBusy=false;
+  acctView=ACCT.state==='account'?'account':(view||'login');
+  acctRev='';
+  $('acct').classList.add('on');
+  renderAccount(); Audio.init();
+}
+function closeAccount(){
+  if(!acctOpen)return;
+  acctOpen=false; acctRev='';
+  $('acct').classList.remove('on');
+  if(SIM.phase==='title'){ hideOverlay(); syncOverlay(); }
+}
+function acctNav(view){ acctView=view; acctErr=''; acctRev=''; renderAccount(); }
+function acctFail(msg){ acctBusy=false; acctErr=msg; acctRev=''; renderAccount(); }
+async function acctDoLogin(){
+  if(acctBusy)return;
+  const u=$('acctUser').value.trim(), p=$('acctPass').value;
+  acctFormUser=u; acctBusy=true; acctErr=''; acctRev=''; renderAccount();
+  try{
+    const r=await apiLogin(u,p);
+    if(r.status===200&&r.body&&r.body.token){
+      saveSession(r.body.token,r.body.expiresAt);
+      acctSetAccount(r.body.user,r.body.profile);
+      acctBusy=false; closeAccount();
+      showBanner('WELCOME BACK, '+((r.body.user&&r.body.user.username)||''),2000);
+      return;
+    }
+    acctFail(apiErrorText(r,'Login failed.'));
+  }catch(e){ acctFail('Could not reach the account service. Check your connection \u2014 or keep playing as guest.'); }
+}
+async function acctDoRegister(){
+  if(acctBusy)return;
+  const u=$('acctUser').value.trim(), p=$('acctPass').value;
+  acctFormUser=u; acctBusy=true; acctErr=''; acctRev=''; renderAccount();
+  try{
+    const r=await apiRegister(u,p);
+    if(r.status===201&&r.body&&r.body.token){
+      saveSession(r.body.token,r.body.expiresAt);
+      acctSetAccount(r.body.user,r.body.profile);
+      acctRecovery=r.body.recoveryCode||''; acctRecoveryKind='register';
+      acctBusy=false; acctView='recovery'; acctRev=''; renderAccount();
+      return;
+    }
+    acctFail(apiErrorText(r,'Registration failed.'));
+  }catch(e){ acctFail('Could not reach the account service. Check your connection \u2014 or keep playing as guest.'); }
+}
+async function acctDoReset(){
+  if(acctBusy)return;
+  const u=$('acctUser').value.trim(), c=$('acctCode').value.trim(), p=$('acctPass').value;
+  acctFormUser=u; acctBusy=true; acctErr=''; acctRev=''; renderAccount();
+  try{
+    const r=await apiReset(u,c,p);
+    if(r.status===200&&r.body){
+      clearSession();            // the server revoked every session, ours included
+      acctSetGuest('');
+      acctRecovery=r.body.recoveryCode||''; acctRecoveryKind='reset';
+      acctBusy=false; acctView='recovery'; acctRev=''; renderAccount();
+      return;
+    }
+    acctFail(apiErrorText(r,'Reset failed.'));
+  }catch(e){ acctFail('Could not reach the account service. Check your connection \u2014 or keep playing as guest.'); }
+}
+function acctRecoveryDone(){
+  const kind=acctRecoveryKind;
+  acctRecovery=null; acctRecoveryKind='';
+  if(kind==='reset'){ acctView='login'; acctErr=''; acctRev=''; renderAccount(); }
+  else closeAccount();
+}
+function renderAccount(){
+  if(!acctOpen)return;
+  const key=acctView+'|'+acctErr+'|'+(acctBusy?1:0)+'|'+ACCT.state+'|'+ACCT.rev;
+  if(key===acctRev)return;
+  acctRev=key;
+  const title=$('acctTitle'), body=$('acctBody'), bw=$('acctBtns'), cb=$('acctClose');
+  const err=acctErr?'<div class="cstat">'+esc(acctErr)+'</div>':'';
+  const userIn='<input class="acctIn" id="acctUser" placeholder="USERNAME" autocomplete="off" spellcheck="false" value="'+esc(acctFormUser)+'">';
+  const passIn='<input class="acctIn" id="acctPass" type="password" placeholder="PASSWORD" autocomplete="off">';
+  const busy=acctBusy?'<div class="cstat">WORKING\u2026</div>':'';
+  let btns=[], closeLabel='CLOSE';
+  if(acctView==='login'){
+    title.textContent='LOG IN';
+    body.innerHTML='<div>Your account carries your level, gold, shards and equipment across devices.</div>'+
+      userIn+passIn+err+busy;
+    btns=[{label:acctBusy?'WORKING\u2026':'LOG IN',fn:acctDoLogin},
+          {label:'NO ACCOUNT? REGISTER',fn:()=>acctNav('register'),ghost:true},
+          {label:'FORGOT PASSWORD',fn:()=>acctNav('reset'),ghost:true}];
+  }else if(acctView==='register'){
+    title.textContent='REGISTER';
+    body.innerHTML='<div>Username: 3\u201316 letters, numbers or underscores. Password: at least 8 characters.</div>'+
+      userIn+passIn+
+      '<div class="acctwarn">You will be shown ONE recovery code. Save it outside the game: '+
+      'if you lose both your password and that code, there is no self-service way back in.</div>'+err+busy;
+    btns=[{label:acctBusy?'WORKING\u2026':'CREATE ACCOUNT',fn:acctDoRegister},
+          {label:'BACK TO LOGIN',fn:()=>acctNav('login'),ghost:true}];
+  }else if(acctView==='reset'){
+    title.textContent='RESET PASSWORD';
+    body.innerHTML='<div>Enter your username, the recovery code from registration, and a new password. '+
+      'Resetting signs out every device and issues a NEW recovery code.</div>'+
+      userIn+'<input class="acctIn" id="acctCode" placeholder="RECOVERY CODE" autocomplete="off" spellcheck="false">'+passIn+err+busy;
+    btns=[{label:acctBusy?'WORKING\u2026':'RESET PASSWORD',fn:acctDoReset},
+          {label:'BACK TO LOGIN',fn:()=>acctNav('login'),ghost:true}];
+  }else if(acctView==='recovery'){
+    title.textContent='SAVE YOUR RECOVERY CODE';
+    body.innerHTML=(acctRecoveryKind==='reset'
+      ? '<div>Password reset. Your recovery code has been REPLACED \u2014 the old one no longer works. Save the new code, then log in with your new password.</div>'
+      : '<div>Account created. This code is shown ONCE \u2014 it is the only way back in if you forget your password. Save it outside the game.</div>')+
+      '<div class="acctCode">'+esc(acctRecovery||'')+'</div>'+err;
+    btns=[{label:'I SAVED MY CODE',fn:acctRecoveryDone}];
+    closeLabel='';           // the save step is the way out — no accidental skip
+  }else{ /* account */
+    title.textContent='ACCOUNT';
+    const p=ACCT.profile||{}, u=ACCT.user||{};
+    body.innerHTML='<div>\u269C <span class="k">'+esc(u.username||'')+'</span> \u00B7 ACCOUNT LV '+(p.level||1)+
+      ' \u00B7 \u{1FA99} '+(p.gold||0)+' \u00B7 \u25C6 '+(p.shards||0)+'</div>'+
+      '<div>Your runs use your account stat block. Full details live in the Armoury.</div>'+err;
+    btns=[{label:'LOG OUT',fn:()=>{ acctLogout(); acctNav('login'); }}];
+  }
+  $('acctBody').innerHTML=body.innerHTML;
+  fillBtns(bw,btns);
+  cb.style.display=closeLabel?'':'none';
+  cb.textContent=closeLabel||'CLOSE';
+  cb.onclick=closeLabel?closeAccount:null;
 }
 
 /* ---------- hero select: the pre-run picker (landing -> pick -> run) ----
@@ -3529,7 +3789,7 @@ function renderArmoury(){
    purchase, then selects immediately. View/flow only — no sim input. */
 const HSEL_HEROES=['hero','frostarcher','dwarf'];
 let hselOpen=false, hselMode='solo', hselKind='hero', hselRev='';
-function hselOwned(k){ return !!HEROES[k].default||!!META.heroes[k]; }
+function hselOwned(k){ return !!HEROES[k].default||!!META.heroes[k]||profileOwns(k); }
 function hselCost(k){ return CFG.meta.heroCosts[k]||0; }
 function hselNum(n){ return n%1===0?String(n|0):String(n); }
 function heroAbilityText(k){
@@ -3675,8 +3935,8 @@ function updateHints(){
 function startRun(){
   if(hselOpen)closeHeroSelect();   // the preview never leaks into a run
   SIM=newSim(0x51A7E); SIM.phase='play';
-  SIM.mods={hp:META.tracks.hp*CFG.meta.hpPer, dmg:META.tracks.dmg*CFG.meta.dmgPer, spd:META.tracks.spd*CFG.meta.spdPer};
-  SIM.heroes[0].mods={hp:SIM.mods.hp,dmg:SIM.mods.dmg,spd:SIM.mods.spd};
+  SIM.mods=runBlock();
+  SIM.heroes[0].mods=Object.assign({},SIM.mods);
   SIM.hero.maxHp=CFG.hero.hp+SIM.mods.hp; SIM.hero.hp=SIM.hero.maxHp;
   HERO_SKIN=safeHero(META.heroSkin);
   SIM.heroes[0].heroId=HERO_SKIN;
@@ -3687,14 +3947,28 @@ function startRun(){
   buildMapMeshes(SIM); resetTilt();UI.attack=false;UI.rollLatch=false;UI.magicLatch=false;
   hideOverlay();Audio.init();
 }
+function acctChipHTML(){
+  if(ACCT.state==='checking')return '<div>CHECKING ACCOUNT\u2026</div>';
+  if(ACCT.state==='account'&&ACCT.profile){
+    const p=ACCT.profile;
+    return '<div>\u269C <span class="k">'+esc((ACCT.user&&ACCT.user.username)||'')+'</span>'+
+      ' \u00B7 ACCOUNT LV '+p.level+' \u00B7 \u{1FA99} '+p.gold+' \u00B7 \u25C6 '+p.shards+'</div>';
+  }
+  if(ACCT.notice)return '<div>'+esc(ACCT.notice)+'</div>';
+  return '<div>PLAYING AS GUEST \u2014 no progression earned. Log in to level up, earn gold and upgrade equipment.</div>';
+}
 function syncOverlay(){
-  const s=SIM,key=s.phase+(s.phase==='levelup'?s.level:'')+(s.phase==='clear'?s.chapter:'')+(s.phase==='title'?'m'+META.rev:'');
+  const s=SIM,key=s.phase+(s.phase==='levelup'?s.level:'')+(s.phase==='clear'?s.chapter:'')+(s.phase==='title'?'m'+META.rev+'a'+ACCT.rev:'');
   if(key===overlayKey)return;
   if(s.phase==='title'){
-    setOverlay(key,'','AETHERBLADE','','',null,
-      [{label:'\u2694 START RUN',fn:()=>openHeroSelect('solo'),prime:true},
-       {label:'\u{1F465} CO-OP',fn:()=>openHeroSelect('coop'),ghost:true},
-       {label:'ARMOURY',fn:openArmoury,ghost:true}],'');
+    const btns=[{label:'\u2694 START RUN',fn:()=>openHeroSelect('solo'),prime:true},
+       {label:'\u{1F465} CO-OP',fn:()=>openHeroSelect('coop'),ghost:true}];
+    if(ACCT.state!=='account'){
+      if(ACCT.stale)btns.push({label:'RETRY ACCOUNT',fn:()=>{ acctBoot(); },ghost:true});
+      btns.push({label:ACCT.state==='checking'?'ACCOUNT\u2026':'LOG IN / REGISTER',fn:()=>openAccount('login'),ghost:true});
+    }
+    btns.push({label:'ARMOURY',fn:openArmoury,ghost:true});
+    setOverlay(key,'','AETHERBLADE','',acctChipHTML(),null,btns,'');
   }else if(s.phase==='levelup'){
     const cards=s.choices.map(id=>UPGRADES.find(u=>u.id===id)).filter(Boolean);
     let pickNote='The arena is paused.';
@@ -3795,9 +4069,21 @@ function netNewCode(){
 function netEmptyFrame(t){ return {t,mx:0,my:0,atk:0,rol:0,mag:0,upg:-1}; }
 function netFrameInput(f){ return {mx:f.mx/127,my:f.my/127,attack:!!f.atk,
   roll:!!f.rol,magic:!!f.mag,upgrade:(typeof f.upg==='number'?f.upg:-1)}; }
-function netMods(){ return { hp:META.tracks.hp*CFG.meta.hpPer,
-  dmg:META.tracks.dmg*CFG.meta.dmgPer, spd:META.tracks.spd*CFG.meta.spdPer }; }
-function netMySnap(){ return {skin:safeHero(META.heroSkin),mods:netMods()}; }
+/* The handshake carries the public progression SNAPSHOT (plan
+   section 6), never derived mods and never balances/tokens: each
+   client derives every player's stat block locally via
+   snapshotBlock() from the agreed snapshot, so identical snapshots
+   give bit-identical heroes. Guests carry the explicit zero
+   snapshot. (Pre-M2 the raw {hp,dmg,spd} block crossed the wire;
+   AB-NET-14 pairings only form between same-build clients, so the
+   payload change needs no compat path.) */
+function netMySnap(){ const skin=safeHero(META.heroSkin);
+  return {skin, snap:mySnapshot()}; }
+function netPlayerBlock(p){
+  if(p&&p.snap)return snapshotBlock(p.snap);
+  if(p&&p.mods)return { hp:p.mods.hp||0, dmg:p.mods.dmg||0, spd:p.mods.spd||0, crit:0, magicDmg:0 };
+  return zeroBlock();
+}
 function newNetSession(role,code){
   return { role, myIdx:role==='host'?0:1, code, sid:netNewSid(),
     mySlot:role==='host'?0:1, slotSeen:false,
@@ -3865,13 +4151,14 @@ function netConnect(sess,resume){
   ws.onerror=()=>{ try{ ws.close(); }catch(e){} };
 }
 function netSendHello(sess){
+  const mine=netMySnap();
   sess.send({type:'hello',game:'aetherblade',build:CFG.net.build,code:sess.code,
-    sid:sess.sid,slot:sess.mySlot,skin:safeHero(META.heroSkin),mods:netMods(),name:'P'+(sess.mySlot+1)});
+    sid:sess.sid,slot:sess.mySlot,skin:mine.skin,snap:mine.snap,name:'P'+(sess.mySlot+1)});
 }
 function netSendRoster(sess){
   if(sess.role!=='host')return;
   const players=Object.keys(sess.lobby).map(Number).sort((a,b)=>a-b)
-    .map(sl=>({slot:sl,skin:sess.lobby[sl].skin,mods:sess.lobby[sl].mods}));
+    .map(sl=>({slot:sl,skin:sess.lobby[sl].skin,snap:sess.lobby[sl].snap}));
   sess.send({type:'roster',players});
 }
 function netRelayEvent(sess,m){
@@ -3982,7 +4269,11 @@ function netOnMsg(sess,m){
     if(m.build!==CFG.net.build){
       sess.send({type:'reject',why:'VERSION MISMATCH',to:slot}); sess.status='mismatch'; return;
     }
-    sess.lobby[slot]={skin:m.skin||'hero',mods:m.mods||{hp:0,dmg:0,spd:0}};
+    const snap=sanitizeSnapshot(m.snap);
+    if(snap.progressionVersion!==PROGRESSION_VERSION||snap.economyVersion!==ECONOMY_VERSION){
+      sess.send({type:'reject',why:'VERSION MISMATCH',to:slot}); sess.status='mismatch'; return;
+    }
+    sess.lobby[slot]={skin:m.skin||snap.heroId||'hero',snap};
     sess.status='paired';
     netSendRoster(sess);
   }
@@ -3990,22 +4281,16 @@ function netOnMsg(sess,m){
     if(sess.role!=='guest'||sess.started||!Array.isArray(m.players))return;
     sess.lobby={};
     for(const p of m.players)
-      sess.lobby[p.slot]={skin:p.skin||'hero',mods:p.mods||{hp:0,dmg:0,spd:0}};
+      sess.lobby[p.slot]={skin:p.skin||'hero',snap:sanitizeSnapshot(p.snap)};
     if(sess.lobby[sess.mySlot]||sess.lobby[1])sess.status='lobby';
   }
   else if(m.type==='start'){
-    if(sess.role!=='guest'||sess.started)return;
+    if(sess.role!=='guest'||sess.started||sess.startPending)return;
     if(m.build!==CFG.net.build||typeof m.seed!=='number'||
        !Array.isArray(m.players)||m.players.length<2||m.players.length>4){
       sess.status='mismatch'; return;      // not an AETHERBLADE host payload
     }
-    sess.players=m.players.map(p=>({slot:p.slot,skin:p.skin||'hero',
-      mods:p.mods||{hp:0,dmg:0,spd:0}})).sort((a,b)=>a.slot-b.slot);
-    sess.myIdx=netSlotIdx(sess,sess.mySlot);
-    if(sess.myIdx<0){ sess.status='mismatch'; return; }
-    sess.seed=m.seed>>>0;
-    sess.pickerSlot=netPickerSlot(sess);
-    sess.status='starting'; sess.startAt=performance.now()+1200;
+    netAcceptStart(sess,m);
   }
   else if(m.type==='reject'){
     if(m.to!=null&&m.to!==sess.mySlot)return;   // addressed to another guest
@@ -4062,16 +4347,44 @@ function netOnMsg(sess,m){
     netOnPeerGone(sess,netSenderSlot(sess,m),true);
   }
 }
-function hostStartRun(){
+/* Guest side of START: sanitise the roster, verify every snapshot's
+   progression/economy version, then verify the host's progression
+   digest against a locally recomputed one (snapshot + derived block
+   per player, plan section 6). Only then does the start apply — a
+   mismatch is the same hard refusal as a build mismatch. */
+async function netAcceptStart(sess,m){
+  sess.startPending=true;
+  try{
+    const players=m.players.map(p=>({slot:p.slot,skin:p.skin||'hero',
+      snap:sanitizeSnapshot(p.snap)})).sort((a,b)=>a.slot-b.slot);
+    for(const p of players){
+      if(p.snap.progressionVersion!==PROGRESSION_VERSION||p.snap.economyVersion!==ECONOMY_VERSION){
+        sess.status='mismatch'; return;
+      }
+    }
+    const digest=await rosterDigest(players);
+    if(!m.pdigest||digest!==m.pdigest){ sess.status='mismatch'; return; }
+    if(sess!==NET||sess.started)return;
+    sess.players=players;
+    sess.myIdx=netSlotIdx(sess,sess.mySlot);
+    if(sess.myIdx<0){ sess.status='mismatch'; return; }
+    sess.seed=m.seed>>>0;
+    sess.pickerSlot=netPickerSlot(sess);
+    sess.status='starting'; sess.startAt=performance.now()+1200;
+  }finally{ sess.startPending=false; }
+}
+async function hostStartRun(){
   const sess=NET;
   if(!sess||sess.role!=='host'||sess.started)return;
   const slots=Object.keys(sess.lobby).map(Number).sort((a,b)=>a-b);
   if(slots.length<2||slots.length>4)return;
-  sess.players=slots.map(sl=>({slot:sl,skin:sess.lobby[sl].skin,mods:sess.lobby[sl].mods}));
+  sess.players=slots.map(sl=>({slot:sl,skin:sess.lobby[sl].skin,snap:sess.lobby[sl].snap}));
   sess.myIdx=0;
   sess.seed=(((Date.now()^((performance.now()*1000)|0))>>>0)||0x51A7E);
   sess.pickerSlot=netPickerSlot(sess);
-  sess.send({type:'start',seed:sess.seed,build:CFG.net.build,players:sess.players});
+  const pdigest=await rosterDigest(sess.players);
+  if(sess!==NET||sess.started)return;
+  sess.send({type:'start',seed:sess.seed,build:CFG.net.build,players:sess.players,pdigest});
   sess.status='starting'; sess.startAt=performance.now()+1200;
 }
 function netOnSocketDown(sess){
@@ -4277,9 +4590,9 @@ function netResync(sess,T){
   const seed=sess.seed, players=sess.players;
   SIM=newSim(seed>>>0,players.length); SIM.phase='play';
   players.forEach((p,i)=>{ const h=SIM.heroes[i];
-    h.mods={hp:p.mods.hp||0,dmg:p.mods.dmg||0,spd:p.mods.spd||0};
+    h.mods=netPlayerBlock(p);
     h.maxHp=CFG.hero.hp+h.mods.hp; h.hp=h.maxHp; h.heroId=safeHero(p.skin); });
-  SIM.mods={hp:players[0].mods.hp,dmg:players[0].mods.dmg,spd:players[0].mods.spd};
+  SIM.mods=netPlayerBlock(players[0]);
   HERO_SKINS=players.map(p=>p.skin); LOCAL_IDX=sess.myIdx;
   sess.removedApplied={};
   for(let t=0;t<T;t++){
@@ -4313,9 +4626,9 @@ function startCoopRun(seed){
   const sess=NET; if(!sess||!sess.players)return;
   SIM=newSim(seed>>>0,sess.players.length); SIM.phase='play';
   sess.players.forEach((p,i)=>{ const h=SIM.heroes[i];
-    h.mods={hp:p.mods.hp||0,dmg:p.mods.dmg||0,spd:p.mods.spd||0};
+    h.mods=netPlayerBlock(p);
     h.maxHp=CFG.hero.hp+h.mods.hp; h.hp=h.maxHp; h.heroId=safeHero(p.skin); });
-  SIM.mods={hp:sess.players[0].mods.hp,dmg:sess.players[0].mods.dmg,spd:sess.players[0].mods.spd};
+  SIM.mods=netPlayerBlock(sess.players[0]);
   HERO_SKINS=sess.players.map(p=>p.skin);
   LOCAL_IDX=sess.myIdx;
   SETTLED={ch:{},ended:false};
@@ -4399,7 +4712,9 @@ function rosterHTML(sess){
     if(sess.started)
       state=sess.removed[sl]!=null?' · LEFT':(sess.droppedSlots[sl]?' · RECONNECTING…':' · IN RUN');
     else state=' · READY';
-    rows.push('<div>P'+(sl+1)+' · '+esc(heroLabel(snap.skin))+(sl===sess.mySlot?' · YOU':'')+state+'</div>');
+    const who=snap.snap?(' · '+esc(snap.snap.displayName)+
+      (snap.snap.displayName==='GUEST'?'':' · LV '+snap.snap.accountLevel)):'';
+    rows.push('<div>P'+(sl+1)+' · '+esc(heroLabel(snap.skin))+who+(sl===sess.mySlot?' · YOU':'')+state+'</div>');
   }
   return rows.length?('<div class="croster">'+rows.join('')+'</div>'):'';
 }
@@ -4665,7 +4980,7 @@ function frame(now){
   updateVFX(dt,RTIME);
   Audio.setIntensity(Math.min(1,s.enemies.length/7+(s.boss?0.55:0)+s.chapter*0.05));
   updateCamera(dt);
-  syncOverlay(); renderArmoury(); renderCoop(); renderHeroSelect(); updateNetUI();
+  syncOverlay(); renderArmoury(); renderCoop(); renderHeroSelect(); renderAccount(); updateNetUI();
   updateHUD(); updateHints();
   renderer.render(scene,camera);
   lastCalls=renderer.info.render.calls;
@@ -4733,7 +5048,11 @@ window.__GAME={
     droppedSlots:Object.keys(n.droppedSlots).map(Number),
     lobby:Object.keys(n.lobby||{}).map(Number),
     status:n.status,nextSend:n.nextSend,recs:n.recs?n.recs.map(r=>Object.keys(r).map(Number).sort((a,b)=>a-b)):null,
-    players:n.players?n.players.map(p=>({slot:p.slot,skin:p.skin,mods:p.mods})):null}:null; },
+    players:n.players?n.players.map(p=>({slot:p.slot,skin:p.skin,snap:p.snap||null,mods:netPlayerBlock(p)})):null}:null; },
+  get account(){ return {state:ACCT.state,user:ACCT.user,profile:ACCT.profile,
+    block:Object.assign({},ACCT.block),notice:ACCT.notice,stale:ACCT.stale}; },
+  accountBoot(){ return acctBoot(); },
+  accountLogout(){ return acctLogout(); },
   netCreate(code){ return coopCreate(code); },
   netStart(){ hostStartRun(); },
   netDrop(){ const n=NET; if(n&&n.ws){ const w=n.ws; n.ws=null;
@@ -4763,7 +5082,11 @@ window.__GAME={
   get EV(){return EV.slice();}
 };
 
-/* kick off — title screen first; START is a real pointer/keyboard action */
+/* kick off — title screen first; START is a real pointer/keyboard action.
+   Account boot rides along: a stored session re-fetches its profile in
+   the background and the landing chip updates when it lands; play is
+   never blocked on it. */
+acctBoot();
 requestAnimationFrame(frame);
 })();
 
