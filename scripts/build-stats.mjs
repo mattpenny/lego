@@ -71,9 +71,10 @@ for (const id of HERO_IDS) {
   const m = HERO_MAGIC[id];
   const magTxt = !m ? `Arcane Blast — ${MG.dmg} dmg, ${fmt(MG.radius)} m radius, ${MG.cost} kills`
     : m.kind === 'frost' ? `Frost Nova — ${MG.dmg} dmg + freeze ${fmt(m.freezeSec)} s (boss ${fmt(m.bossFreezeSec)} s)`
+    : m.kind === 'fire' ? `Fire Crescent — ${Math.round(MG.dmg * (m.dmgMul || 1))} dmg (${MG.dmg} × ${fmt(m.dmgMul || 1)}), no control or knockback`
     : `Earthquake — ${MG.dmg} dmg + knockback ${fmt(m.push)} m (boss ${fmt(m.bossPush)} m)`;
   const file = sourceFileFor(id, 'heroes');
-  L.push(`| ${h.displayName} | ${h.role || '—'} | ${h.price ? h.price + ' G' : 'default (free)'} | ${atkTxt} | ${dmg}${st.dmgMul ? ` (base ${HB.dmg} × ${fmt(st.dmgMul)})` : ''} | ${fmt(spd)}${st.speedMul ? ` (× ${fmt(st.speedMul)})` : ''} | ${fmt(rd)} / ${fmt(rc)}${st.rollDistMul || st.rollCdMul ? ' (descriptor multipliers)' : ''} | ${magTxt} | ${h.trait || '—'} | \`${file}\` |`);
+  L.push(`| ${h.displayName} | ${h.role || '—'} | ${h.accountLevel ? `Account Lv ${h.accountLevel}` : h.price ? h.price + ' G' : 'default (free)'} | ${atkTxt} | ${dmg}${st.dmgMul ? ` (base ${HB.dmg} × ${fmt(st.dmgMul)})` : ''} | ${fmt(spd)}${st.speedMul ? ` (× ${fmt(st.speedMul)})` : ''} | ${fmt(rd)} / ${fmt(rc)}${st.rollDistMul || st.rollCdMul ? ' (descriptor multipliers)' : ''} | ${magTxt} | ${h.trait || '—'} | \`${file}\` |`);
 }
 L.push('');
 L.push(`Magic basics (every hero): the meter fills **${MG.perKill} per kill**, casting costs **${MG.cost}**, the blast deals **${MG.dmg}** damage in a **${fmt(MG.radius)} m** radius. Source: \`src/content/rules.js · magic\`. Per-hero multipliers live in each descriptor's \`stats\` block; signature effects in its \`magic\` block.`);
@@ -85,14 +86,14 @@ L.push('');
 L.push('| Chapter | Boss | HP | Speed (m/s) | Radius (m) | Figure scale | Score | Source |');
 L.push('|---|---|---|---|---|---|---|---|');
 const BOSS_FILE = { 1: 'src/content/enemies/bosses/emerald-drake.js', 2: 'src/content/enemies/bosses/shared.js (BOSS_CFG)', 3: 'src/content/enemies/bosses/iron-lancer.js',
-                    4: 'src/content/enemies/bosses/frost-sovereign.js', 5: 'src/content/enemies/bosses/caldera-drake.js', 6: 'src/content/enemies/bosses/siege-lancer.js' };
+                    4: 'src/content/enemies/bosses/spiked-ogre.js', 5: 'src/content/enemies/bosses/caldera-drake.js', 6: 'src/content/enemies/bosses/siege-lancer.js' };
 const BOSS_CHAPTERS = Object.keys(BOSSES).map(Number).sort((a, b) => a - b);
 for (const ch of BOSS_CHAPTERS) {
   const b = BOSS_CFG_BY_CHAPTER[ch], d = BOSSES[ch];
   L.push(`| ${ch} | ${d.displayName}${d.placeholder ? ' (PLACEHOLDER)' : ''} | ${b.hp} | ${fmt(b.speed)} | ${fmt(b.radius)} | ×${fmt(FIGURE_SCALES[d.figure] || 1)} | ${b.score} | \`${BOSS_FILE[ch]} · cfg\` |`);
 }
 L.push('');
-L.push('Boss size: all boss figures and sim radii are **×1.3** their original size (radius is the sim body; the figure scale is the matching view size). Chapters 4-6 bosses are PLACEHOLDERS (the existing three bosses reappearing with late-game HP) pending Matt\'s own boss creations.');
+L.push('Boss size: boss figures sit at **×1.3** their original size (radius is the sim body; the figure scale is the matching view size) — except chapter 4\'s Spiked Ogre at **×1.55**, Matt\'s bigger-boss call (AB-NET-17). Chapter 4 is Matt\'s own boss design and fields **TWO** ogres at once (`twinFigure` — the chapter clears only when both are dead; each carries the full HP and score above, so the solo fight totals 1,040 HP). Chapters 5-6 bosses remain PLACEHOLDERS (earlier bosses reappearing with late-game HP) pending Matt\'s own boss creations.');
 L.push('');
 L.push('### Boss attacks — base → effective (damage multiplier applied once, one rounding)');
 L.push('');
@@ -104,6 +105,8 @@ for (const ch of BOSS_CHAPTERS) {
   L.push(`| ${d.displayName} | Slam | ${b.slamDmg} | ${mul(b)} | **${landed(b.slamDmg, b)}** | reach ${fmt(b.slamRange)} m (centre distance), telegraph ${fmt(b.slamTele)} s | \`${f} · cfg.slamDmg / cfg.slamRange\` |`);
   L.push(`| ${d.displayName} | Slam (enraged) | ${b.slamDmg} + ${P.slamBonus} bonus | ${mul(b)} | **${landed(b.slamDmg + P.slamBonus, b)}** | bonus added BEFORE the multiplier | \`cfg.slamDmg\` + \`bosses/shared.js · BOSS_PHASE2.slamBonus\` |`);
   L.push(`| ${d.displayName} | Charge | ${b.chargeDmg} | ${mul(b)} | **${landed(b.chargeDmg, b)}** | trigger ≤ ${fmt(b.chargeRange)} m, speed ${fmt(b.chargeSpeed)} m/s, telegraph ${fmt(b.chargeTele)} s${b.chargeThru ? '; ignores ALL prop/theme colliders while charging (arena edge still applies)' : ''} | \`${f} · cfg.chargeDmg / cfg.chargeRange\` |`);
+  if (b.spinDmg) L.push(`| ${d.displayName} | Whirlwind spin | ${b.spinDmg} | ${mul(b)} | **${landed(b.spinDmg, b)}** | full circle, range ${fmt(b.spinRange)} m, telegraph ${fmt(b.spinTele)} s, duration ${fmt(b.spinDur)} s, cooldown ${fmt(b.spinCd)} s | \`${f} · cfg.spinDmg / cfg.spinRange\` |`);
+  if (b.superDmg) L.push(`| ${d.displayName} | Super slam | ${b.superDmg} | ${mul(b)} | **${landed(b.superDmg, b)}** | full circle (no safe arc), range ${fmt(b.superRange)} m, telegraph ${fmt(b.superTele)} s, duration ${fmt(b.superDur)} s, cooldown ${fmt(b.superCd)} s | \`${f} · cfg.superDmg / cfg.superRange\` |`);
   if (b.breath) {
     const br = b.breath, t = landed(br.tickDmg, b);
     /* Ticks per breath = how many tick events the sim's accumulator

@@ -23,6 +23,7 @@ Base hero (all heroes share these unless a descriptor overrides them): damage **
 | KNIGHT | — | 300 G | Melee — range 3.2 m, arc 130° | 34 | 6.2 | 3.5 / 1 | Arcane Blast — 60 dmg, 14 m radius, 20 kills | — | `src/content/heroes/knight.js` |
 | Penny | ARCHER | 350 G | Arrow — range 14 m, speed 26 m/s; aim assist — 20° cone + target lead (intercept) | 27 (base 34 × 0.8) | 6.2 | 3.5 / 1 | Frost Nova — 60 dmg + freeze 1 s (boss 0.5 s) | Ranged arrows · lighter damage | `src/content/heroes/frostarcher.js` |
 | Matt | DWARF | 400 G | Melee — range 3.2 m, arc 130° | 43 (base 34 × 1.25) | 5.022 (× 0.81) | 2.8 / 1.3 (descriptor multipliers) | Earthquake — 60 dmg + knockback 6 m (boss 3 m) | Heavy hammer · slower, short roll | `src/content/heroes/dwarf.js` |
+| ANSUM | — | Account Lv 5 | Melee — range 3.2 m, arc 130° | 34 | 6.2 | 3.5 / 1 | Fire Crescent — 96 dmg (60 × 1.6), no control or knockback | — | `src/content/heroes/ansum.js` |
 
 Magic basics (every hero): the meter fills **1 per kill**, casting costs **20**, the blast deals **60** damage in a **14 m** radius. Source: `src/content/rules.js · magic`. Per-hero multipliers live in each descriptor's `stats` block; signature effects in its `magic` block.
 
@@ -33,11 +34,11 @@ Magic basics (every hero): the meter fills **1 per kill**, casting costs **20**,
 | 1 | EMERALD DRAKE | 396 | 6 | 1.95 | ×1.3 | 1800 | `src/content/enemies/bosses/emerald-drake.js · cfg` |
 | 2 | GRAVE SOVEREIGN | 330 | 7.4 | 1.495 | ×2.145 | 1500 | `src/content/enemies/bosses/shared.js (BOSS_CFG) · cfg` |
 | 3 | THE IRON LANCER | 462 | 6.8 | 1.755 | ×1.3 | 2200 | `src/content/enemies/bosses/iron-lancer.js · cfg` |
-| 4 | GRAVE SOVEREIGN (PLACEHOLDER) | 520 | 7.4 | 1.495 | ×2.145 | 1500 | `src/content/enemies/bosses/frost-sovereign.js · cfg` |
+| 4 | THE SPIKED OGRE | 520 | 5.6 | 1.45 | ×1.55 | 2600 | `src/content/enemies/bosses/spiked-ogre.js · cfg` |
 | 5 | EMERALD DRAKE (PLACEHOLDER) | 580 | 6 | 1.95 | ×1.3 | 1800 | `src/content/enemies/bosses/caldera-drake.js · cfg` |
 | 6 | THE IRON LANCER (PLACEHOLDER) | 640 | 6.8 | 1.755 | ×1.3 | 2200 | `src/content/enemies/bosses/siege-lancer.js · cfg` |
 
-Boss size: all boss figures and sim radii are **×1.3** their original size (radius is the sim body; the figure scale is the matching view size). Chapters 4-6 bosses are PLACEHOLDERS (the existing three bosses reappearing with late-game HP) pending Matt's own boss creations.
+Boss size: boss figures sit at **×1.3** their original size (radius is the sim body; the figure scale is the matching view size) — except chapter 4's Spiked Ogre at **×1.55**, Matt's bigger-boss call (AB-NET-17). Chapter 4 is Matt's own boss design and fields **TWO** ogres at once (`twinFigure` — the chapter clears only when both are dead; each carries the full HP and score above, so the solo fight totals 1,040 HP). Chapters 5-6 bosses remain PLACEHOLDERS (earlier bosses reappearing with late-game HP) pending Matt's own boss creations.
 
 ### Boss attacks — base → effective (damage multiplier applied once, one rounding)
 
@@ -54,9 +55,11 @@ Boss size: all boss figures and sim radii are **×1.3** their original size (rad
 | THE IRON LANCER | Slam | 24 | ×1.1 | **26** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/iron-lancer.js · cfg.slamDmg / cfg.slamRange` |
 | THE IRON LANCER | Slam (enraged) | 24 + 4 bonus | ×1.1 | **31** | bonus added BEFORE the multiplier | `cfg.slamDmg` + `bosses/shared.js · BOSS_PHASE2.slamBonus` |
 | THE IRON LANCER | Charge | 26 | ×1.1 | **29** | trigger ≤ 4.5 m, speed 19 m/s, telegraph 0.55 s | `src/content/enemies/bosses/iron-lancer.js · cfg.chargeDmg / cfg.chargeRange` |
-| GRAVE SOVEREIGN | Slam | 22 | ×1.1 | **24** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/frost-sovereign.js · cfg.slamDmg / cfg.slamRange` |
-| GRAVE SOVEREIGN | Slam (enraged) | 22 + 4 bonus | ×1.1 | **29** | bonus added BEFORE the multiplier | `cfg.slamDmg` + `bosses/shared.js · BOSS_PHASE2.slamBonus` |
-| GRAVE SOVEREIGN | Charge | 20 | ×1.1 | **22** | trigger ≤ 6.5 m, speed 16 m/s, telegraph 0.7 s | `src/content/enemies/bosses/frost-sovereign.js · cfg.chargeDmg / cfg.chargeRange` |
+| THE SPIKED OGRE | Slam | 26 | ×1 | **26** | reach 2.6 m (centre distance), telegraph 0.6 s | `src/content/enemies/bosses/spiked-ogre.js · cfg.slamDmg / cfg.slamRange` |
+| THE SPIKED OGRE | Slam (enraged) | 26 + 4 bonus | ×1 | **30** | bonus added BEFORE the multiplier | `cfg.slamDmg` + `bosses/shared.js · BOSS_PHASE2.slamBonus` |
+| THE SPIKED OGRE | Charge | 24 | ×1 | **24** | trigger ≤ 8 m, speed 14 m/s, telegraph 0.8 s | `src/content/enemies/bosses/spiked-ogre.js · cfg.chargeDmg / cfg.chargeRange` |
+| THE SPIKED OGRE | Whirlwind spin | 30 | ×1 | **30** | full circle, range 4.6 m, telegraph 0.75 s, duration 0.55 s, cooldown 6.5 s | `src/content/enemies/bosses/spiked-ogre.js · cfg.spinDmg / cfg.spinRange` |
+| THE SPIKED OGRE | Super slam | 38 | ×1 | **38** | full circle (no safe arc), range 5.4 m, telegraph 0.95 s, duration 0.45 s, cooldown 9 s | `src/content/enemies/bosses/spiked-ogre.js · cfg.superDmg / cfg.superRange` |
 | EMERALD DRAKE | Slam | 26 | ×1.1 | **29** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/caldera-drake.js · cfg.slamDmg / cfg.slamRange` |
 | EMERALD DRAKE | Slam (enraged) | 26 + 4 bonus | ×1.1 | **33** | bonus added BEFORE the multiplier | `cfg.slamDmg` + `bosses/shared.js · BOSS_PHASE2.slamBonus` |
 | EMERALD DRAKE | Charge | 24 | ×1.1 | **26** | trigger ≤ 6.5 m, speed 16 m/s, telegraph 0.7 s; ignores ALL prop/theme colliders while charging (arena edge still applies) | `src/content/enemies/bosses/caldera-drake.js · cfg.chargeDmg / cfg.chargeRange` |
@@ -102,6 +105,8 @@ Shared melee defaults: telegraph 0.55 s, strike range 1.8 m, arc 120°, recovery
 | CROSSBOWMAN | 53 | 13 | 2.8 | 0.44 | 175 | Ranged — band 7.5–11.5 m, volley every 2.6 s, projectile 16 m/s, telegraph 0.6 s | `src/content/enemies/crossbowman.js · cfg` |
 | RUSSET-ARCHER | 40 | 10 | 3.6 | 0.4 | 155 | Ranged — band 8.5–12.5 m, volley every 1.7 s, projectile 13.5 m/s, telegraph 0.44 s | `src/content/enemies/russet-archer.js · cfg` |
 | TEAL-ARCHER | 46 | 11 | 3.35 | 0.41 | 165 | Ranged — band 8–12 m, volley every 2 s, projectile 12.5 m/s, telegraph 0.48 s | `src/content/enemies/teal-archer.js · cfg` |
+| BLACK-RAVEN | 132 | 22 | 2.8 | 0.52 | 260 | Melee — reach 2.8 m, arc 130°, telegraph 0.6 s, recovery 0.5 s, cooldown 0.7 s | `src/content/enemies/black-raven.js · cfg` |
+| SPEARMAN | 58 | 12 | 2.35 | 0.44 | 130 | Melee — reach 3.15 m, arc 42°, telegraph 0.46 s, recovery 0.36 s, cooldown 0.64 s | `src/content/enemies/spearman.js · cfg` |
 
 ## Items & pickups
 
@@ -184,6 +189,13 @@ The weighted fill pool is global (each kind's `fill {from, weight, ramp}` in its
 | CROSSBOWMAN | 22 / 11 / 0 | **22 / 14 / -0.05** | `src/content/maps/grassland.js · map.fill` |
 | RUSSET-ARCHER | 28 / 11 / 0 | **28 / 14 / -0.05** | `src/content/maps/grassland.js · map.fill` |
 | TEAL-ARCHER | 40 / 10 / 0 | **58 / 28 / -0.06** | `src/content/maps/grassland.js · map.fill` |
+| BLACK-RAVEN | 46 / 8 / 0 | **9999 / 8 / 0** | `src/content/maps/grassland.js · map.fill` |
+
+### Chapter 2 — GRAVEYARD FOREST (overrides)
+
+| Enemy | Global from (s) / weight / ramp | This chapter from (s) / weight / ramp | Source |
+|---|---|---|---|
+| BLACK-RAVEN | 46 / 8 / 0 | **120 / 8 / 0** | `src/content/maps/graveyard-forest.js · map.fill` |
 
 ## Account progression — the server profile stat block (M2/M3)
 

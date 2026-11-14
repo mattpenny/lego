@@ -60,7 +60,7 @@ export const RULES = deepFreeze({
     relay: 'wss://dragon-alley-relay.ccac-church.workers.dev/ws',
     /* LOAD-BEARING: co-op peers must agree. Bump ONLY when sim behaviour
        actually changes. A view-only content edit must NOT bump this. */
-    build: 'AB-NET-16',
+    build: 'AB-NET-17',
     graceMs: 60000,
   },
 

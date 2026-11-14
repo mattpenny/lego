@@ -78,6 +78,11 @@ export const grassland = {
       'kraken-knight':  { from: 132, weight: 80 },
       'tower-knight':   { from: 150, weight: 200 },
       'dragon-knight':  { from: 158, weight: 160 },
+      /* BLACK RAVEN (content pack 2026-11-14) is a mid-chapters elite:
+         gated OUT of chapter 1 entirely (from beyond the wave length).
+         The spearman needs no override — Matt's levy is early-chapter
+         spacing pressure and chapter 1 is exactly where it belongs. */
+      'black-raven':    { from: 9999 },
     },
   },
   added: '2026-11-13',

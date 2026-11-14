@@ -36,6 +36,11 @@ import { dragonKnight } from './dragon-knight.js';
 import { crossbowman } from './crossbowman.js';
 import { russetArcher } from './russet-archer.js';
 import { tealArcher } from './teal-archer.js';
+/* Reference-grid infantry (content pack 2026-11-14): the hooded demon
+   knight elite and the long-reach levy. Fill orders 20/21 continue the
+   pool sequence; their stat blocks are the pack's, verbatim. */
+import { blackRaven } from './black-raven.js';
+import { spearman } from './spearman.js';
 import { MELEE_DEFAULTS, GLOBAL_ENEMY_CAP } from './shared.js';
 import { BOSSES, BOSS_NAMES, BOSS_CFG, BOSS_PHASE2, BOSS_FIGURE, BOSS_IDS, BOSS_CFG_BY_CHAPTER } from './bosses/index.js';
 
@@ -48,6 +53,7 @@ export const ENEMIES = deepFreeze({
   'lion-knight': lionKnight, 'kraken-knight': krakenKnight,
   'tower-knight': towerKnight, 'dragon-knight': dragonKnight,
   crossbowman, 'russet-archer': russetArcher, 'teal-archer': tealArcher,
+  'black-raven': blackRaven, spearman,
 });
 export const ENEMY_KINDS = deepFreeze(Object.keys(ENEMIES));
 

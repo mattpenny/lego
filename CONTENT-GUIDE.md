@@ -1349,3 +1349,128 @@ the 2.56× pixel count and contention with parallel work. They say
 "HD costs much more GPU-side work", nothing more precise. **The real
 verdict is Matt's phone**: if HD holds 60 FPS there, the default can
 be revisited; until then SD remains the default.
+## 16. Matt's content pack: twin Spiked Ogres, two new enemies, the ANSUM skin (AB-NET-17)
+
+On 2026-11-14 Matt uploaded a content pack built by another agent
+(`aetherblade-new-content.zip`: 8 new content files + their versions of
+the shared files). The pack was authored against a STALE tree (stamp
+AB-NET-10), so the integration rule was: **new content files as-is,
+shared files never overwritten** — only the mechanisms the new content
+needs were ported onto the current tree. Matt's own overrides beat the
+pack README wherever they differ.
+
+**Chapter 4 boss — the Spiked Ogre, TWINS.** The pack shipped one ogre;
+Matt ordered two at once in different colours, bigger. The boss
+descriptor (`enemies/bosses/spiked-ogre.js`) gains `twinFigure:
+'ogre-rust'`: `spawnBoss` fields two instances of the same boss — the
+original green hide (`figures/ogre.js`, meshScale 1.55) and a rust
+red-brown variant (`figures/ogre-rust.js`, same parts, tint override) —
+sweeping in from opposite sides. Consequences in the sim:
+
+- The sim now carries **`s.bosses[]`** (it was a single `s.boss`).
+  `s.boss` survives as a compat alias (first living boss) for the
+  view/audio/hook readers. The chapter clears only when **every** boss
+  is dead; each ogre scores the descriptor's full 2,600 and carries the
+  full 520 HP — player-count scaling applies per ogre, so the solo
+  fight totals **1,040 HP**. Phase 2 (summon/enrage) and FURY run per
+  ogre independently through the shared machinery.
+- New signature states, ported from the pack's game.js: **spin**
+  (telegraph 0.75 s, 0.55 s whirl, 4.6 m full circle, 30 dmg, cd 6.5 s)
+  and **super slam** (telegraph 0.95 s, 5.4 m full circle — no safe
+  arc — 38 dmg, cd 9 s), in the approach priority after breath and
+  before charge/slam. Their cooldowns and one-shot hit flags ride the
+  per-boss digest line, so twin fights stay lockstep-verifiable.
+- Telegraphs render as fixed-radius warning rings (`fireWarn` +
+  `WARN_POOL`, widened 2 → 4 because two ogres can telegraph at once)
+  plus `dustRing()` on the shared particle system.
+- The boss HUD aggregates: one bar, summed HP over summed max HP, the
+  name gains a `× N` suffix while more than one boss lives, and the
+  off-screen arrow tracks the nearest living boss.
+- The chapter-4 placeholder (`frost-sovereign.js`, a Grave Sovereign
+  re-skin) is retired — this is Matt's own boss now. Chapters 5–6
+  placeholders remain.
+
+**Pack bug #1 — fixed here.** Their bug log named it: `syncViews`
+built every non-custom boss with a hard-coded `makeView('boss', …)`,
+so a standard-rig boss would draw as the generic warlord (the drake
+and lancer are custom figures, which masked it). Our tree had the same
+line; the boss view loop now builds `makeView(b.fig, b.id)` with the
+figure carried on the boss at spawn, and drops a stale view whose kind
+no longer matches. The same kind guard was added to the **enemy** view
+loop: entity ids restart with a fresh sim (test hooks, co-op resume
+replay), and a stale dragon/lancer view (stub bones) under a recycled
+id crashed `updateAnim` — measured in the pack rigs, fixed by the same
+one-line pattern the hero/boss loops already had.
+
+**Enemies — black-raven and spearman**, stat blocks verbatim from the
+pack (the AB-NET-15 ×1.1 elite/heraldic buff does NOT apply — they were
+authored fresh). Placement follows the descriptors' fill semantics
+through per-chapter overrides: **spearman** (58 HP, reach 3.15 m, cap
+4) is global fill from 10 s in every chapter — the early spacing
+filler. **Black-raven** (132 HP, 22 dmg, reach 2.80 m, cap 2) is
+global from 46 s, **gated out of chapter 1** (`grassland.js` fill
+override `from: 9999` — chapter 1 stays Matt's softened opener) and a
+**late cameo in chapter 2** (`graveyard-forest.js` override
+`from: 120`); chapters 3–6 take it from 46 s. Proof note: a natural
+wave deals too few eligible draws to census a ~3%-weight kind (the
+director is cap-bound, ~55 post-46 s draws per wave), so placement was
+proven by pinned-clock pool censuses — chapter 1 dealt 0 ravens in 217
+draws, chapter 2 at 150 s dealt 12, chapter 3 dealt 7 — with the
+natural-wave census as supporting evidence (33 spearmen across four
+chapter-1 waves; alive caps 4/2 never exceeded).
+
+**ANSUM — a skin, not a hero.** The pack's `heroes/ansum.js` joins the
+base hero's skin list (skins ARE hero-registry entries in this
+codebase, so HEROES goes 7 → 8; no new identity, stats or playable
+character was added). Matt's unlock rule overrides the pack's 500 G
+price: the descriptor carries **`accountLevel: 5`** and `price: 0`.
+The gate is view-layer and reads the account profile (the source of
+truth): signed-in level ≥ 5 selects it in the Armoury like any skin
+(label shows `(ACCOUNT LV 5)`); below 5, and for guests, the button is
+a lock that explains itself (`🔒 HERO: ANSUM · ACCOUNT LV 5`) and
+**`activeSkin()` falls back to the plain hero at every run/roster
+entry point**, so a forged or stale local save cannot wear it. Its
+signature is the new **`fire`** magic kind: `castMagic` scales the
+blast by the caster's `dmgMul` — (60 + magicDmg mods) × 1.6 = **96**
+for a plain account, no freeze/knockback — with an orange burst +
+ring VFX branch. Co-op rosters carry the skin id in the snapshot, so
+a fire cast resolves identically on every client. Proof (rig
+`ab-pack-coop.mjs`, two maxed test accounts — in the account era
+co-op snapshots zero local tracks, so naked accounts cannot farm
+the 20-kill meter at N=2 scaling): across the successful paired
+runs, the host's heroId was `ansum` on BOTH pages; a fire cast was
+recorded at the same net step (4914) on both pages with all 10
+checkpoint hashes cross-agreeing through step 6000
+(`lastMine == lastTheirs`), and in a second run a raven-knight lost
+exactly 96 HP on both pages at the cast step with the meter ledger
+(29 kills, magic 8) balancing only with exactly one 20-point cast.
+The bot farm itself is variance-heavy on a throttled VM (several
+attempts died or timed out short of 20 kills) — every sync-critical
+assertion held in every run that reached a cast; solo fire damage
+(exactly 96 × 4 targets) is proven deterministically in
+`ab-pack-ansum.mjs`.
+
+**Picker flow fix (measured while integrating).** Armoury-selected
+skins could never reach a run: START RUN → the identity picker →
+BEGIN RUN unconditionally overwrote `META.heroSkin` with the
+highlighted identity (measured: an owned knight skin entered the run
+as plain `hero`). That would have made ANSUM — and every class skin —
+display-only. The picker now writes the identity only when a card was
+actually picked, or an identity is already worn; a plain confirm keeps
+the Armoury selection. View/flow only, no sim change.
+
+**Housekeeping from the pack.** `loadMeta()` gained the pack's
+one-line guard (`m.hints = m.hints || {}`) for old saves. The pack's
+DELETE.txt named `frost-warden.js` — that file never existed in this
+tree (their chapter-4 boss); nothing was deleted for it. STATS.md was
+regenerated; its generator learned the fire branch, `accountLevel`
+unlocks, spin/super attack rows, and the chapter-4 boss file.
+
+**Digests.** Re-recorded once via `content:baseline` on the merged
+tree (this round rebased onto AB-NET-16, so the stamp is AB-NET-17;
+the picker fix itself had moved no scenario digest). fresh
+`83c6cea8…` and idle600 `a3447f9a…` and coop1200 `fc3c8cb2…`
+unchanged; combat3600 `1f8cd372…` and altSeed `c7833f01…` moved
+(the fill pool gained two kinds and their caps); combined
+`faea7271…`. Counts: HEROES 8, FIGURES 33 (+5: ansum, black-raven,
+spearman, ogre, ogre-rust), ENEMIES 24, BOSSES 6.

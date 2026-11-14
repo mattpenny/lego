@@ -56,7 +56,7 @@ function run(script, args = []) {
      content lands, so reconcile this line once after concurrent branches
      (heroes and enemies) have merged — it is a shared integration point.
      (Wording adopted from the heraldic-enemies handoff, AB-NET-8.) */
-  const expected = { HEROES: 7, FIGURES: 28, ENEMIES: 22, BOSSES: 6,
+  const expected = { HEROES: 8, FIGURES: 33, ENEMIES: 24, BOSSES: 6,
                      ITEMS: 3, PROPS: 14, MAPS: 6, UPGRADES: 9 };
   for (const [k, v] of Object.entries(expected)) {
     if (counts[k] !== v) errors.push(`schema: expected ${v} ${k}, found ${counts[k]}`);
@@ -293,8 +293,11 @@ function run(script, args = []) {
     errors.push(`helpers: safeHero() did not fall back to "${DEFAULT_HERO}"`);
   if (!hasHero(DEFAULT_HERO) || heroName(DEFAULT_HERO) !== HEROES[DEFAULT_HERO].displayName)
     errors.push('helpers: default hero lookup / display name is broken');
-  if (Object.keys(HERO_COSTS).length !== Object.keys(HEROES).length - 1)
-    errors.push('helpers: HERO_COSTS should price every non-default hero');
+  /* HERO_COSTS prices every non-default hero EXCEPT account-level-gated
+     skins (descriptor `accountLevel`): those are never sold for gold. */
+  const gatedCount = Object.values(HEROES).filter((h) => h.accountLevel !== undefined).length;
+  if (Object.keys(HERO_COSTS).length !== Object.keys(HEROES).length - 1 - gatedCount)
+    errors.push('helpers: HERO_COSTS should price every non-default, non-level-gated hero');
   info.push('helpers   safeHero / heroName / HERO_COSTS consistent');
   info.push('content   ' + contentSummary().counts.HEROES + ' heroes, ' +
     Object.keys(ITEMS).length + ' items, ' + Object.keys(PROPS).length + ' props, ' +

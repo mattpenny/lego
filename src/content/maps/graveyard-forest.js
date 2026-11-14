@@ -18,6 +18,12 @@ export const graveyardForest = {
     rocks: 24, pillars: 12, stones: 30,
     fenceRuns: 6, hills: 64, torches: 12, lavaPools: 0, reeds: 18,
     eventPack: ['sorcerer', 'archer', 'archer'],
+    /* BLACK RAVEN (content pack 2026-11-14): a mid-chapters elite — in
+       chapter 2 it is a late-wave cameo only (from 120 s of the 180 s
+       wave); chapters 3+ use its global fill entry (from 46 s). */
+    fill: {
+      'black-raven': { from: 120 },
+    },
   },
   added: '2026-11-13',
   notes: 'Crypt (block kind 2) plus four grave markers (kind 3); 30 gravestones from tryPlace().',

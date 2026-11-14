@@ -5,17 +5,20 @@ import { deepFreeze } from '../../schema.js';
 import { emeraldDrake } from './emerald-drake.js';
 import { graveSovereign } from './grave-sovereign.js';
 import { ironLancer } from './iron-lancer.js';
-/* Chapters 4-6 — PLACEHOLDER bosses (Matt creates his own later): the
-   existing three bosses reappear with late-game HP. The handoff pack's
-   frost-warden / cinder-lancer / siege-wyrm were NOT adopted. */
-import { frostSovereign } from './frost-sovereign.js';
+/* Chapter 4 — Matt's own boss (content pack 2026-11-14): THE SPIKED
+   OGRE replaces the Grave Sovereign placeholder, fielded as a twin pair
+   (see the descriptor's twinFigure). Chapters 5-6 remain PLACEHOLDER
+   bosses (Matt creates his own later): the existing bosses reappear
+   with late-game HP. The earlier handoff pack's frost-warden /
+   cinder-lancer / siege-wyrm were NOT adopted. */
+import { spikedOgre } from './spiked-ogre.js';
 import { calderaDrake } from './caldera-drake.js';
 import { siegeLancer } from './siege-lancer.js';
 import { BOSS_CFG, BOSS_PHASE2, BOSS_FIGURE } from './shared.js';
 
 export const BOSSES = deepFreeze({
   1: emeraldDrake, 2: graveSovereign, 3: ironLancer,
-  4: frostSovereign, 5: calderaDrake, 6: siegeLancer,
+  4: spikedOgre, 5: calderaDrake, 6: siegeLancer,
 });
 export const BOSS_IDS = deepFreeze(Object.values(BOSSES).map((b) => b.id));
 

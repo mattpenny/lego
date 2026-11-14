@@ -371,7 +371,7 @@ function newSim(seed,players){
     phase:'title', chapter:1, map:null,
     waveLeft:CFG.waveSeconds, bossSpawned:false, bossHits:0,
     heroes:[], players:1, resume:null,
-    enemies:[], projectiles:[], arrows:[], gems:[], heals:[], boss:null,
+    enemies:[], projectiles:[], arrows:[], gems:[], heals:[], bosses:[],
     nextId:1, score:0, kills:0, level:1, xp:0, xpNeed:8,
     up:{edge:0,tempo:0,reach:0,boots:0,reflex:0,magnet:0,crit:0,siphon:0},
     choices:[], pickWait:0, hitStop:0, spawnTimer:1.2, chapterClearTimer:0,
@@ -390,6 +390,14 @@ function newSim(seed,players){
   for(let i=0;i<s.players;i++)s.heroes.push(mkHero(i,s.players));
   Object.defineProperty(s,'hero',{enumerable:true,
     get(){ return this.heroes[0]; }, set(v){ this.heroes[0]=v; }});
+  /* Boss LIST: one entry for most chapters, TWO for a twin chapter
+     (descriptor twinFigure — chapter 4's ogres). All sim logic iterates
+     s.bosses; `s.boss` remains as a compat alias for the FIRST boss so
+     view-layer call sites (pause restore, HUD presence, test hooks)
+     keep their single-boss reading. Assigning null clears the list. */
+  Object.defineProperty(s,'boss',{enumerable:true,
+    get(){ return this.bosses[0]||null; },
+    set(v){ if(v==null)this.bosses.length=0; else if(this.bosses[0]!==v)this.bosses[0]=v; }});
   s.map=buildMapData(1);
   return s;
 }
@@ -607,7 +615,9 @@ function damageBoss(s,b,dmg,crit){
     emit('bossDeath',{x:b.x,z:b.z});
     addHitStop(s,CFG.hitStopMs.bossKill);
     emit('shake',{v:1.0});
-    s.phase='clear'; s.chapterClearTimer=1.6;
+    /* Twin chapters field two bosses: the chapter clears only when
+       EVERY boss is dead — killing one ogre leaves the other fighting. */
+    if(s.bosses.every(x=>x.hp<=0)){ s.phase='clear'; s.chapterClearTimer=1.6; }
   }
 }
 
@@ -645,20 +655,27 @@ function castMagic(s,h){
      selected hero); skins without one keep the plain blast. */
   const sig=HERO_MAGIC[h.heroId]||null;
   /* The CASTER's account block feeds the blast (Charm, plan section
-     6): 60 + P.magicDmg. Zero for guests/legacy — bit-identical. */
-  const blast=CFG.magic.dmg+((h.mods&&h.mods.magicDmg)||0);
+     6): 60 + P.magicDmg. Zero for guests/legacy — bit-identical.
+     FIRE CRESCENT (the ANSUM signature skin): a fire signature scales
+     the blast instead of adding control — (60 + mods) x dmgMul, so a
+     plain account casts for exactly 96. dmgMul is content data, hashed
+     by SIM_CONTENT, so the damage stays deterministic. */
+  const blast=(CFG.magic.dmg+((h.mods&&h.mods.magicDmg)||0))*((sig&&sig.dmgMul)||1);
   for(let i=0;i<s.enemies.length;i++){
     const e=s.enemies[i]; if(e.dead)continue;
     const rr=R+CFG.enemy[e.type].radius;
     if(dist2(e.x,e.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:e.x,z:e.z}); damageEnemy(s,e,blast,false);
       if(sig&&!e.dead)applyMagicSig(s,h,sig,e,CFG.enemy[e.type].radius,false); }
   }
-  const b=s.boss;
-  if(b&&b.hp>0){ const rr=R+bossCfgOf(s).radius;
+  for(const b of s.bosses){
+    if(b.hp<=0)continue;
+    const rr=R+bossCfgOf(s).radius;
     if(dist2(b.x,b.z,h.x,h.z)<=rr*rr){ emit('bolt',{x:b.x,z:b.z,boss:1}); damageBoss(s,b,blast,false);
-      if(sig&&b.hp>0)applyMagicSig(s,h,sig,b,bossCfgOf(s).radius,true); } }
+      if(sig&&b.hp>0)applyMagicSig(s,h,sig,b,bossCfgOf(s).radius,true); }
+  }
   emit('magic',{x:h.x,z:h.z,r:R,sig:sig?sig.kind:''});
   if(sig&&sig.kind==='earth')emit('shake',{v:0.9});
+  if(sig&&sig.kind==='fire')emit('shake',{v:0.7});
   addHitStop(s,CFG.magic.stopMs);
 }
 
@@ -685,8 +702,8 @@ function doHeroHit(s,h,st){
     const crit=rnd(s)<st.crit;
     damageEnemy(s,e,st.dmg*(crit?1.7:1),crit);
   }
-  const b=s.boss;
-  if(b && b.hp>0){
+  for(const b of s.bosses){
+    if(b.hp<=0)continue;
     const dx=b.x-h.x, dz=b.z-h.z, d=Math.sqrt(dx*dx+dz*dz);
     const br=bossCfgOf(s).radius;
     if(d<=st.range+br && inArc(dx,dz,d,br)){
@@ -737,8 +754,8 @@ function fireArrow(s,h,st,atk){
     const e=s.enemies[i]; if(e.dead)continue;
     consider(e.x,e.z,CFG.enemy[e.type].radius,e.vx,e.vz);
   }
-  const b=s.boss;
-  if(b&&b.hp>0)consider(b.x,b.z,bossCfgOf(s).radius,b.vx,b.vz);
+  for(const b of s.bosses)
+    if(b.hp>0)consider(b.x,b.z,bossCfgOf(s).radius,b.vx,b.vz);
   s.arrows.push({id:s.nextId++, x:h.x, z:h.z,
     vx:fx*atk.speed, vz:fz*atk.speed,
     dmg:st.dmg, critP:st.crit, r:atk.r||0.25, dist:0, max:atk.range});
@@ -759,7 +776,7 @@ function updateArrows(s,dt){
     const stepLen=spd*dt;
     const go=Math.min(stepLen, a.max-a.dist);      // never fly past max range
     const segX=a.vx/spd*go, segZ=a.vz/spd*go;      // this step's segment delta
-    let hitT=Infinity, hitE=null, hitBoss=false;
+    let hitT=Infinity, hitE=null, hitB=null;
     const testBody=(tx,tz,tr)=>{
       const rr=tr+a.r;
       const ox=a.x-tx, oz=a.z-tz;
@@ -778,16 +795,16 @@ function updateArrows(s,dt){
     for(let j=0;j<s.enemies.length;j++){
       const e=s.enemies[j]; if(e.dead)continue;
       const t=testBody(e.x,e.z,CFG.enemy[e.type].radius);
-      if(t>=0&&t<hitT){ hitT=t; hitE=e; hitBoss=false; }
+      if(t>=0&&t<hitT){ hitT=t; hitE=e; hitB=null; }
     }
-    const b=s.boss;
-    if(b&&b.hp>0){
+    for(const b of s.bosses){
+      if(b.hp<=0)continue;
       const t=testBody(b.x,b.z,bossCfgOf(s).radius);
-      if(t>=0&&t<hitT){ hitT=t; hitE=null; hitBoss=true; }
+      if(t>=0&&t<hitT){ hitT=t; hitE=null; hitB=b; }
     }
-    if(hitE||hitBoss){
+    if(hitE||hitB){
       const crit=rnd(s)<a.critP;
-      if(hitBoss)damageBoss(s,b,a.dmg*(crit?1.7:1),crit);
+      if(hitB)damageBoss(s,hitB,a.dmg*(crit?1.7:1),crit);
       else damageEnemy(s,hitE,a.dmg*(crit?1.7:1),crit);
       continue;                                  // first hit only — the arrow dies
     }
@@ -1057,8 +1074,8 @@ function breathDamage(s,b,B){
   }
 }
 
-function updateBoss(s,dt){
-  const b=s.boss; if(!b||b.hp<=0)return;
+function updateBoss(s,b,dt){
+  if(!b||b.hp<=0)return;
   const B=bossCfgOf(s);
   /* FURY tempo: telegraph durations and cooldowns that START while
      the boss is furious are divided by tempoMul (attack speed +15%).
@@ -1074,6 +1091,7 @@ function updateBoss(s,dt){
   if((b.frozen||0)>0){ b.frozen--; b.hitFlash=Math.max(0,(b.hitFlash||0)-dt*4); b.vx=0; b.vz=0; return; }
   b.hitFlash=Math.max(0,(b.hitFlash||0)-dt*4);
   b.cd=Math.max(0,b.cd-dt); b.slamCd=Math.max(0,b.slamCd-dt);
+  b.spinCd=Math.max(0,(b.spinCd||0)-dt); b.superCd=Math.max(0,(b.superCd||0)-dt);
   if(B.breath)b.brCd=Math.max(0,(b.brCd||0)-dt);
   const h=nearestHero(s,b.x,b.z);
   const dx=h.x-b.x, dz=h.z-b.z, d=Math.sqrt(dx*dx+dz*dz)||0.001;
@@ -1118,6 +1136,22 @@ function updateBoss(s,dt){
       b.lockYaw=b.yaw; b.state='breathTele'; b.timer=B.breath.tele/tempo;
       mvx=0;mvz=0;
       emit('bossTelegraph',{x:b.x,z:b.z,kind:'BREATH'});
+    }else if(B.superRange && d<=B.superRange && b.superCd<=0){
+      /* Super slam (Spiked Ogre): the longest telegraph in the game, and
+         the only boss attack that damages a CIRCLE rather than an arc —
+         the dodge is "leave the ring", not "step sideways". The fixed
+         warning ring (bossWindup) shows exactly where it lands. */
+      b.lockYaw=b.yaw; b.state='superTele'; b.timer=B.superTele/tempo;
+      mvx=0;mvz=0;
+      emit('bossTelegraph',{x:b.x,z:b.z,kind:'SLAM'});
+      emit('bossWindup',{x:b.x,z:b.z,r:B.superRange,kind:'super'});
+    }else if(B.spinRange && d<=B.spinRange && b.spinCd<=0){
+      /* 360-degree spin (Spiked Ogre): no facing lock matters, the
+         whole circle is hit. */
+      b.lockYaw=b.yaw; b.state='spinTele'; b.timer=B.spinTele/tempo;
+      mvx=0;mvz=0;
+      emit('bossTelegraph',{x:b.x,z:b.z,kind:'SPIN'});
+      emit('bossWindup',{x:b.x,z:b.z,r:B.spinRange,kind:'spin'});
     }else if(d>B.chargeRange && b.cd<=0){
       b.lockYaw=b.yaw; b.state='chargeTele'; b.timer=B.chargeTele/tempo;
       mvx=0;mvz=0;
@@ -1170,6 +1204,60 @@ function updateBoss(s,dt){
     }
   }else if(b.state==='slam'){
     b.timer-=dt; if(b.timer<=0){ b.state='recover'; b.timer=0.55; b.slamCd=1.1/tempo; }
+  }else if(b.state==='superTele'){
+    /* Stationary, club raised, facing frozen. Creeps forward very
+       slowly so the slam still lands on a hero who only backs off a
+       step (the pack's super/spin telegraph behaviour). */
+    b.timer-=dt; b.yaw=b.lockYaw;
+    if(d>stopDist){ const sp=B.speed*0.45; mvx=dx/d*sp; mvz=dz/d*sp; }
+    if(b.timer<=0){
+      b.state='superSlam'; b.timer=B.superDur||0.45; b.superHit=false;
+      emit('bossSuperSlam',{x:b.x,z:b.z,r:B.superRange});
+    }
+  }else if(b.state==='superSlam'){
+    /* One damage tick, applied on the first step of the impact.
+       Circular: no arc test, no facing requirement — anything inside
+       the ring is hit, which is what makes it different from every
+       other boss slam. Damage pipeline matches the normal slam
+       (enrage bonus, cfg dmgMul, player-count scale, rounded once). */
+    b.timer-=dt;
+    if(!b.superHit){
+      b.superHit=true;
+      let any=false;
+      for(let i=0;i<s.heroes.length;i++){
+        const t=s.heroes[i];
+        const td=Math.sqrt((t.x-b.x)*(t.x-b.x)+(t.z-b.z)*(t.z-b.z));
+        if(td<=B.superRange && hurtHero(s,t,Math.round(Math.round((B.superDmg+(b.enraged?CFG.boss2.slamBonus:0))*(B.dmgMul||1))*s.dmgScale),'boss'))any=true;
+      }
+      if(any)emit('bossSlam',{x:b.x,z:b.z});
+      emit('bossDust',{x:b.x,z:b.z,r:B.superRange});
+      emit('shake',{v:0.95});
+    }
+    if(b.timer<=0){ b.state='recover'; b.timer=0.7; b.superCd=B.superCd/tempo; b.slamCd=0.6/tempo; }
+  }else if(b.state==='spinTele'){
+    b.timer-=dt; b.yaw=b.lockYaw;
+    if(d>stopDist){ const sp=B.speed*0.45; mvx=dx/d*sp; mvz=dz/d*sp; }
+    if(b.timer<=0){
+      b.state='spin'; b.timer=B.spinDur||0.55; b.spinHit=false; b.spinAngle=0;
+      emit('bossSpinStart',{x:b.x,z:b.z,r:B.spinRange});
+    }
+  }else if(b.state==='spin'){
+    /* One full revolution. `spinAngle` drives the view only; the damage
+       is a single tick at mid-spin so the hit reads as the club
+       sweeping past. Same damage pipeline as the super slam. */
+    const sdur=B.spinDur||0.55;
+    b.timer-=dt;
+    b.spinAngle=(1-Math.max(0,b.timer)/sdur)*Math.PI*2;
+    if(!b.spinHit && b.timer<=sdur*0.55){
+      b.spinHit=true;
+      for(let i=0;i<s.heroes.length;i++){
+        const t=s.heroes[i];
+        const td=Math.sqrt((t.x-b.x)*(t.x-b.x)+(t.z-b.z)*(t.z-b.z));
+        if(td<=B.spinRange)hurtHero(s,t,Math.round(Math.round((B.spinDmg+(b.enraged?CFG.boss2.slamBonus:0))*(B.dmgMul||1))*s.dmgScale),'boss');
+      }
+      emit('bossSpinHit',{x:b.x,z:b.z,r:B.spinRange});
+    }
+    if(b.timer<=0){ b.state='recover'; b.timer=0.5; b.spinCd=B.spinCd/tempo; b.slamCd=0.7/tempo; }
   }else if(b.state==='breathTele'){
     /* Stationary, head rearing, facing frozen at lockYaw. */
     b.timer-=dt; b.yaw=b.lockYaw;
@@ -1334,20 +1422,13 @@ function makeEnemy(s,type,x,z,cd){
 function spawnBoss(s){
   const ah=anchorHero(s);
   const BC=bossCfgOf(s);
-  const a0=rnd(s)*TAU, rr=rndR(s,BC.spawnMin,BC.spawnMax);
-  /* Keep the spawn inside the arena WITHOUT shortening the required 26-30 m
-     gap. Sweep directions until one fits; an inward direction always exists
-     for a 40 m arena and a hero anywhere inside it. */
-  let x=0,z=0,ok=false;
-  for(let t=0;t<24;t++){
-    const a=a0+t*(TAU/24);
-    x=ah.x+Math.sin(a)*rr; z=ah.z+Math.cos(a)*rr;
-    if(Math.sqrt(x*x+z*z)<=ARENA_R-3){ ok=true; break; }
-  }
-  if(!ok){
-    const hr=Math.sqrt(ah.x*ah.x+ah.z*ah.z)||1;
-    x=ah.x-ah.x/hr*rr; z=ah.z-ah.z/hr*rr;
-  }
+  const BD=BOSSES[s.chapter]||{};
+  /* One boss for most chapters; a descriptor carrying `twinFigure`
+     fields TWO of the same boss in different colours (chapter 4's
+     Spiked Ogres — Matt, 2026-11-14). The twin sweeps from the opposite
+     side of the arena and consumes its own spawn rolls; single-boss
+     chapters consume the rng exactly as before. */
+  const figs=[BD.figure||'boss']; if(BD.twinFigure)figs.push(BD.twinFigure);
   /* AB-NET-13 (Matt): the field does NOT clear when the boss arrives.
      Enemies already spawned stay — current HP, current state — and keep
      fighting alongside the boss; wave spawning has already stopped
@@ -1355,14 +1436,34 @@ function spawnBoss(s){
      still clear: they are transient, not field enemies. Chapter advance
      (phase 'clear') still resets the field as before. */
   s.projectiles=[];
-  const bhp=Math.round(BC.hp*s.hpScale);   // bosses share the enemy HP scaling rule
-  s.boss={id:s.nextId++,x,z,yaw:Math.atan2(ah.x-x,ah.z-z),lockYaw:0,
-    hp:bhp,maxHp:bhp,state:'approach',timer:0,cd:2.2,slamCd:0,
-    chargeVX:0,chargeVZ:0,chargeHit:false,pursuit:0,hitFlash:0,vx:0,vz:0,frozen:0,
-    stuckT:0,detourT:0,detourS:1,lastD:-1,wantMode:0,watchX:x,watchZ:z,
-    brCd:BC.breath?BC.breath.firstCd:0,brTick:0};
+  const bhp=Math.round(BC.hp*s.hpScale);   // bosses share the enemy HP scaling rule (applied per boss)
+  s.bosses=[];
+  let fx=0, fz=0;
+  figs.forEach((fig,bi)=>{
+    const a0=rnd(s)*TAU+(bi?Math.PI:0), rr=rndR(s,BC.spawnMin,BC.spawnMax);
+    /* Keep the spawn inside the arena WITHOUT shortening the required 26-30 m
+       gap. Sweep directions until one fits; an inward direction always exists
+       for a 40 m arena and a hero anywhere inside it. */
+    let x=0,z=0,ok=false;
+    for(let t=0;t<24;t++){
+      const a=a0+t*(TAU/24);
+      x=ah.x+Math.sin(a)*rr; z=ah.z+Math.cos(a)*rr;
+      if(Math.sqrt(x*x+z*z)<=ARENA_R-3){ ok=true; break; }
+    }
+    if(!ok){
+      const hr=Math.sqrt(ah.x*ah.x+ah.z*ah.z)||1;
+      x=ah.x-ah.x/hr*rr; z=ah.z-ah.z/hr*rr;
+    }
+    if(bi===0){ fx=x; fz=z; }
+    s.bosses.push({id:s.nextId++,fig,x,z,yaw:Math.atan2(ah.x-x,ah.z-z),lockYaw:0,
+      hp:bhp,maxHp:bhp,state:'approach',timer:0,cd:2.2,slamCd:0,
+      chargeVX:0,chargeVZ:0,chargeHit:false,pursuit:0,hitFlash:0,vx:0,vz:0,frozen:0,
+      stuckT:0,detourT:0,detourS:1,lastD:-1,wantMode:0,watchX:x,watchZ:z,
+      spinCd:0,superCd:0,spinAngle:0,spinHit:false,superHit:false,
+      brCd:BC.breath?BC.breath.firstCd:0,brTick:0});
+  });
   s.bossSpawned=true; s.bossSpawnTick=s.tick; s.phase='boss';
-  emit('bossSpawn',{x,z,dist:Math.sqrt((x-ah.x)*(x-ah.x)+(z-ah.z)*(z-ah.z))});
+  emit('bossSpawn',{x:fx,z:fz,dist:Math.sqrt((fx-ah.x)*(fx-ah.x)+(fz-ah.z)*(fz-ah.z))});
 }
 function simStep(raw){
   const s=SIM;
@@ -1445,7 +1546,7 @@ function simStep(raw){
   updateEnemies(s,FIXED);
   updateProjectiles(s,FIXED);
   updateArrows(s,FIXED);
-  if(s.boss)updateBoss(s,FIXED);
+  for(const b of s.bosses)updateBoss(s,b,FIXED);
   collectPickups(s);
 }
 
@@ -1494,8 +1595,12 @@ function simDigest(s){
   }
   put('G'+s.gems.length);for(const g of s.gems)for(const v of [g.id,g.x,g.z])put(q(v));
   put('H'+s.heals.length);for(const o of s.heals)for(const v of [o.id,o.x,o.z])put(q(v));
-  if(s.boss){const b=s.boss;put('B1');for(const v of [b.x,b.z,b.yaw,b.lockYaw,b.hp,b.timer,b.cd,b.slamCd,b.pursuit||0,b.state==='charge'?1:0,b.brCd||0,b.brTick||0])put(q(v));put(b.state);put(b.enraged?1:0);put(b.summoned?1:0);put(b.furious?1:0);put(b.frozen||0);}
-  else put('B0');
+  /* Boss line: count, then per boss the full state — including the
+     spin/super fields (hashed like the pack specified, so a twin ogre's
+     telegraph timers can never drift between co-op peers) and the
+     figure each boss wears (twin assignment is sim state). */
+  put('B'+s.bosses.length);
+  for(const b of s.bosses){ for(const v of [b.x,b.z,b.yaw,b.lockYaw,b.hp,b.timer,b.cd,b.slamCd,b.pursuit||0,b.state==='charge'?1:0,b.brCd||0,b.brTick||0,b.spinCd||0,b.superCd||0,b.spinHit?1:0,b.superHit?1:0])put(q(v)); put(b.state); put(b.fig||''); put(b.enraged?1:0); put(b.summoned?1:0); put(b.furious?1:0); put(b.frozen||0); }
   for(const k of Object.keys(s.up).sort())put(k+':'+s.up[k]);
   return (h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0');
 }
@@ -2179,13 +2284,13 @@ function updateAnim(v,dt,stateTime){
 }
 function clipFor(kind,st,speed){
   if(st==='roll')return 'roll';
-  if(st==='attack'||st==='strike'||st==='slam')return 'attack';
+  if(st==='attack'||st==='strike'||st==='slam'||st==='spin'||st==='superSlam')return 'attack';
   if(st==='hurt')return 'hurt';
   if(st==='dead')return 'death';
   if(st==='telegraph')return (ENEMIES[kind]&&ENEMIES[kind].cls==='ranged')?'cast':'telegraph';
   if(st==='chargeTele')return 'charge';
   if(st==='charge')return 'run';
-  if(st==='recovery'||st==='recover'||st==='slamTele')return 'telegraph';
+  if(st==='recovery'||st==='recover'||st==='slamTele'||st==='spinTele'||st==='superTele')return 'telegraph';
   if(st==='run'||st==='approach'||st==='chase')return speed>0.45?'run':'idle';
   return 'idle';
 }
@@ -2240,7 +2345,14 @@ function syncViews(s,dt){
   }
   for(let i=0;i<s.enemies.length;i++){
     const e=s.enemies[i]; seen.add(e.id);
-    let v=VIEWS.get(e.id); if(!v)v=makeView(e.type,e.id);
+    let v=VIEWS.get(e.id);
+    /* Same kind guard the hero and boss loops carry: entity ids restart
+       with a fresh sim (test-hook resets, co-op resume replay), and a
+       stale view under a recycled id must never be reused — a custom
+       boss's stub bones crash updateAnim, a standard view would silently
+       draw the wrong figure. */
+    if(v&&v.kind!==e.type){ scene.remove(v.mesh); if(v.dispose)v.dispose(); else v.mesh.material.dispose(); VIEWS.delete(e.id); v=null; }
+    if(!v)v=makeView(e.type,e.id);
     /* Frozen figures hold their pose: clip time does not advance and a
        moving state reads as idle (the ice shell sells the rest). */
     const frz=(e.frozen||0)>0;
@@ -2249,13 +2361,17 @@ function syncViews(s,dt){
     updateAnim(v,frz?0:dt,0);
     v.mesh.position.set(e.x,0,e.z); v.mesh.rotation.y=e.yaw;
   }
-  if(s.boss&&s.boss.hp>0){
-    const b=s.boss; seen.add(b.id);
-    /* The boss FIGURE is per-chapter content (bosses/<id>.js): chapter
-       2 wears the humanoid warlord rig; chapter 1's Emerald Drake and
-       chapter 3's Iron Lancer are custom-rendered quadrupeds, each with
-       its own view + procedural animation. */
-    const bfig=(BOSSES[s.chapter]||{}).figure||'boss';
+  for(const b of s.bosses){
+    if(b.hp<=0)continue;
+    seen.add(b.id);
+    /* The boss FIGURE is per-chapter content (bosses/<id>.js), carried
+       on the boss itself at spawn: chapter 2 wears the humanoid warlord
+       rig; chapter 1's Emerald Drake and chapter 3's Iron Lancer are
+       custom-rendered quadrupeds, each with its own view + procedural
+       animation; chapter 4 fields two standard-rig ogres in different
+       hides. (The pack's bug #1 lived here: a hard-coded 'boss' figure
+       made every standard-rig boss draw the generic warlord.) */
+    const bfig=b.fig||(BOSSES[s.chapter]||{}).figure||'boss';
     let v=VIEWS.get(b.id);
     if(v&&v.kind!==bfig){ scene.remove(v.mesh); if(v.dispose)v.dispose(); else v.mesh.material.dispose(); VIEWS.delete(b.id); v=null; }
     const bCustom=FIGURES[bfig]&&FIGURES[bfig].custom;
@@ -2267,8 +2383,8 @@ function syncViews(s,dt){
       if(!v)v=makeKnightMountView(b.id,b);
       updateKnightMountView(v,b,bfrz?0:dt);
     }else{
-      if(!v)v=makeView('boss',b.id);
-      setClip(v,clipFor('boss',b.state,bfrz?0:(b.state==='approach'?8:10)));
+      if(!v)v=makeView(bfig,b.id);
+      setClip(v,clipFor(bfig,b.state,bfrz?0:(b.state==='approach'?8:10)));
       updateAnim(v,bfrz?0:dt,0);
       v.mesh.position.set(b.x,0,b.z); v.mesh.rotation.y=b.yaw;
     }
@@ -2885,8 +3001,8 @@ function updatePickupMeshes(s,time){
   if(!GFX_HIGH){
     for(const h of s.heroes)put(h.x,h.z,0.55);
     for(const e of s.enemies)put(e.x,e.z,0.5);
-    if(s.boss&&s.boss.hp>0){ const bf=(BOSSES[s.chapter]||{}).figure;
-      put(s.boss.x,s.boss.z,(FIGURES[bf]&&FIGURES[bf].custom)?3.055:1.625); }  // blob shadow x1.3 with the boss size buff
+    for(const b of s.bosses)if(b.hp>0){ const bf=b.fig||(BOSSES[s.chapter]||{}).figure;
+      put(b.x,b.z,(FIGURES[bf]&&FIGURES[bf].custom)?3.055:1.625); }  // blob shadow x1.3 with the boss size buff
   }
   shadowMesh.count=n;shadowMesh.instanceMatrix.needsUpdate=true;
 }
@@ -3381,6 +3497,64 @@ function updateRings(dt){
     sigRingMeshes[i].visible=st.t<RING_LIFE;
   }
 }
+/* ---------- boss danger rings (cosmetic only; ported from the pack) --
+   A filled translucent disc plus a bright rim, held at a FIXED radius
+   and pulsing for the length of a boss wind-up. The expanding fireRing
+   above is wrong for this: a telegraph has to show exactly where the
+   damage will land, so the radius must not grow. Used by the Spiked
+   Ogre's 360-degree spin and its super slam. Pool is 4 (not the pack's
+   2) because chapter 4 fields TWO ogres whose telegraphs can overlap. */
+const WARN_POOL=4, WARN_LIFE=1.1;
+let warnMeshes=[], warnState=[];
+function setupWarnRings(){
+  for(let i=0;i<WARN_POOL;i++){
+    const g=new T.Group();
+    const disc=new T.Mesh(new T.CircleGeometry(1,48),
+      new T.MeshBasicMaterial({color:0xff3b18,transparent:true,opacity:0.16,
+        side:T.DoubleSide,depthWrite:false,fog:false}));
+    disc.rotation.x=-Math.PI/2; disc.position.y=0.05;
+    const rim=new T.Mesh(new T.RingGeometry(0.94,1.0,64),
+      new T.MeshBasicMaterial({color:0xff6a26,transparent:true,opacity:0.85,
+        side:T.DoubleSide,depthWrite:false,fog:false}));
+    rim.rotation.x=-Math.PI/2; rim.position.y=0.07;
+    g.add(disc); g.add(rim);
+    g.visible=false; g.frustumCulled=false;
+    scene.add(g); warnMeshes.push(g); warnState.push({t:9,r:1,life:WARN_LIFE});
+  }
+}
+function fireWarn(x,z,r,life){
+  let idx=warnState.findIndex(s=>s.t>=s.life);
+  if(idx<0)idx=0;
+  const st=warnState[idx];
+  st.t=0; st.r=r; st.life=life||WARN_LIFE;
+  const g=warnMeshes[idx];
+  g.position.set(x,0,z); g.scale.set(r,r,1); g.visible=true;
+}
+function updateWarnRings(dt,time){
+  for(let i=0;i<WARN_POOL;i++){
+    const st=warnState[i], g=warnMeshes[i];
+    if(st.t>=st.life){ g.visible=false; continue; }
+    st.t+=dt;
+    const u=Math.min(1,st.t/st.life);
+    const pulse=0.55+0.45*Math.sin(time*22);
+    g.children[0].material.opacity=0.10+0.14*pulse;
+    g.children[1].material.opacity=(0.55+0.45*pulse)*(1-u*0.55);
+    g.visible=st.t<st.life;
+  }
+}
+/* Dust kicked out of the ground: particles seeded ON a circle and
+   pushed outward, rather than from a single point like burst(). */
+function dustRing(x,z,r,color,n,power){
+  for(let i=0;i<n;i++){
+    const k=pHead++%PMAX;
+    const a=(i/n)*TAU+CRNG()*0.3, rr=r*(0.30+CRNG()*0.70);
+    pPos[k*3]=x+Math.cos(a)*rr; pPos[k*3+1]=0.12+CRNG()*0.35; pPos[k*3+2]=z+Math.sin(a)*rr;
+    const sp=power*(0.45+CRNG()*0.85);
+    pVel[k*3]=Math.cos(a)*sp; pVel[k*3+1]=0.7+CRNG()*2.0; pVel[k*3+2]=Math.sin(a)*sp;
+    pCol[k*3]=color[0];pCol[k*3+1]=color[1];pCol[k*3+2]=color[2];
+    pLife[k]=0.60+CRNG()*0.60;
+  }
+}
 /* ---------- dwarf earthquake FX (cosmetic only) ----------
    The Earth Dwarf's cast is a GROUND SLAM, not a sparkle: the 'magic'
    event (sig 'earth') starts the one-shot groundslam clip on the
@@ -3491,7 +3665,7 @@ function syncIceShells(s){
     g.visible=true;
   };
   for(const e of s.enemies)if((e.frozen||0)>0)use(e.x,e.z,e.yaw,CFG.enemy[e.type].radius,1);
-  if(s.boss&&(s.boss.frozen||0)>0)use(s.boss.x,s.boss.z,s.boss.yaw,bossCfgOf(s).radius,1.885);  // tall x1.3 with the boss size buff (width follows radius)
+  for(const b of s.bosses)if((b.frozen||0)>0)use(b.x,b.z,b.yaw,bossCfgOf(s).radius,1.885);  // tall x1.3 with the boss size buff (width follows radius)
   for(let i=n;i<ICE_POOL;i++)iceShells[i].visible=false;
 }
 
@@ -3532,6 +3706,24 @@ function consumeEvents(){
       case 'bossCharge': Audio.whoosh(1.3);break;
       case 'bossSlam': burst(e.x,0.6,e.z,[1,.4,.15],22,5.5);break;
       case 'bossSlamFx': burst(e.x,0.4,e.z,[1,.5,.2],18,5.0);break;
+      /* --- Spiked Ogre: fixed danger rings, dust, 360-degree sweep --- */
+      case 'bossWindup': fireWarn(e.x,e.z,e.r,e.kind==='super'?1.05:0.85);
+        Audio.whoosh(0.9);break;
+      case 'bossSuperSlam': {
+        fireRing(e.x,e.z,0xff8a2a,e.r*1.15);
+        fireWarn(e.x,e.z,e.r,0.28);
+        burst(e.x,0.45,e.z,[1,.55,.22],30,6.5);
+        Audio.whoosh(1.4);break; }
+      case 'bossDust': {
+        /* two-tone dust: pale grit rising, dark soil thrown outward */
+        dustRing(e.x,e.z,e.r,[0.62,0.55,0.44],34,4.2);
+        dustRing(e.x,e.z,e.r*0.75,[0.40,0.33,0.25],20,6.0);
+        break; }
+      case 'bossSpinStart': fireWarn(e.x,e.z,e.r,0.85);Audio.whoosh(1.1);break;
+      case 'bossSpinHit': {
+        fireRing(e.x,e.z,0xffb060,e.r);
+        dustRing(e.x,e.z,e.r*0.92,[0.58,0.52,0.42],22,5.2);
+        break; }
       case 'bossDeath': burst(e.x,2.2,e.z,[1,.6,.2],34,6.5);Audio.kill();break;
       case 'death': Audio.death();break;
       case 'levelup': Audio.level();break;
@@ -3554,6 +3746,9 @@ function consumeEvents(){
         if(e.sig==='frost'){ burst(e.x,1.2,e.z,[.72,.90,1],46,7.0); burst(e.x,0.5,e.z,[.85,.96,1],30,9.0);
           fireRing(e.x,e.z,0x9fd9ff,e.r||14); }
         else if(e.sig==='earth'){ dwarfEarthCast(e); }  /* ground slam + deferred quake (updateQuakes) */
+        else if(e.sig==='fire'){ burst(e.x,1.1,e.z,[1,.52,.16],52,8.0); burst(e.x,0.5,e.z,[1,.78,.32],34,10.5);
+          dustRing(e.x,e.z,(e.r||14)*0.55,[.55,.35,.20],20,6.0);
+          fireRing(e.x,e.z,0xff7a24,e.r||14); }
         else { burst(e.x,1.2,e.z,[.77,.42,1],46,7.0); burst(e.x,0.5,e.z,[.9,.7,1],30,9.0); }
         const fl=$('flash'); fl.style.transition='none'; fl.style.opacity='0.5';
         requestAnimationFrame(()=>{ fl.style.transition='opacity .95s'; fl.style.opacity='0'; });
@@ -3634,7 +3829,7 @@ const Audio=(function(){
 /* =====================================================================
    PART 4 — UI / INPUT / MAIN LOOP / VERIFICATION HOOKS
    ===================================================================== */
-setupPickupMeshes(); setupVFX(); setupRings(); setupIce(); setupQuakes(); buildMapMeshes(SIM);
+setupPickupMeshes(); setupVFX(); setupRings(); setupWarnRings(); setupIce(); setupQuakes(); buildMapMeshes(SIM);
 
 /* BOSS_NAMES is derived from src/content/enemies/bosses/*.js (chapter order). */
 const UI={tiltX:0,tiltY:0,stickActive:false,stickId:null,attack:false,atkBuf:0,
@@ -3903,6 +4098,9 @@ function loadMeta(){
          the armoury never renders "undefined" for the new chapters. The
          save key and shape are unchanged — this is a pure default-fill. */
       m.best=m.best||{}; m.cleared=m.cleared||{};
+      /* Pre-hints saves carry no hints object; updateHints() would throw
+         inside the render loop and freeze the game (pack crash fix). */
+      m.hints=m.hints||{};
       for(const c of CHAPTER_IDS){
         if(m.best[c]===undefined)m.best[c]=0;
         if(m.cleared[c]===undefined)m.cleared[c]=false;
@@ -3953,6 +4151,23 @@ function profileOwns(k){
   return ACCT.state==='account'&&ACCT.profile&&Array.isArray(ACCT.profile.heroes)&&
     ACCT.profile.heroes.indexOf(k)>=0;
 }
+/* Account-level-gated skins (descriptor `accountLevel` — today only the
+   ANSUM signature skin): unlocked by the signed-in account's LEVEL, the
+   profile being the source of truth. Never sold for gold; guests (and
+   signed-out / below-level accounts) never qualify. */
+function levelGateMet(k){
+  const need=(HEROES[k]||{}).accountLevel;
+  return need!==undefined&&ACCT.state==='account'&&ACCT.profile&&
+    (ACCT.profile.level||0)>=need;
+}
+/* The skin a run/snapshot actually uses: a level-gated skin whose gate
+   is not currently met falls back to the default hero, so a selection
+   made while logged in can never smuggle the skin into guest play. */
+function activeSkin(){
+  const k=safeHero(META.heroSkin);
+  if((HEROES[k]||{}).accountLevel!==undefined&&!levelGateMet(k))return 'hero';
+  return k;
+}
 /* Boot: a stored session re-fetches its profile. 401 clears the dead
    session; a transport failure keeps the token (retryable) but plays
    as guest — rewards are online-only in v1 (plan section 8). */
@@ -3976,7 +4191,7 @@ async function acctLogout(){
 }
 /* The public snapshot this player carries into a co-op handshake. */
 function mySnapshot(){
-  const skin=safeHero(META.heroSkin);
+  const skin=activeSkin();
   if(ACCT.state==='account'&&ACCT.profile)
     return profileSnapshot(ACCT.profile,ACCT.user,skin);
   return guestSnapshot(skin);
@@ -4063,6 +4278,14 @@ function buyTrack(id){
   META.gold-=c; META.tracks[id]++; META.rev++; saveMeta(); Audio.init();
 }
 function heroBtn(k){
+  if((HEROES[k]||{}).accountLevel!==undefined){
+    /* Level-gated signature skin: selection only, and only while the
+       signed-in account meets the level — there is no gold price. */
+    if(!levelGateMet(k))return;
+    META.heroSkin=(META.heroSkin===k?'hero':k);
+    META.rev++; saveMeta(); Audio.init();
+    return;
+  }
   if(!META.heroes[k]&&profileOwns(k)){
     /* Owned on the account profile: selection only — the purchase
        branch below is for local (guest) unlocks. */
@@ -4128,7 +4351,13 @@ function metaButtons(){
   for(const k of Object.keys(HEROES)){
     if(HEROES[k].default)continue;      // the free default hero is never sold
     const nm=heroLabel(k);
-    if(META.heroes[k]||profileOwns(k))bs.push({label:(META.heroSkin===k?'\u2713 HERO: ':'USE HERO: ')+nm+(profileOwns(k)&&!META.heroes[k]?' (ACCOUNT)':''),fn:()=>heroBtn(k)});
+    if(HEROES[k].accountLevel!==undefined){
+      /* Level-gated skin: shows its requirement while locked, never a
+         gold price (it is not purchasable). */
+      if(levelGateMet(k))bs.push({label:(META.heroSkin===k?'\u2713 HERO: ':'USE HERO: ')+nm+' (ACCOUNT LV '+HEROES[k].accountLevel+')',fn:()=>heroBtn(k)});
+      else bs.push({label:'\u{1F512} HERO: '+nm+' \u00B7 ACCOUNT LV '+HEROES[k].accountLevel,fn:()=>{ showBanner('UNLOCKS AT ACCOUNT LEVEL '+HEROES[k].accountLevel+' \u2014 LOG IN AND LEVEL UP',2600); }});
+    }
+    else if(META.heroes[k]||profileOwns(k))bs.push({label:(META.heroSkin===k?'\u2713 HERO: ':'USE HERO: ')+nm+(profileOwns(k)&&!META.heroes[k]?' (ACCOUNT)':''),fn:()=>heroBtn(k)});
     else bs.push({label:'UNLOCK HERO: '+nm+' \u00B7 '+CFG.meta.heroCosts[k]+' G',fn:()=>heroBtn(k)});
   }
   return bs;
@@ -4422,12 +4651,20 @@ function renderAccount(){
 
 /* ---------- hero select: the pre-run picker (landing -> pick -> run) ----
    Exactly three identity heroes are offered here; the class skins stay in
-   the Armoury. The highlighted hero is what the confirm starts the run
-   with: confirming writes META.heroSkin through the same save the Armoury
-   uses (key aetherblade-meta-v1), and an unlock goes through heroBtn()'s
-   purchase, then selects immediately. View/flow only — no sim input. */
+   the Armoury. Confirming writes META.heroSkin through the same save the
+   Armoury uses (key aetherblade-meta-v1) ONLY when an identity card was
+   actually picked (or an identity is already worn): an Armoury-selected
+   skin survives a plain confirm, otherwise skins could never be played.
+   An unlock goes through heroBtn()'s purchase, then selects immediately.
+   View/flow only — no sim input. */
 const HSEL_HEROES=['hero','frostarcher','dwarf'];
 let hselOpen=false, hselMode='solo', hselKind='hero', hselRev='';
+/* Whether the player actually tapped an identity card this visit.
+   Without it, confirming the picker overwrote an Armoury-selected
+   class/signature skin with the default identity — the skin could be
+   bought and selected yet never reach a run (pre-existing flow bug,
+   measured 2026-11-14 with the knight skin; ANSUM made it matter). */
+let hselPicked=false;
 function hselOwned(k){ return !!HEROES[k].default||!!META.heroes[k]||profileOwns(k); }
 function hselCost(k){ return CFG.meta.heroCosts[k]||0; }
 function hselNum(n){ return n%1===0?String(n|0):String(n); }
@@ -4436,6 +4673,7 @@ function heroAbilityText(k){
   if(!m)return 'ARCANE BLAST \u2014 the standard magic';
   if(m.kind==='frost')return 'FROST NOVA \u2014 freezes enemies '+hselNum(m.freezeSec)+' s, boss '+hselNum(m.bossFreezeSec)+' s';
   if(m.kind==='earth')return 'EARTHQUAKE \u2014 knocks enemies back '+m.push+' m, boss '+m.bossPush+' m';
+  if(m.kind==='fire')return 'FIRE CRESCENT \u2014 the blast hits for '+Math.round(CFG.magic.dmg*(m.dmgMul||1))+' dmg';
   return 'SIGNATURE MAGIC';
 }
 /* The one-line tradeoff shown under the ability — read from the hero
@@ -4472,6 +4710,7 @@ function openHeroSelect(mode){
   hselMode=(mode==='coop')?'coop':'solo';
   const cur=safeHero(META.heroSkin);
   hselKind=HSEL_HEROES.includes(cur)?cur:'hero';
+  hselPicked=false;
   hselOpen=true; hselRev='';
   $('hsel').classList.add('on');
   spawnHeroPreview(hselKind);
@@ -4487,7 +4726,7 @@ function closeHeroSelect(){
 }
 function pickHeroCard(k){
   if(!HSEL_HEROES.includes(k))return;
-  hselKind=k; hselRev='';
+  hselKind=k; hselPicked=true; hselRev='';
   spawnHeroPreview(k);
   renderHeroSelect();
   Audio.init();
@@ -4502,7 +4741,12 @@ function unlockHeroFromSelect(){
 }
 function confirmHeroSelect(){
   if(!hselOpen||!hselOwned(hselKind))return;
-  if(META.heroSkin!==hselKind){ META.heroSkin=hselKind; META.rev++; saveMeta(); }
+  /* The picker chooses among the three IDENTITY heroes; a skin chosen
+     in the Armoury (class skin, or the level-gated ANSUM signature) is
+     kept unless the player actually picked an identity card here, or
+     already wears an identity (the highlighted card is then theirs). */
+  if((hselPicked||HSEL_HEROES.includes(safeHero(META.heroSkin)))&&META.heroSkin!==hselKind){
+    META.heroSkin=hselKind; META.rev++; saveMeta(); }
   const mode=hselMode;
   closeHeroSelect();
   if(mode==='coop')openCoop(); else startRun();
@@ -4574,12 +4818,12 @@ function updateHints(){
 
 function startRun(){
   if(hselOpen)closeHeroSelect();   // the preview never leaks into a run
-  runBegin(newRunId(),'solo',safeHero(META.heroSkin));
+  runBegin(newRunId(),'solo',activeSkin());
   SIM=newSim(0x51A7E); SIM.phase='play';
   SIM.mods=runBlock();
   SIM.heroes[0].mods=Object.assign({},SIM.mods);
   SIM.hero.maxHp=CFG.hero.hp+SIM.mods.hp; SIM.hero.hp=SIM.hero.maxHp;
-  HERO_SKIN=safeHero(META.heroSkin);
+  HERO_SKIN=activeSkin();
   SIM.heroes[0].heroId=HERO_SKIN;
   HERO_SKINS=[HERO_SKIN]; LOCAL_IDX=0;
   const hv0=VIEWS.get(0);
@@ -4741,7 +4985,7 @@ function netFrameInput(f){ return {mx:f.mx/127,my:f.my/127,attack:!!f.atk,
    snapshot. (Pre-M2 the raw {hp,dmg,spd} block crossed the wire;
    AB-NET-14 pairings only form between same-build clients, so the
    payload change needs no compat path.) */
-function netMySnap(){ const skin=safeHero(META.heroSkin);
+function netMySnap(){ const skin=activeSkin();
   return {skin, snap:mySnapshot()}; }
 function netPlayerBlock(p){
   if(p&&p.snap)return snapshotBlock(p.snap);
@@ -5350,7 +5594,7 @@ function netTeardown(toTitle){
     try{ sess.ws.close(); }catch(e){} sess.ws=null; }
   NET=null;
   if(toTitle){
-    SIM=newSim(0x51A7E); LOCAL_IDX=0; HERO_SKINS=[safeHero(META.heroSkin)];
+    SIM=newSim(0x51A7E); LOCAL_IDX=0; HERO_SKINS=[activeSkin()];
     buildMapMeshes(SIM);
   }
   closeCoop();
@@ -5601,11 +5845,18 @@ function updateHUD(){
   const bossPhase=(s.phase==='boss'||!!s.boss);
   $('timerLab').textContent=bossPhase?'BOSS FIGHT':'BOSS ARRIVES IN';
   $('timerVal').textContent=bossPhase?'NOW':fmtTime(s.waveLeft);
-  const b=s.boss,showBoss=!!b&&b.hp>0;
+  /* Twin chapters: the bar AGGREGATES every boss's HP (sum over sum),
+     so it reads as one fight — killing one of the two ogres takes it to
+     ~half instead of emptying it. The arrow tracks the nearest living
+     boss. Single-boss chapters are the same numbers as before. */
+  const liveBosses=s.bosses.filter(x=>x.hp>0), showBoss=liveBosses.length>0;
+  const b=showBoss?liveBosses.reduce((a,c)=>
+    ((c.x-h.x)*(c.x-h.x)+(c.z-h.z)*(c.z-h.z)<(a.x-h.x)*(a.x-h.x)+(a.z-h.z)*(a.z-h.z)?c:a)):null;
   $('bossWrap').classList.toggle('on',showBoss);
   if(showBoss){
-    $('bossName').textContent=BOSS_NAMES[s.chapter-1];
-    $('bossFill').style.width=(100*b.hp/b.maxHp).toFixed(1)+'%';
+    let hpSum=0,mxSum=0; for(const x of s.bosses){ hpSum+=Math.max(0,x.hp); mxSum+=x.maxHp; }
+    $('bossName').textContent=BOSS_NAMES[s.chapter-1]+(s.bosses.length>1?' \u00D7 '+s.bosses.length:'');
+    $('bossFill').style.width=(100*hpSum/mxSum).toFixed(1)+'%';
   }
   // off-camera boss arrow
   const arrow=$('bossArrow');
@@ -5684,6 +5935,7 @@ function frame(now){
   updateSlashFX(s,dt); updateArrowFX(s);
   updateBolts(dt);
   updateRings(dt);
+  updateWarnRings(dt,RTIME);
   updateQuakes(dt);
   syncIceShells(s);
   updatePickupMeshes(s,RTIME);

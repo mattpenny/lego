@@ -32,6 +32,13 @@ import { dragonKnight } from './dragon-knight.js';
 import { crossbowman } from './crossbowman.js';
 import { russetArcher } from './russet-archer.js';
 import { tealArcher } from './teal-archer.js';
+/* Content pack 2026-11-14: the Ansum signature skin, the two reference-grid
+   infantry figures, and the Spiked Ogre + its rust-hide twin variant. */
+import { ansum } from './ansum.js';
+import { spikedOgre } from './ogre.js';
+import { ogreRust } from './ogre-rust.js';
+import { blackRaven } from './black-raven.js';
+import { spearman } from './spearman.js';
 
 export const FIGURES = deepFreeze({
   hero, knight, soldier, brute, runner, ranger, archer, sorcerer, boss,
@@ -43,6 +50,8 @@ export const FIGURES = deepFreeze({
   'lion-knight': lionKnight, 'kraken-knight': krakenKnight,
   'tower-knight': towerKnight, 'dragon-knight': dragonKnight,
   crossbowman, 'russet-archer': russetArcher, 'teal-archer': tealArcher,
+  ansum, ogre: spikedOgre, 'ogre-rust': ogreRust,
+  'black-raven': blackRaven, spearman,
 });
 export const FIGURE_IDS = deepFreeze(Object.keys(FIGURES));
 

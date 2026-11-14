@@ -15,14 +15,18 @@ import { sorcerer } from './sorcerer.js';
 import { knight } from './knight.js';
 import { frostarcher } from './frostarcher.js';
 import { dwarf } from './dwarf.js';
+import { ansum } from './ansum.js';
 
-export const HEROES = deepFreeze({ hero, soldier, archer, sorcerer, knight, frostarcher, dwarf });
+export const HEROES = deepFreeze({ hero, soldier, archer, sorcerer, knight, frostarcher, dwarf, ansum });
 
 export const DEFAULT_HERO = 'hero';
 
-/** Purchasable skins only — feeds CFG.meta.heroCosts. */
+/** Purchasable skins only — feeds CFG.meta.heroCosts. Account-level-gated
+    skins (descriptor `accountLevel`, today only ANSUM) are NOT sold for
+    gold, so they carry no price entry at all. */
 export const HERO_COSTS = deepFreeze(Object.fromEntries(
-  Object.values(HEROES).filter((h) => !h.default).map((h) => [h.id, h.price]),
+  Object.values(HEROES).filter((h) => !h.default && h.accountLevel === undefined)
+    .map((h) => [h.id, h.price]),
 ));
 
 /** Weapon-tip anchors — feeds SLASH_TIP. */
@@ -90,4 +94,4 @@ export function heroName(id) {
   return (HEROES[id] || HEROES[DEFAULT_HERO]).displayName;
 }
 
-export { hero, soldier, archer, sorcerer, knight, frostarcher, dwarf };
+export { hero, soldier, archer, sorcerer, knight, frostarcher, dwarf, ansum };

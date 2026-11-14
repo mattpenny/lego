@@ -2,12 +2,13 @@
    Adopted as data from Matt's maps handoff 2026-11-14. The pack's one-off
    generator was NOT adopted (its --force would clobber newer content) —
    edit this descriptor directly, like every other content file.
-   Boss: frost-sovereign PLACEHOLDER (Matt creates his own Ch.4-6 bosses).
+   Boss: THE SPIKED OGRE x2 (Matt's own chapter-4 boss, content pack
+   2026-11-14 — green hide + rust hide twins, replacing the placeholder).
    The set-piece and all hand-placed dressing are LITERAL DATA below, so
    SIM_CONTENT / the digest harness can hash them deterministically. */
 export const frostfallGlacier = {
   id: "frostfall-glacier", type: 'map', chapter: 4,
-  displayName: "FROSTFALL GLACIER", bossId: "frost-sovereign",
+  displayName: "FROSTFALL GLACIER", bossId: "spiked-ogre",
   palette: {
     name: "FROSTFALL GLACIER",
     sky: 0x9fc0dc,

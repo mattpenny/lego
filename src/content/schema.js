@@ -121,7 +121,13 @@ function checkHero(d, key, errors, warnings) {
   common(d, key, 'hero', w, errors, warnings);
   if (!isStr(d.displayName)) errors.push(`${w}: displayName is required`);
   if (!isNum(d.price) || d.price < 0) errors.push(`${w}: price must be >= 0`);
-  if (d.default !== true && d.price === 0)
+  /* Optional ACCOUNT-LEVEL GATE: the skin is not sold for gold at all —
+     it unlocks for signed-in accounts at this level (the profile is the
+     source of truth; guests can never unlock it). A gated skin carries
+     price 0 without being the default hero. */
+  if (d.accountLevel !== undefined && (!isInt(d.accountLevel) || d.accountLevel < 1))
+    errors.push(`${w}: accountLevel must be a positive integer`);
+  if (d.default !== true && d.price === 0 && d.accountLevel === undefined)
     errors.push(`${w}: a free hero must be marked default:true`);
   if (d.default === true && d.price !== 0)
     errors.push(`${w}: the default hero must have price 0`);
@@ -136,14 +142,16 @@ function checkHero(d, key, errors, warnings) {
      into HERO_MAGIC; castMagic() applies it to the blast's survivors. */
   if (d.magic !== undefined) {
     const m = d.magic;
-    if (!isObj(m) || (m.kind !== 'frost' && m.kind !== 'earth'))
-      errors.push(`${w}: magic.kind must be 'frost' or 'earth'`);
+    if (!isObj(m) || (m.kind !== 'frost' && m.kind !== 'earth' && m.kind !== 'fire'))
+      errors.push(`${w}: magic.kind must be 'frost', 'earth' or 'fire'`);
     else if (m.kind === 'frost' &&
              (!isNum(m.freezeSec) || m.freezeSec <= 0 || !isNum(m.bossFreezeSec) || m.bossFreezeSec <= 0))
       errors.push(`${w}: frost magic needs positive freezeSec and bossFreezeSec`);
     else if (m.kind === 'earth' &&
              (!isNum(m.push) || m.push <= 0 || !isNum(m.bossPush) || m.bossPush <= 0))
       errors.push(`${w}: earth magic needs positive push and bossPush`);
+    else if (m.kind === 'fire' && (!isNum(m.dmgMul) || m.dmgMul <= 0))
+      errors.push(`${w}: fire magic needs a positive dmgMul`);
   }
   /* Optional RANGED ATTACK — the second per-hero sim exception, same
      pattern as magic: the descriptor carries the block, heroes/index.js
@@ -283,6 +291,16 @@ function checkBoss(d, key, errors, warnings, registry) {
     errors.push(`${w}: mapId does not match MAPS[${d.chapter}].id`);
   if (registry.FIGURES && !registry.FIGURES[d.figure])
     errors.push(`${w}: figure "${d.figure}" is not in FIGURES`);
+  /* Optional TWIN: spawnBoss fields a second boss wearing this figure
+     (a colour variant of the same mould). The chapter then clears only
+     when both bosses are dead. */
+  if (d.twinFigure !== undefined) {
+    if (!isId(d.twinFigure)) errors.push(`${w}: twinFigure must name a known figure kind`);
+    else if (registry.FIGURES && !registry.FIGURES[d.twinFigure])
+      errors.push(`${w}: twinFigure "${d.twinFigure}" is not in FIGURES`);
+    else if (d.twinFigure === d.figure)
+      errors.push(`${w}: twinFigure must differ from figure (the twin needs its own colours)`);
+  }
   if (d.kind !== undefined && !isId(d.kind))
     errors.push(`${w}: kind must be a lowercase id`);
   /* A boss MAY carry its own cfg (a genuinely different boss, CONTENT-GUIDE
