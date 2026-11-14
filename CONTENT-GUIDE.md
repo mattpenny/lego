@@ -1613,3 +1613,83 @@ Four kinds (ENEMIES 24 → 28, FIGURES 33 → 37):
   masquerades as a doubled engine dt. The digest harness's
   `setSim` is a method shorthand assigning the module `SIM`;
   anything else silently steps the boot sim forever.
+## 19. Sampled sound effects — Matt's Mixkit files (2026-11-14, view-only, NO net stamp)
+
+Matt supplied four Mixkit WAVs (~1.8 MB raw). They now play as real
+samples alongside the synthesized retro sounds, which remain as
+fallbacks. **View layer only**: the sim never sees them,
+`digest:check` passes unchanged against the current baseline, no
+stamp bump — an old and a new client sound different locally, and
+nothing crosses the net.
+
+**Assets — `src/sfx.js`.** The four cues ship as base64
+`data:audio/mpeg` URIs in one generated module (works identically in
+the dev module graph and the dist-single bundle; no build-script
+change). Each WAV was inspected with ffmpeg silencedetect/astats:
+the audible hit is front-loaded and the rest is a near-silent tail,
+so each was trimmed to the hit, given a short fade-out, downmixed to
+mono and encoded MP3 80 kbps — 34,121 B total for all four (killA
+0.65 s, killB 0.95 s, hurt 0.45 s, cast 1.00 s). Dist cost: +50,886 B
+on the single file. The exact per-cue ffmpeg commands live in the
+`sfx.js` header; the recipe is `atrim=end=<T>` + `afade` out at the
+tail, `-ac 1 -ar 44100 -codec:a libmp3lame -b:a 80k`, then base64
+into `SFX_DATA`. Credits: `CREDITS_HTML` names all four Mixkit
+files; the old "no third-party audio" line now scopes that claim to
+the music.
+
+**Playback — the `Sfx` module in game.js.** Decoded lazily on the
+shared synth `Audio` context (fetch the data URI → decodeAudioData)
+at the first user gesture; cues route through the same master gain,
+so the existing mute button / M key silences samples and synth
+together. `Sfx.play()` returns false when muted, not yet decoded, or
+throttled, and every caller falls back to the old synth blip — a
+slow decode can never eat a sound. Guards: kill cooldown 45 ms with
+strict A/B variant alternation; hurt throttle 150 ms; a shared
+polyphony cap of 6 voices with stale-voice pruning at `SFX_DUR`+1 s
+(a suspended context never fires `onended`). Per-cue gains: kill
+0.5, hurt 0.7, cast 0.6 (through master 0.42).
+
+**Cue map** (hooked in `consumeEvents`, the same view events as the
+visuals):
+
+- `kill` + `bossDeath` → the blood pops, alternating
+  (mixkit-video-game-blood-pop-2361 / mixkit-game-blood-pop-slide-2363).
+  The boss death also keeps its synth sting.
+- `hurt` → the boxer thump (mixkit-boxer-getting-hit-2055),
+  **local hero only**: the `hurtHero` event carries no hero id, so
+  the cue fires only when the event lands within 1 m of
+  `localHero(SIM)` and `dmg ≥ 3` (every real hit is ≥ ~6; the
+  threshold only filters grazes). In co-op a partner's hurt is
+  visual-only now — the old position-blind synth blip played for it;
+  that change is deliberate. The burst visual still fires for every
+  hurt.
+- `magic` → the magic sweep (mixkit-magic-sweep-game-trophy-257).
+  **No trophy split**: the file's tail is one decaying sweep
+  (segment RMS −17.8 / −22.0 / −37.6 / −56.4 dB) — there is no
+  distinct chime to cut, so victory / level-up / chapter-clear keep
+  the synth `level()` fanfare.
+
+**Known gap (pre-existing, unchanged):** dragon breath damage
+bypasses `hurtHero` entirely (`breathDamage` cuts HP directly), so
+breath never produced a hurt sound — synth or sample — and still
+doesn't.
+
+**Proof.** `__GAME.sfxLog` / `__GAME.sfxReady` expose every started
+cue (`{cue, t}`). Solo rig (`crane/ab-sfx.mjs`, evidence
+`rig/ab-sfx.json`): real click-to-play entry; 6 tracked sword kills
+→ 6 cues in strict killB/killA alternation; one 8-kill magic cast →
+exactly 1 cast cue + 1 kill cue (cooldown + cap hold) with the full
+20→8 meter spend; 3 brute hits → hurt cues ≥ 140 ms apart (observed
+gaps 2.4–4.9 s at bot cadence); mute via the real `#btnMute` froze
+the log across two real kills and unmute restored it; 0 page
+errors. Co-op rig (`crane/ab-sfx-coop.mjs`, evidence
+`rig/ab-sfx-coop.json`): paired through the real UI on the v6 relay
+stand-in; warm-up kills logged pops on BOTH pages; then the host
+hero parked untouched in a corner (HP 100→100) while the guest
+tanked (HP 100→57) — the guest page gained 3 hurt cues, the host
+page gained 0; checkpoint hashes agree; 0 errors.
+
+Rig lesson worth keeping: headless Chromium starves rAF without
+screenshot pumping, which batches `consumeEvents` — kill cues then
+appear to "drop" (the 45 ms cooldown eats the batch). Pump
+screenshots before every log read; the game was never at fault.

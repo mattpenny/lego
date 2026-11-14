@@ -35,6 +35,11 @@ import {
   apiSetEmail, apiResetEmailRequest, apiResetEmailConfirm, emailLooksValid,
 } from './account.js';
 
+/* Sampled sound effects (Mixkit cues, trimmed and embedded as base64
+   data URIs). View-layer only — playback lives in the Sfx player in
+   PART 3; the sim never sees this module. */
+import { SFX_DATA, SFX_DUR } from './sfx.js';
+
 /* Fail loudly at boot on an invalid content descriptor. A missing figure,
    a dangling cross-reference or a missing spawn entry would otherwise
    render an invisible character or silently never appear. */
@@ -3895,10 +3900,18 @@ function consumeEvents(){
            Shard formula. View-layer counting only; the sim's own
            counters and hash never see this. */
         if(RUN&&ELITE_KINDS.indexOf(e.unit)>=0)RUN.eliteKills++;
-        Audio.kill();break;
+        if(!Sfx.play('kill'))Audio.kill();break;
       case 'splat': splatAt(e.x,e.z,e.unit,SIM.hero.yaw);break;
       case 'cancel': burst(e.x,1.7,e.z,[0.5,0.9,1],8,2.2);break;
-      case 'hurt': burst(e.x,1.3,e.z,[1,.2,.18],12,3.4);Audio.hurt();break;
+      case 'hurt': burst(e.x,1.3,e.z,[1,.2,.18],12,3.4);
+        /* The boxer-hit sample is for the LOCAL hero only: the event
+           carries no hero id, so match its position against the local
+           hero (events are consumed the same frame they are emitted;
+           1 m covers intra-frame drift). A partner's hurt in co-op
+           stays visual-only. Grazes under 3 dmg stay silent too. */
+        { const lh=localHero(SIM);
+          if(lh&&e.dmg>=3&&Math.abs(e.x-lh.x)<=1&&Math.abs(e.z-lh.z)<=1&&!Sfx.play('hurt'))Audio.hurt(); }
+        break;
       case 'heal': damageNumber(e.x,1.5,e.z,'+'+e.amount,false);burst(e.x,1,e.z,[.3,1,.5],10,2.2);break;
       case 'gem': Audio.gem();break;
       case 'roll': Audio.whoosh(0.7); burst(e.x,0.30,e.z,[0.80,0.74,0.60],7,1.7); break;
@@ -3937,7 +3950,7 @@ function consumeEvents(){
         fireRing(e.x,e.z,0xffb060,e.r);
         dustRing(e.x,e.z,e.r*0.92,[0.58,0.52,0.42],22,5.2);
         break; }
-      case 'bossDeath': burst(e.x,2.2,e.z,[1,.6,.2],34,6.5);Audio.kill();break;
+      case 'bossDeath': burst(e.x,2.2,e.z,[1,.6,.2],34,6.5);if(!Sfx.play('kill'))Audio.kill();break;
       case 'death': Audio.death();break;
       case 'levelup': Audio.level();break;
       case 'upgrade': break;
@@ -3965,7 +3978,7 @@ function consumeEvents(){
         else { burst(e.x,1.2,e.z,[.77,.42,1],46,7.0); burst(e.x,0.5,e.z,[.9,.7,1],30,9.0); }
         const fl=$('flash'); fl.style.transition='none'; fl.style.opacity='0.5';
         requestAnimationFrame(()=>{ fl.style.transition='opacity .95s'; fl.style.opacity='0'; });
-        Audio.level(); break; }
+        if(!Sfx.play('cast'))Audio.level(); break; }
     }
   }
   EV.length=0;                      // drains a cosmetic buffer, never sim state
@@ -4023,6 +4036,7 @@ const Audio=(function(){
   }
   return {
     init, get ready(){return !!ac;}, get muted(){return muted;},
+    get ctx(){return ac;}, get out(){return master;},
     setIntensity(v){intensity=clamp(v,0,1);},
     toggle(){muted=!muted;if(master)master.gain.value=muted?0:0.42;return muted;},
     whoosh(k){ if(!init())return;noise(0.17,1500*(k||1),260,0.19*(k||1),0.8); },
@@ -4037,6 +4051,63 @@ const Audio=(function(){
     level(){ if(!init())return;[0,0.09,0.18].forEach((d,i)=>tone(440*(1+i*0.25),660*(1+i*0.25),0.20,'triangle',0.18,ac.currentTime+d)); },
     stop(){ if(timer)clearInterval(timer); }
   };
+})();
+
+/* ---------- sampled SFX (Mixkit cues from src/sfx.js) ----------
+   Shares the synth module's ONE AudioContext and master gain, so the
+   existing mute button silences samples too. Buffers decode lazily on
+   the shared context at the first cue; until a buffer lands, play()
+   returns false and the caller falls back to the synth blip. All cues
+   are LOCAL renderings of view events (consumeEvents) — in co-op a
+   partner's client renders its own; nothing crosses the net layer.
+   Anti-spam: kill cues alternate the two blood-pop variants under a
+   45 ms cooldown, hurt is throttled to one per 150 ms, and a shared
+   polyphony cap (6 voices) keeps crowd kills from clipping into
+   noise. Every STARTED cue is appended to Sfx.log ({cue, t}) —
+   exposed as __GAME.sfxLog so rigs can assert firing, throttling
+   and mute without listening. */
+const Sfx=(function(){
+  const log=[];
+  const bufs={}; let decoding=false, failed=false;
+  const last={kill:-1e9,hurt:-1e9,cast:-1e9}; let alt=false;
+  let active=[];   // {t, name} per started voice
+  const GAIN={kill:0.5,hurt:0.7,cast:0.6};
+  const CD={kill:45,hurt:150,cast:0};
+  const CAP=6;
+  function ensure(){
+    if(decoding||failed||bufs.killA)return;
+    const ac=Audio.ctx; if(!ac)return;
+    decoding=true;
+    Promise.all(Object.keys(SFX_DATA).map(n=>
+      fetch(SFX_DATA[n]).then(r=>r.arrayBuffer())
+        .then(ab=>ac.decodeAudioData(ab)).then(b=>{bufs[n]=b;})))
+      .then(()=>{decoding=false;},()=>{decoding=false;failed=true;});
+  }
+  function play(kind){
+    if(Audio.muted||!Audio.ready)return false;
+    const ac=Audio.ctx;
+    if(ac.state==='suspended')ac.resume();
+    ensure();
+    const now=performance.now();
+    active=active.filter(v=>now-v.t<((SFX_DUR[v.name]||1)+1)*1000);
+    if(active.length>=CAP)return false;
+    if(CD[kind]&&now-last[kind]<CD[kind])return false;
+    let name=kind;
+    if(kind==='kill')name=alt?'killB':'killA';
+    const buf=bufs[name]; if(!buf)return false;
+    if(kind==='kill')alt=!alt;
+    const src=ac.createBufferSource(); src.buffer=buf;
+    const g=ac.createGain(); g.gain.value=GAIN[kind];
+    src.connect(g); g.connect(Audio.out);
+    const voice={t:now,name};
+    active.push(voice);
+    src.onended=()=>{ const i=active.indexOf(voice); if(i>=0)active.splice(i,1); };
+    last[kind]=now;
+    src.start();
+    log.push({cue:name,t:Math.round(now)});
+    return true;
+  }
+  return { play, log, get ready(){ return !!bufs.killA; } };
 })();
 
 /* =====================================================================
@@ -4299,7 +4370,9 @@ function setOverlay(key,kick,title,sub,body,cards,btns,credits){
 function hideOverlay(){overlayKey='';$('overlay').classList.remove('on');closeArmoury();}
 const CREDITS_HTML='three.js r170 &mdash; MIT, &copy; 2010-2024 three.js authors (vendored inline). '+
   'Mesh2Motion-style humanoid rig + animation clips &mdash; CC0 1.0, authored procedurally in this file. '+
-  'No third-party model, texture, font or audio files. All terrain, gear, VFX and music are generated in code. '+
+  'Sound effects from Mixkit (free licence): mixkit-video-game-blood-pop-2361, mixkit-game-blood-pop-slide-2363, '+
+  'mixkit-boxer-getting-hit-2055 and mixkit-magic-sweep-game-trophy-257 &mdash; trimmed, downmixed and embedded in src/sfx.js. '+
+  'No third-party model, texture or font files. All terrain, gear, VFX and music are generated in code. '+
   'The game files themselves are fetched once and make no asset requests; optional account sign-in and co-op play use the network.';
 
 /* ---------- meta progression (localStorage, view-layer only) ---------- */
@@ -6256,6 +6329,8 @@ window.__GAME={
   setMagic(v){SIM.magic=Math.max(0,Math.min(CFG.magic.cost,v|0));},
   heroKind(){const v=VIEWS.get(0);return v?v.kind:null;},
   get muted(){return Audio.muted;},
+  get sfxLog(){return Sfx.log.slice();},
+  get sfxReady(){return Sfx.ready;},
   get audioReady(){return Audio.ready;},
   get EV(){return EV.slice();}
 };
