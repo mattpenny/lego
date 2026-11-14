@@ -1078,3 +1078,44 @@ regression signal until the rig's bot or exit rule is reworked.
 10,799, so on AB-NET-15 its `vanished` column counts kills/replacements
 during the extra ~1,080 steps before the 11,880 spawn; the
 `escortsAtSpawn` figure (8 on every run) is the persistence signal.
+
+## 12. Form fields vs the game keyboard (AB-NET-15, input fix)
+
+**Bug (Matt, 2026-11-14):** after the account wipe he tried to create
+a new account and "some letters" would not type. The global `keydown`
+handler `preventDefault()`s every key in `GAME_KEYS` (w/a/s/d, arrows,
+space, j/k, shift, p/m/f/g, enter) — originally it exempted only
+`#coopInput`, so every account field silently ate those characters:
+typing `password` landed `or`, a username lost a/d/f/g/j/k/m/p/s/w in
+both cases, an email like `WaSd.JkPmFg@ExAmPlE.cOm` landed `.@ExlE.cO`,
+and even a recovery code (`GKS1-…-W2…-J…`) could not be typed back.
+The handler's side effects also fired mid-typing (Shift/K latched
+rolls, G latched magic, M muted, F fullscreened, Ctrl+A was blocked
+too). The M2/M3 account E2Es never saw it: they set values with
+`pg.fill()`, which bypasses per-key `keydown` entirely.
+
+**Fix — one central guard** in the keyboard section of `game.js`:
+`isFormTarget(e)` (target is INPUT / TEXTAREA / SELECT or
+contentEditable) makes the `keydown` handler return before any
+preventDefault or game effect, replacing the `#coopInput` special
+case (the room-code field is an INPUT, so it is covered by the same
+guard; its own Enter-to-join listener is unchanged). The `keyup`
+handler is deliberately **unguarded**: it only clears `UI.keys`, and
+a movement key released over a field must still stop the hero.
+
+**Proof** (rig `crane/ab-keyboard-input.mjs`, evidence
+`rig/ab-keyboard-input-{before,after}.json`) — real
+`page.keyboard.type()` into every text field in the game: login /
+register / reset / reset-by-email usernames, passwords, emails, the
+recovery-code field, the 6-digit mail-code field, the signed-in
+account panel's email field, and the co-op room code. Before: every
+account field lost exactly the GAME_KEYS characters (itemised in the
+evidence) and typing produced 420 handler invocations with 17 roll
+and 17 magic latches. After: **18/18 fields return the typed string
+byte-for-byte**, zero game side effects while typing, a full
+keyboard-typed reset-by-email → new-password → login → email-update
+loop completes against a local M3 API, the held-key-across-modal
+sequence converges back to neutral input, and in-game keyboard play
+(move D/W, attack J, roll K, magic G) is verified working in a live
+solo run. Zero page errors. **Digests unchanged** (`42bfc451…`) —
+input handling lives outside the sim; no stamp bump.

@@ -3688,8 +3688,24 @@ $('hsel').addEventListener('pointerdown',e=>{if(e.target===$('hsel'))closeHeroSe
 
 /* ---------- keyboard ---------- */
 const GAME_KEYS=new Set(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright',' ','j','k','shift','p','m','f','g','enter']);
+/* Typing in a form field must never feed the game. The handler below
+   preventDefaults every GAME_KEYS key, which deletes those characters
+   from any text field it is not told about (it once knew only
+   #coopInput, so the account form lost w/a/s/d/j/k/p/m/f/g/space/
+   enter as typed) — and its side effects (attack/roll/magic latches,
+   mute, fullscreen, pause) would fire mid-typing. ONE central guard
+   covers every current and future field: account inputs, the room
+   code, anything editable. The keyup handler stays UNguarded on
+   purpose: it only clears UI.keys, and a movement key released over a
+   field must still stop the hero — swallowing it would stick keys. */
+function isFormTarget(e){
+  const t=e&&e.target;
+  if(!t||t===window||t===document)return false;
+  const tag=t.tagName;
+  return tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||t.isContentEditable===true;
+}
 addEventListener('keydown',e=>{
-  if(e.target&&e.target.id==='coopInput')return;
+  if(isFormTarget(e))return;
   const k=e.key.toLowerCase();
   if(GAME_KEYS.has(k))e.preventDefault();
   if(!UI.keys[k]){
