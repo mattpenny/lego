@@ -871,3 +871,84 @@ and no version fields, so PROGRESSION_VERSION / ECONOMY_VERSION are
 client constants (= 1) in M2. Validation follows the API (username
 3–16, password 8–128), not the plan's 3–20 / 10–128. Recovery codes as
 issued are 32 characters.
+
+### Phase M3 — server progression, gated on the API health scope (built 2026-11-14, awaiting Matt's API redeploy)
+
+**The gate.** `serverProgression()` is true only when signed in AND
+`/health` reports `scope: 'M3'` (learned by `acctRefreshScope()` at
+boot and on every account set). The game ships FIRST: against the live
+M1 API everything below is inert and signed-in play is exactly M2,
+local crediting included. When Matt redeploys the API and the health
+scope flips, the mode switches itself on. There is no client flag.
+
+**Matt's hero rule (2026-11-14).** Accounts own all three identity
+heroes (hero / frostarcher / dwarf) from the beginning: the API's
+`/profile` returns `stored ∪ {hero, frostarcher, dwarf}` (new
+registrations persist the full set), so `hselOwned()` / `profileOwns()`
+open the picker with no prices or unlock buttons for accounts.
+Guests are unchanged — local-gold unlocks exactly as before. Class
+skins keep the M2 seam (profile ∪ local unlocks, local purchase);
+that is deliberate and flagged, not a silent redesign.
+
+**Run submission.** A view-layer `RUN` tracker (never in the sim):
+the run id is generated at run start — solo locally, in co-op by the
+host and shared via the start payload's `runId`, so every participant
+submits under the same id to their own account and receives the full
+team outcome once. Elite kills are counted in `consumeEvents` from
+the sim's kill events for kinds in the registry ELITE_KINDS
+(sorcerer/knight — the scheduled-elite kinds). Settlement points in
+`syncOverlay`: chapter clear → `POST /runs` stage `chapter-N`;
+death/victory → the final stage. In server mode the local save keeps
+only records (cleared flags, bests) — gold/XP/shards are credited by
+the server from the cumulative counters, and the returned profile
+re-renders the chip and Armoury. A failed send keeps the payload in
+`RUN.pending`: the Armoury account panel shows a quiet "LAST RUN
+COULD NOT BE SAVED" line with a RETRY RUN SAVE button — never a
+modal, never blocked play (plan §8: online-only rewards, no
+persistent queue).
+
+**Equipment spending.** In server mode the Armoury's five equipment
+buttons replace the local legacy track buttons (plan §5: convert,
+don't duplicate — the tracks remain for guests and for pre-M3 API
+fallback). A click calls `POST /equipment/upgrade` with a fresh
+idempotency key; the server derives the price from its stored level
+(`upgradeCostFor()` in account.js is display-only), and the returned
+profile re-renders the hall.
+
+**Email.** Registration requires an email (client + server
+validated). The account panel (landing ACCOUNT button when signed in)
+shows the account email and lets a signed-in user add/replace one
+(`POST /profile/email`) — the path for pre-email accounts. The reset
+view offers both paths: recovery code, and reset-by-email (username +
+email → 6-digit code → new password; success rotates the recovery
+code and shows it like the code reset). Until the Worker has a
+`RESEND_API_KEY` secret the API answers `EMAIL_NOT_CONFIGURED` and
+the UI says plainly that email reset isn't switched on yet and to
+use the recovery code. Codes are never sent by the game itself.
+
+**Proof.** API suite: 178 assertions against real Wrangler Dev +
+local D1 (evidence `aetherblade-api/tests/local-test-output.txt`) —
+plan entitlement math incl. the §10 golden run (286 XP / 1,334 G /
+4 shards), checkpoint-then-final delta crediting, idempotent
+replays, cap rejections, monotonic/stage/party guards, the 30-run
+daily cap, exact equipment costs (Weapon 2→3 = 96 G + 1 shard;
+Helm 0→10 = 2,440 G + 22 shards), heroes backfill on an M1-shaped
+profile, plus the full email section (required/validated email,
+duplicate-email 409, add-email, `EMAIL_NOT_CONFIGURED`, and
+reset-by-email end to end against a stubbed Resend endpoint:
+indistinguishable matched/unmatched responses, single-use, expiry,
+5-attempt lockout, request throttling, sessions revoked). Game E2E
+(rig `ab-m3-accounts.mjs`, evidence `rig/ab-m3-accounts.json`)
+against a LOCAL M3 API through the built dist-single and the game's
+own UI: register with email → all 3 heroes open → staged dwarf run
+(4 elite kills, boss) → checkpoint + final credited to the cent by
+the plan formulas with local gold untouched → Armoury Weapon upgrade
+charged by the server → local save wiped, progression identical from
+the server alone → email-reset not-configured message → M1-shaped
+account adds its email → guest picker still locked. Digests:
+`digest:check` unchanged (`b288e3cd…`) — progression lives entirely
+outside the sim.
+
+**Still open after M3.** Legacy-save import (the plan's M4) is not
+built. The M2 seams that remain: class skins (profile ∪ local) and
+local bests/cleared records for signed-in runs.

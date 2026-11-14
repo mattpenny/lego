@@ -53,7 +53,23 @@ export const ACCOUNT_GAINS = {
     { key: 'boots', api: 'Boots', label: 'BOOTS', stat: 'move speed', per: 0.075 },
     { key: 'charm', api: 'Charm', label: 'CHARM', stat: 'magic damage', per: 2 },
   ],
+  /* Equipment upgrade costs (plan section 5), charged BY THE SERVER
+     in M3; mirrored here only so the Armoury can display the exact
+     price before the player commits. Cost to upgrade TO level T:
+     gold 40 + 20(T-1) + 4(T-1)^2, shards ceil(T/3). */
+  upgradeCost: { goldBase: 40, goldPerStep: 20, goldQuad: 4, shardDivisor: 3 },
 };
+
+/* Cost to upgrade one slot TO target level T (1..10). Display only —
+   the server recomputes from its stored level and is authoritative. */
+export function upgradeCostFor(targetLevel) {
+  const c = ACCOUNT_GAINS.upgradeCost;
+  const t = Math.min(10, Math.max(1, targetLevel | 0)) - 1;
+  return {
+    gold: c.goldBase + c.goldPerStep * t + c.goldQuad * t * t,
+    shards: Math.ceil((t + 1) / c.shardDivisor),
+  };
+}
 
 /* ---------- derived stat block (plan section 6) ---------- */
 
@@ -250,8 +266,8 @@ export function apiErrorText(r, fallback) {
   return (r && r.body && r.body.error && r.body.error.message) || fallback;
 }
 
-export const apiRegister = (username, password) =>
-  apiCall('/auth/register', { method: 'POST', body: { username, password } });
+export const apiRegister = (username, password, email) =>
+  apiCall('/auth/register', { method: 'POST', body: { username, password, email } });
 export const apiLogin = (username, password) =>
   apiCall('/auth/login', { method: 'POST', body: { username, password } });
 export const apiLogout = (token) =>
@@ -260,6 +276,34 @@ export const apiReset = (username, recoveryCode, newPassword) =>
   apiCall('/auth/reset', { method: 'POST', body: { username, recoveryCode, newPassword } });
 export const apiProfile = (token) =>
   apiCall('/profile', { token });
+
+/* Phase M3: server progression. /health reports the API scope; the
+   game enables server run crediting + equipment spending only when
+   the scope is 'M3', and otherwise keeps the exact M2 behaviour
+   (push-order safety: the game ships before the API redeploy). */
+export const apiHealth = () =>
+  apiCall('/health', {});
+export const apiSubmitRun = (token, payload) =>
+  apiCall('/runs', { method: 'POST', token, body: payload });
+export const apiUpgradeEquipment = (token, slot, idempotencyKey) =>
+  apiCall('/equipment/upgrade', { method: 'POST', token, body: { slot, idempotencyKey } });
+
+/* Email (2026-11-14): accounts carry an email for reset-by-email.
+   The reset request answers 503 EMAIL_NOT_CONFIGURED until the
+   Worker has a RESEND_API_KEY secret; the UI says so plainly and
+   points at the recovery code. */
+export const apiSetEmail = (token, email) =>
+  apiCall('/profile/email', { method: 'POST', token, body: { email } });
+export const apiResetEmailRequest = (username, email) =>
+  apiCall('/auth/reset-email/request', { method: 'POST', body: { username, email } });
+export const apiResetEmailConfirm = (username, code, newPassword) =>
+  apiCall('/auth/reset-email/confirm', { method: 'POST', body: { username, code, newPassword } });
+
+/* Client-side email shape check; the server validates strictly and
+   is authoritative — this only saves a round trip for typos. */
+export function emailLooksValid(v) {
+  return typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
+}
 
 /* The async functions above are declared without the export keyword
    (the single-file bundler has no `export async function` form) and

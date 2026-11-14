@@ -230,11 +230,11 @@ for (const m of Object.values(MAPS)) {
 }
 
 /* ---------------- Account progression (Phase M2) ---------------- */
-const { ACCOUNT_GAINS, PROGRESSION_VERSION, ECONOMY_VERSION, ACCOUNT_LEVEL_CAP } =
+const { ACCOUNT_GAINS, PROGRESSION_VERSION, ECONOMY_VERSION, ACCOUNT_LEVEL_CAP, upgradeCostFor } =
   await import('../src/account.js');
-L.push('## Account progression — the server profile stat block (M2)');
+L.push('## Account progression — the server profile stat block (M2/M3)');
 L.push('');
-L.push('Rendered from `src/account.js · ACCOUNT_GAINS` (the same table the client derivation runs). Composition (plan §6): the in-run upgrade curves multiply the hero-multiplied content base, and this permanent block is added LAST (`damage = round(34 × heroDmgMul) × 1.20^Edge + P.dmg`, likewise speed; max HP adds P.hp; P.crit joins the base 5% crit chance before the Keen Eye curve; P.magicDmg adds to the 60-damage magic blast): `P.hp = 2·(L−1) + 8·Armour`, `P.dmg = floor((L−1)/2) + 2·Weapon`, `P.spd = 0.01·(L−1) + 0.075·Boots`, `P.crit = 1%·Helm`, `P.magicDmg = 2·Charm`. At level 1 with all equipment 0 the block is exactly zero — bit-identical to the pre-account game. Guests and solo local play use the legacy local tracks instead.');
+L.push('Rendered from `src/account.js · ACCOUNT_GAINS` (the same table the client derivation runs). Composition (plan §6): the in-run upgrade curves multiply the hero-multiplied content base, and this permanent block is added LAST (`damage = round(34 × heroDmgMul) × 1.20^Edge + P.dmg`, likewise speed; max HP adds P.hp; P.crit joins the base 5% crit chance before the Keen Eye curve; P.magicDmg adds to the 60-damage magic blast): `P.hp = 2·(L−1) + 8·Armour`, `P.dmg = floor((L−1)/2) + 2·Weapon`, `P.spd = 0.01·(L−1) + 0.075·Boots`, `P.crit = 1%·Helm`, `P.magicDmg = 2·Charm`. At level 1 with all equipment 0 the block is exactly zero — bit-identical to the pre-account game. Guests use the legacy local tracks; signed-in play uses this block, and in server (M3) mode the local tracks no longer apply to the account at all.');
 L.push('');
 L.push(`Progression version **${PROGRESSION_VERSION}** · economy version **${ECONOMY_VERSION}** · account level cap **${ACCOUNT_LEVEL_CAP}** · level gains: +${ACCOUNT_GAINS.hpPerLevel} HP per level, +${ACCOUNT_GAINS.dmgPerTwoLevels} damage per 2 levels, +${ACCOUNT_GAINS.spdPerLevel} speed per level.`);
 L.push('');
@@ -242,6 +242,17 @@ L.push('| Equipment slot | Per level | Source |');
 L.push('|---|---|---|');
 for (const s of ACCOUNT_GAINS.slots)
   L.push(`| ${s.label} | +${s.per} ${s.stat} | \`src/account.js · ACCOUNT_GAINS\` |`);
+L.push('');
+L.push('Server economy (M3, economy version 1 — the Worker recomputes everything from submitted counters; the client only displays). Run entitlement: `gold = floor(score/10) + 50 × chaptersCleared + 200 × victory`, `account XP = floor(score/50) + 20 × chaptersCleared + 40 × victory`, `Aether Shards = chaptersCleared + 2 × victory + min(3, floor(eliteKills/8))` (elites = the registry ELITE_KINDS). Chapter checkpoints credit immediately during the run; the final submission credits only the uncredited difference, and replays never double-credit. Signed-in accounts own all three identity heroes (Lion Knight, Frost Archer, Earth Dwarf) from the start; in server mode the equipment buttons below replace the local legacy tracks in the Armoury.');
+L.push('');
+L.push('| Upgrade to level | Gold | Aether Shards |');
+L.push('|---|---|---|');
+for (let t = 1; t <= 10; t++) {
+  const c = upgradeCostFor(t);
+  L.push(`| ${t} | ${c.gold} | ${c.shards} |`);
+}
+L.push('');
+L.push('One slot from 0 to 10 costs **2,440 G + 22 Aether Shards**; all five slots **12,200 G + 110**. The server derives the price from its stored level — the request names only the slot.');
 L.push('');
 
 writeFileSync(join(ROOT, 'STATS.md'), L.join('\n'));

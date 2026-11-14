@@ -185,9 +185,9 @@ The weighted fill pool is global (each kind's `fill {from, weight, ramp}` in its
 | RUSSET-ARCHER | 28 / 11 / 0 | **28 / 14 / -0.05** | `src/content/maps/grassland.js · map.fill` |
 | TEAL-ARCHER | 40 / 10 / 0 | **58 / 28 / -0.06** | `src/content/maps/grassland.js · map.fill` |
 
-## Account progression — the server profile stat block (M2)
+## Account progression — the server profile stat block (M2/M3)
 
-Rendered from `src/account.js · ACCOUNT_GAINS` (the same table the client derivation runs). Composition (plan §6): the in-run upgrade curves multiply the hero-multiplied content base, and this permanent block is added LAST (`damage = round(34 × heroDmgMul) × 1.20^Edge + P.dmg`, likewise speed; max HP adds P.hp; P.crit joins the base 5% crit chance before the Keen Eye curve; P.magicDmg adds to the 60-damage magic blast): `P.hp = 2·(L−1) + 8·Armour`, `P.dmg = floor((L−1)/2) + 2·Weapon`, `P.spd = 0.01·(L−1) + 0.075·Boots`, `P.crit = 1%·Helm`, `P.magicDmg = 2·Charm`. At level 1 with all equipment 0 the block is exactly zero — bit-identical to the pre-account game. Guests and solo local play use the legacy local tracks instead.
+Rendered from `src/account.js · ACCOUNT_GAINS` (the same table the client derivation runs). Composition (plan §6): the in-run upgrade curves multiply the hero-multiplied content base, and this permanent block is added LAST (`damage = round(34 × heroDmgMul) × 1.20^Edge + P.dmg`, likewise speed; max HP adds P.hp; P.crit joins the base 5% crit chance before the Keen Eye curve; P.magicDmg adds to the 60-damage magic blast): `P.hp = 2·(L−1) + 8·Armour`, `P.dmg = floor((L−1)/2) + 2·Weapon`, `P.spd = 0.01·(L−1) + 0.075·Boots`, `P.crit = 1%·Helm`, `P.magicDmg = 2·Charm`. At level 1 with all equipment 0 the block is exactly zero — bit-identical to the pre-account game. Guests use the legacy local tracks; signed-in play uses this block, and in server (M3) mode the local tracks no longer apply to the account at all.
 
 Progression version **1** · economy version **1** · account level cap **30** · level gains: +2 HP per level, +1 damage per 2 levels, +0.01 speed per level.
 
@@ -198,3 +198,20 @@ Progression version **1** · economy version **1** · account level cap **30** �
 | HELM | +0.01 crit chance | `src/account.js · ACCOUNT_GAINS` |
 | BOOTS | +0.075 move speed | `src/account.js · ACCOUNT_GAINS` |
 | CHARM | +2 magic damage | `src/account.js · ACCOUNT_GAINS` |
+
+Server economy (M3, economy version 1 — the Worker recomputes everything from submitted counters; the client only displays). Run entitlement: `gold = floor(score/10) + 50 × chaptersCleared + 200 × victory`, `account XP = floor(score/50) + 20 × chaptersCleared + 40 × victory`, `Aether Shards = chaptersCleared + 2 × victory + min(3, floor(eliteKills/8))` (elites = the registry ELITE_KINDS). Chapter checkpoints credit immediately during the run; the final submission credits only the uncredited difference, and replays never double-credit. Signed-in accounts own all three identity heroes (Lion Knight, Frost Archer, Earth Dwarf) from the start; in server mode the equipment buttons below replace the local legacy tracks in the Armoury.
+
+| Upgrade to level | Gold | Aether Shards |
+|---|---|---|
+| 1 | 40 | 1 |
+| 2 | 64 | 1 |
+| 3 | 96 | 1 |
+| 4 | 136 | 2 |
+| 5 | 184 | 2 |
+| 6 | 240 | 2 |
+| 7 | 304 | 3 |
+| 8 | 376 | 3 |
+| 9 | 456 | 3 |
+| 10 | 544 | 4 |
+
+One slot from 0 to 10 costs **2,440 G + 22 Aether Shards**; all five slots **12,200 G + 110**. The server derives the price from its stored level — the request names only the slot.

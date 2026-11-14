@@ -61402,7 +61402,23 @@ const ACCOUNT_GAINS = {
     { key: 'boots', api: 'Boots', label: 'BOOTS', stat: 'move speed', per: 0.075 },
     { key: 'charm', api: 'Charm', label: 'CHARM', stat: 'magic damage', per: 2 },
   ],
+  /* Equipment upgrade costs (plan section 5), charged BY THE SERVER
+     in M3; mirrored here only so the Armoury can display the exact
+     price before the player commits. Cost to upgrade TO level T:
+     gold 40 + 20(T-1) + 4(T-1)^2, shards ceil(T/3). */
+  upgradeCost: { goldBase: 40, goldPerStep: 20, goldQuad: 4, shardDivisor: 3 },
 };
+
+/* Cost to upgrade one slot TO target level T (1..10). Display only —
+   the server recomputes from its stored level and is authoritative. */
+function upgradeCostFor(targetLevel) {
+  const c = ACCOUNT_GAINS.upgradeCost;
+  const t = Math.min(10, Math.max(1, targetLevel | 0)) - 1;
+  return {
+    gold: c.goldBase + c.goldPerStep * t + c.goldQuad * t * t,
+    shards: Math.ceil((t + 1) / c.shardDivisor),
+  };
+}
 
 /* ---------- derived stat block (plan section 6) ---------- */
 
@@ -61599,8 +61615,8 @@ function apiErrorText(r, fallback) {
   return (r && r.body && r.body.error && r.body.error.message) || fallback;
 }
 
-const apiRegister = (username, password) =>
-  apiCall('/auth/register', { method: 'POST', body: { username, password } });
+const apiRegister = (username, password, email) =>
+  apiCall('/auth/register', { method: 'POST', body: { username, password, email } });
 const apiLogin = (username, password) =>
   apiCall('/auth/login', { method: 'POST', body: { username, password } });
 const apiLogout = (token) =>
@@ -61609,6 +61625,34 @@ const apiReset = (username, recoveryCode, newPassword) =>
   apiCall('/auth/reset', { method: 'POST', body: { username, recoveryCode, newPassword } });
 const apiProfile = (token) =>
   apiCall('/profile', { token });
+
+/* Phase M3: server progression. /health reports the API scope; the
+   game enables server run crediting + equipment spending only when
+   the scope is 'M3', and otherwise keeps the exact M2 behaviour
+   (push-order safety: the game ships before the API redeploy). */
+const apiHealth = () =>
+  apiCall('/health', {});
+const apiSubmitRun = (token, payload) =>
+  apiCall('/runs', { method: 'POST', token, body: payload });
+const apiUpgradeEquipment = (token, slot, idempotencyKey) =>
+  apiCall('/equipment/upgrade', { method: 'POST', token, body: { slot, idempotencyKey } });
+
+/* Email (2026-11-14): accounts carry an email for reset-by-email.
+   The reset request answers 503 EMAIL_NOT_CONFIGURED until the
+   Worker has a RESEND_API_KEY secret; the UI says so plainly and
+   points at the recovery code. */
+const apiSetEmail = (token, email) =>
+  apiCall('/profile/email', { method: 'POST', token, body: { email } });
+const apiResetEmailRequest = (username, email) =>
+  apiCall('/auth/reset-email/request', { method: 'POST', body: { username, email } });
+const apiResetEmailConfirm = (username, code, newPassword) =>
+  apiCall('/auth/reset-email/confirm', { method: 'POST', body: { username, code, newPassword } });
+
+/* Client-side email shape check; the server validates strictly and
+   is authoritative — this only saves a round trip for typos. */
+function emailLooksValid(v) {
+  return typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
+}
 
 /* The async functions above are declared without the export keyword
    (the single-file bundler has no `export async function` form) and
@@ -61621,6 +61665,7 @@ __exports["PROGRESSION_VERSION"] = PROGRESSION_VERSION;
 __exports["ECONOMY_VERSION"] = ECONOMY_VERSION;
 __exports["ACCOUNT_LEVEL_CAP"] = ACCOUNT_LEVEL_CAP;
 __exports["ACCOUNT_GAINS"] = ACCOUNT_GAINS;
+__exports["upgradeCostFor"] = upgradeCostFor;
 __exports["zeroBlock"] = zeroBlock;
 __exports["sanitizeEquipment"] = sanitizeEquipment;
 __exports["accountStats"] = accountStats;
@@ -61640,6 +61685,13 @@ __exports["apiLogin"] = apiLogin;
 __exports["apiLogout"] = apiLogout;
 __exports["apiReset"] = apiReset;
 __exports["apiProfile"] = apiProfile;
+__exports["apiHealth"] = apiHealth;
+__exports["apiSubmitRun"] = apiSubmitRun;
+__exports["apiUpgradeEquipment"] = apiUpgradeEquipment;
+__exports["apiSetEmail"] = apiSetEmail;
+__exports["apiResetEmailRequest"] = apiResetEmailRequest;
+__exports["apiResetEmailConfirm"] = apiResetEmailConfirm;
+__exports["emailLooksValid"] = emailLooksValid;
 __exports["sha256Hex"] = sha256Hex;
 __exports["rosterDigest"] = rosterDigest;
 __exports["apiCall"] = apiCall;
@@ -61661,7 +61713,7 @@ const { RULES, REGISTRY, SIM_CONTENT, contentSummary, assertRegistry, HEROES, HE
    versioned account stat derivation and the co-op progression
    snapshot/digest. View-layer only — the sim consumes just the
    derived block via hero `mods`, inserted before tick 0. */
-const { PROGRESSION_VERSION, ECONOMY_VERSION, ACCOUNT_GAINS, zeroBlock, accountStats, profileBlock, profileSnapshot, guestSnapshot, sanitizeSnapshot, snapshotBlock, rosterDigest, loadSession, saveSession, clearSession, apiRegister, apiLogin, apiLogout, apiReset, apiProfile, apiErrorText } = __req("src/account.js");
+const { PROGRESSION_VERSION, ECONOMY_VERSION, ACCOUNT_GAINS, zeroBlock, accountStats, profileBlock, profileSnapshot, guestSnapshot, sanitizeSnapshot, snapshotBlock, rosterDigest, loadSession, saveSession, clearSession, apiRegister, apiLogin, apiLogout, apiReset, apiProfile, apiErrorText, apiHealth, apiSubmitRun, apiUpgradeEquipment, upgradeCostFor, apiSetEmail, apiResetEmailRequest, apiResetEmailConfirm, emailLooksValid } = __req("src/account.js");
 
 /* Fail loudly at boot on an invalid content descriptor. A missing figure,
    a dangling cross-reference or a missing spawn entry would otherwise
@@ -64867,6 +64919,11 @@ function consumeEvents(){
         damageNumber(e.x,(e.y||1.4)+0.35,e.z,(e.crit?'✦ ':'')+e.dmg,e.crit);
         Audio.hit(e.crit);break; }
       case 'kill': burst(e.x,1.2,e.z,TINTS[e.unit]?TINTS[e.unit].glow:[1,.5,.3],16,4.2);
+        /* M3 run tracking: elite kills (the registry ELITE_KINDS —
+           sorcerer/knight, the scheduled-elite kinds) feed the Aether
+           Shard formula. View-layer counting only; the sim's own
+           counters and hash never see this. */
+        if(RUN&&ELITE_KINDS.indexOf(e.unit)>=0)RUN.eliteKills++;
         Audio.kill();break;
       case 'splat': splatAt(e.x,e.z,e.unit,SIM.hero.yaw);break;
       case 'cancel': burst(e.x,1.7,e.z,[0.5,0.9,1],8,2.2);break;
@@ -65239,12 +65296,13 @@ function saveMeta(){ try{ localStorage.setItem(META_KEY,JSON.stringify(META)); }
    path, unchanged. API failure NEVER blocks play (plan section 8):
    it only means the account block is unavailable for that visit. */
 let ACCT={ state:'guest', user:null, profile:null, block:zeroBlock(),
-           notice:'', stale:false, rev:0 };
+           notice:'', stale:false, rev:0, scope:null, runSaveFailed:false };
 function acctChanged(){ ACCT.rev++; armouryRev=-1; }
 function acctSetAccount(user,profile){
   ACCT.state='account'; ACCT.user=user||null; ACCT.profile=profile||null;
   ACCT.block=profileBlock(profile); ACCT.notice=''; ACCT.stale=false;
   acctChanged();
+  acctRefreshScope();
 }
 function acctSetGuest(notice,stale){
   ACCT.state='guest'; ACCT.user=null; ACCT.profile=null; ACCT.block=zeroBlock();
@@ -65265,6 +65323,7 @@ function profileOwns(k){
    session; a transport failure keeps the token (retryable) but plays
    as guest — rewards are online-only in v1 (plan section 8). */
 async function acctBoot(){
+  acctRefreshScope();
   const sess=loadSession();
   if(!sess){ acctSetGuest(''); return; }
   ACCT.state='checking'; acctChanged();
@@ -65287,6 +65346,82 @@ function mySnapshot(){
   if(ACCT.state==='account'&&ACCT.profile)
     return profileSnapshot(ACCT.profile,ACCT.user,skin);
   return guestSnapshot(skin);
+}
+
+/* ---------- server progression (Phase M3) ----------
+   Active only when signed in AND the API's /health reports scope
+   'M3'. Until the API is redeployed with M3 the live Worker answers
+   'M1' and everything in this section stays inert: signed-in play is
+   exactly the M2 behaviour, local crediting included. That ordering
+   is deliberate — the game ships first, the API catches up, and the
+   mode switches itself on when the health scope flips. */
+function serverProgression(){ return ACCT.state==='account'&&ACCT.scope==='M3'; }
+async function acctRefreshScope(){
+  try{
+    const r=await apiHealth();
+    if(r.status===200&&r.body&&typeof r.body.scope==='string'&&ACCT.scope!==r.body.scope){
+      ACCT.scope=r.body.scope; acctChanged();
+    }
+  }catch(e){ /* scope unknown -> M2 behaviour, the safe default */ }
+}
+
+/* Run tracking for submissions. RUN lives entirely in the view
+   layer: the id is generated at run start (co-op: by the host and
+   shared through the start payload, so every participant claims the
+   same run under their own account), elite kills are counted from
+   the sim's kill events as the view consumes them, and the payload
+   is rebuilt from the sim's cumulative counters at each settlement
+   point — chapter checkpoints first, the final outcome last. The
+   server recomputes entitlement from these counters; a failed send
+   keeps the payload in RUN.pending for the Armoury retry and never
+   blocks play (plan sections 3 + 8). */
+let RUN=null;
+function newRunId(){
+  try{ if(window.crypto&&crypto.randomUUID)return crypto.randomUUID(); }catch(e){}
+  return 'run-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12)+
+         '-'+Math.random().toString(36).slice(2,12);
+}
+function runBegin(id,mode,heroId){
+  RUN={ id:id||null, mode:mode||'solo', heroId:heroId||'hero',
+        eliteKills:0, chapterScores:{}, pending:[] };
+  ACCT.runSaveFailed=false;
+}
+function runPayload(stage,chaptersCleared,victory){
+  const s=SIM;
+  const p={ clientRunId:RUN.id, stage, mode:RUN.mode, heroId:RUN.heroId,
+    build:CFG.net.build, economyVersion:ECONOMY_VERSION,
+    score:s.score, kills:s.kills, eliteKills:RUN.eliteKills,
+    chaptersCleared, victory:!!victory,
+    durationSec:Math.floor(s.tick/60), simTicks:s.tick,
+    chapterScores:Object.assign({},RUN.chapterScores) };
+  if(RUN.mode==='coop')p.partyRunId=RUN.id;
+  return p;
+}
+function runSubmit(stage,chaptersCleared,victory){
+  if(!serverProgression()||!RUN||!RUN.id)return;
+  const payload=runPayload(stage,chaptersCleared,victory);
+  RUN.pending=RUN.pending.filter(x=>x.stage!==stage);
+  RUN.pending.push(payload);
+  acctSendRun(payload);
+}
+async function acctSendRun(payload){
+  const sess=loadSession(); if(!sess)return;
+  try{
+    const r=await apiSubmitRun(sess.token,payload);
+    if(r.status===200&&r.body){
+      if(RUN)RUN.pending=RUN.pending.filter(x=>x.stage!==payload.stage);
+      if(r.body.profile)acctSetAccount(ACCT.user,r.body.profile);
+      if(ACCT.runSaveFailed&&!(RUN&&RUN.pending.length)){ ACCT.runSaveFailed=false; }
+      acctChanged();
+      return;
+    }
+    if(r.status===401){ clearSession(); acctSetGuest('SESSION EXPIRED — PLAYING AS GUEST'); return; }
+  }catch(e){ /* transport failure: the payload stays pending */ }
+  ACCT.runSaveFailed=true; acctChanged();
+}
+function runRetryPending(){
+  if(!RUN||!RUN.pending.length)return;
+  for(const p of RUN.pending.slice())acctSendRun(p);
 }
 function buyTrack(id){
   const lv=META.tracks[id]; if(lv>=CFG.meta.steps)return;
@@ -65314,10 +65449,45 @@ function trackBtn(t){
   if(lv>=max)return {label:t.name+' · LV '+max+'/'+max+' · MAX',fn:()=>{}};
   return {label:t.name+' +'+t.per+' · LV '+lv+'/'+max+' · '+CFG.meta.costs[lv]+' G',fn:()=>buyTrack(t.id)};
 }
+/* M3: one equipment upgrade, charged by the server. The button
+   shows the server's price for the NEXT level (the cost table is
+   shared data in account.js); the response profile re-renders the
+   whole hall, so what you see is always the server's truth. */
+let acctSpendBusy=false;
+function equipBtn(sl){
+  const p=ACCT.profile||{};
+  const lv=(p.equipment&&p.equipment[sl.api])||0;
+  if(lv>=10)return {label:sl.label+' \u00B7 LV 10/10 \u00B7 MAX',fn:()=>{}};
+  const cost=upgradeCostFor(lv+1);
+  const gain=sl.key==='helm'?('+1% '+sl.stat):('+'+acctFmtN(sl.per)+' '+sl.stat);
+  return {label:sl.label+' '+gain+' \u00B7 LV '+lv+'/10 \u00B7 '+cost.gold+' G + '+cost.shards+' \u25C6',
+    fn:()=>acctUpgrade(sl)};
+}
+async function acctUpgrade(sl){
+  if(acctSpendBusy||!serverProgression())return;
+  const sess=loadSession(); if(!sess)return;
+  acctSpendBusy=true;
+  try{
+    const r=await apiUpgradeEquipment(sess.token,sl.api,newRunId());
+    if(r.status===200&&r.body&&r.body.profile){
+      acctSetAccount(ACCT.user,r.body.profile);
+      showBanner(sl.label+' \u2192 LV '+(r.body.level||''),1600);
+    }else{
+      showBanner(apiErrorText(r,'Upgrade failed — nothing was charged.'),2400);
+    }
+  }catch(e){ showBanner('Could not reach the account service — upgrade not charged.',2400); }
+  acctSpendBusy=false; armouryRev=-1; renderArmoury();
+}
 function metaButtons(){
-  /* Track labels, per-step values and button order all come from
-     src/content/rules.js -> RULES.meta.tracks. */
-  const bs=CFG.meta.tracks.map(trackBtn);
+  /* In server progression mode the five equipment buttons replace
+     the local legacy tracks (plan section 5: convert, don't
+     duplicate). Guests — and signed-in play while the API is still
+     pre-M3 — keep the local tracks exactly as before. Track labels,
+     per-step values and button order come from src/content/rules.js
+     -> RULES.meta.tracks. */
+  const bs=serverProgression()
+    ? ACCOUNT_GAINS.slots.map(equipBtn)
+    : CFG.meta.tracks.map(trackBtn);
   /* Generated from the hero registry: a new <id>.js in content/heroes/
      automatically gets an UNLOCK/USE button. The old hard-coded four-id
      list silently hid any newly added skin. */
@@ -65351,11 +65521,25 @@ function armouryAccountHTML(){
     const gain=sl.key==='helm'?('+'+lv+'% '+sl.stat):('+'+acctFmtN(sl.per*lv)+' '+sl.stat);
     return sl.label+' LV '+lv+' <span class="k">'+gain+'</span>';
   }).join(' &nbsp;\u00B7&nbsp; ');
+  const emailLine=u.email
+    ? '<div>EMAIL <span class="k">'+esc(u.email)+'</span></div>'
+    : '<div>NO EMAIL ON FILE \u2014 add one from the account panel (landing \u2192 account) so you can reset a forgotten password by email.</div>';
+  let tail;
+  if(serverProgression()){
+    tail='<div>Your runs earn on this account and are saved by the server as you clear chapters. '
+      +'All three heroes are open to your account. Upgrade equipment with the buttons below \u2014 '
+      +'the server charges your account gold and shards.</div>';
+    if(ACCT.runSaveFailed)
+      tail+='<div class="cstat">LAST RUN COULD NOT BE SAVED \u2014 check your connection, then use RETRY RUN SAVE below.</div>';
+  }else{
+    tail='<div>Your runs use this account block. Equipment upgrades and hero unlocks move server-side in the next account update; the local hall below still serves guest play.</div>';
+  }
   return '<div class="acctpanel">'+
     '<div>\u269C <span class="k">'+esc(u.username||'')+'</span> &nbsp;\u00B7&nbsp; '+xpLine+'</div>'+
     '<div>\u{1FA99} GOLD <span class="k">'+p.gold+'</span> &nbsp;\u00B7&nbsp; \u25C6 AETHER SHARDS <span class="k">'+p.shards+'</span></div>'+
     '<div>EQUIPMENT \u2014 '+eq+'</div>'+
-    '<div>Your runs use this account block. Equipment upgrades and hero unlocks move server-side in the next account update; the local hall below still serves guest play.</div>'+
+    emailLine+
+    tail+
   '</div>';
 }
 function armouryBodyHTML(){
@@ -65372,6 +65556,8 @@ function renderArmoury(){
   armouryRev=rk;
   $('armBody').innerHTML=armouryBodyHTML();
   const bs=metaButtons();
+  if(ACCT.runSaveFailed&&RUN&&RUN.pending&&RUN.pending.length)
+    bs.unshift({label:'RETRY RUN SAVE',fn:()=>{ runRetryPending(); }});
   if(ACCT.state==='account')
     bs.unshift({label:'LOG OUT \u00B7 '+((ACCT.user&&ACCT.user.username)||''),fn:()=>{ acctLogout(); }});
   fillBtns($('armBtns'),bs);
@@ -65384,7 +65570,7 @@ function renderArmoury(){
    section 2). A password reset likewise surfaces the REPLACEMENT
    code before returning to the login view. */
 let acctOpen=false, acctView='login', acctErr='', acctBusy=false,
-    acctRecovery=null, acctRecoveryKind='', acctFormUser='', acctRev='';
+    acctRecovery=null, acctRecoveryKind='', acctFormUser='', acctFormEmail='', acctRev='';
 function openAccount(view){
   if(SIM.phase!=='title')return;
   closeArmoury(); closeCoop();
@@ -65420,10 +65606,13 @@ async function acctDoLogin(){
 }
 async function acctDoRegister(){
   if(acctBusy)return;
-  const u=$('acctUser').value.trim(), p=$('acctPass').value;
-  acctFormUser=u; acctBusy=true; acctErr=''; acctRev=''; renderAccount();
+  const u=$('acctUser').value.trim(), p=$('acctPass').value,
+        em=$('acctEmail')?$('acctEmail').value.trim():'';
+  acctFormUser=u; acctFormEmail=em;
+  if(!emailLooksValid(em)){ acctErr='Enter a valid email address \u2014 it is how you reset a forgotten password.'; acctRev=''; renderAccount(); return; }
+  acctBusy=true; acctErr=''; acctRev=''; renderAccount();
   try{
-    const r=await apiRegister(u,p);
+    const r=await apiRegister(u,p,em);
     if(r.status===201&&r.body&&r.body.token){
       saveSession(r.body.token,r.body.expiresAt);
       acctSetAccount(r.body.user,r.body.profile);
@@ -65456,6 +65645,62 @@ function acctRecoveryDone(){
   if(kind==='reset'){ acctView='login'; acctErr=''; acctRev=''; renderAccount(); }
   else closeAccount();
 }
+/* Reset by email, step 1: username + email -> 6-digit code. The API
+   answers the same for matched and unmatched pairs; only
+   EMAIL_NOT_CONFIGURED is surfaced, plainly, with the recovery-code
+   path as the way through (the Worker has no mail key yet). */
+async function acctDoEmailRequest(){
+  if(acctBusy)return;
+  const u=$('acctUser').value.trim(), em=$('acctEmail').value.trim();
+  acctFormUser=u; acctFormEmail=em;
+  if(!emailLooksValid(em)){ acctErr='Enter the email address on the account.'; acctRev=''; renderAccount(); return; }
+  acctBusy=true; acctErr=''; acctRev=''; renderAccount();
+  try{
+    const r=await apiResetEmailRequest(u,em);
+    if(r.status===200){ acctBusy=false; acctView='resetEmailCode'; acctRev=''; renderAccount(); return; }
+    if(r.body&&r.body.error&&r.body.error.code==='EMAIL_NOT_CONFIGURED'){
+      acctBusy=false; acctView='reset';
+      acctErr='Email reset is not switched on yet \u2014 use your recovery code below.';
+      acctRev=''; renderAccount(); return;
+    }
+    acctFail(apiErrorText(r,'Could not request a reset code.'));
+  }catch(e){ acctFail('Could not reach the account service. Check your connection \u2014 or keep playing as guest.'); }
+}
+/* Reset by email, step 2: code + new password. Success mirrors the
+   recovery-code reset: every session is revoked and a REPLACEMENT
+   recovery code is shown once. */
+async function acctDoEmailConfirm(){
+  if(acctBusy)return;
+  const c=$('acctMailCode').value.trim(), p=$('acctPass').value;
+  acctBusy=true; acctErr=''; acctRev=''; renderAccount();
+  try{
+    const r=await apiResetEmailConfirm(acctFormUser,c,p);
+    if(r.status===200&&r.body){
+      clearSession();
+      acctSetGuest('');
+      acctRecovery=r.body.recoveryCode||''; acctRecoveryKind='reset';
+      acctBusy=false; acctView='recovery'; acctRev=''; renderAccount();
+      return;
+    }
+    acctFail(apiErrorText(r,'Reset failed.'));
+  }catch(e){ acctFail('Could not reach the account service. Check your connection \u2014 or keep playing as guest.'); }
+}
+/* Signed-in: add/replace the account email (accounts registered
+   before email existed have none on file). */
+async function acctDoSetEmail(){
+  if(acctBusy)return;
+  const em=$('acctEmail')?$('acctEmail').value.trim():'';
+  acctFormEmail=em;
+  if(!emailLooksValid(em)){ acctErr='Enter a valid email address.'; acctRev=''; renderAccount(); return; }
+  const sess=loadSession(); if(!sess)return;
+  acctBusy=true; acctErr=''; acctRev=''; renderAccount();
+  try{
+    const r=await apiSetEmail(sess.token,em);
+    if(r.status===200&&r.body){ acctSetAccount(r.body.user,r.body.profile); acctBusy=false; acctRev=''; renderAccount(); return; }
+    if(r.status===401){ clearSession(); acctSetGuest('SESSION EXPIRED \u2014 PLAYING AS GUEST'); acctBusy=false; acctView='login'; acctRev=''; renderAccount(); return; }
+    acctFail(apiErrorText(r,'Could not save the email.'));
+  }catch(e){ acctFail('Could not reach the account service.'); }
+}
 function renderAccount(){
   if(!acctOpen)return;
   const key=acctView+'|'+acctErr+'|'+(acctBusy?1:0)+'|'+ACCT.state+'|'+ACCT.rev;
@@ -65465,6 +65710,7 @@ function renderAccount(){
   const err=acctErr?'<div class="cstat">'+esc(acctErr)+'</div>':'';
   const userIn='<input class="acctIn" id="acctUser" placeholder="USERNAME" autocomplete="off" spellcheck="false" value="'+esc(acctFormUser)+'">';
   const passIn='<input class="acctIn" id="acctPass" type="password" placeholder="PASSWORD" autocomplete="off">';
+  const emailIn='<input class="acctIn" id="acctEmail" type="email" placeholder="EMAIL" autocomplete="off" spellcheck="false" value="'+esc(acctFormEmail)+'">';
   const busy=acctBusy?'<div class="cstat">WORKING\u2026</div>':'';
   let btns=[], closeLabel='CLOSE';
   if(acctView==='login'){
@@ -65476,8 +65722,9 @@ function renderAccount(){
           {label:'FORGOT PASSWORD',fn:()=>acctNav('reset'),ghost:true}];
   }else if(acctView==='register'){
     title.textContent='REGISTER';
-    body.innerHTML='<div>Username: 3\u201316 letters, numbers or underscores. Password: at least 8 characters.</div>'+
-      userIn+passIn+
+    body.innerHTML='<div>Username: 3\u201316 letters, numbers or underscores. Password: at least 8 characters. '+
+      'Email is required \u2014 it is how you reset a forgotten password.</div>'+
+      userIn+emailIn+passIn+
       '<div class="acctwarn">You will be shown ONE recovery code. Save it outside the game: '+
       'if you lose both your password and that code, there is no self-service way back in.</div>'+err+busy;
     btns=[{label:acctBusy?'WORKING\u2026':'CREATE ACCOUNT',fn:acctDoRegister},
@@ -65488,7 +65735,23 @@ function renderAccount(){
       'Resetting signs out every device and issues a NEW recovery code.</div>'+
       userIn+'<input class="acctIn" id="acctCode" placeholder="RECOVERY CODE" autocomplete="off" spellcheck="false">'+passIn+err+busy;
     btns=[{label:acctBusy?'WORKING\u2026':'RESET PASSWORD',fn:acctDoReset},
+          {label:'NO CODE? RESET BY EMAIL',fn:()=>acctNav('resetEmail'),ghost:true},
           {label:'BACK TO LOGIN',fn:()=>acctNav('login'),ghost:true}];
+  }else if(acctView==='resetEmail'){
+    title.textContent='RESET BY EMAIL';
+    body.innerHTML='<div>Enter your username and the email on the account. If they match an account, '+
+      'a 6-digit reset code is emailed to it (15 minutes, one use).</div>'+
+      userIn+emailIn+err+busy;
+    btns=[{label:acctBusy?'WORKING\u2026':'SEND RESET CODE',fn:acctDoEmailRequest},
+          {label:'USE RECOVERY CODE INSTEAD',fn:()=>acctNav('reset'),ghost:true},
+          {label:'BACK TO LOGIN',fn:()=>acctNav('login'),ghost:true}];
+  }else if(acctView==='resetEmailCode'){
+    title.textContent='ENTER YOUR RESET CODE';
+    body.innerHTML='<div>If that username and email match an account, a code is on its way to <span class="k">'+
+      esc(acctFormEmail)+'</span>. Enter it with a new password. Resetting signs out every device and issues a NEW recovery code.</div>'+
+      '<input class="acctIn" id="acctMailCode" placeholder="6-DIGIT CODE" autocomplete="off" spellcheck="false" inputmode="numeric">'+passIn+err+busy;
+    btns=[{label:acctBusy?'WORKING\u2026':'RESET PASSWORD',fn:acctDoEmailConfirm},
+          {label:'BACK',fn:()=>acctNav('resetEmail'),ghost:true}];
   }else if(acctView==='recovery'){
     title.textContent='SAVE YOUR RECOVERY CODE';
     body.innerHTML=(acctRecoveryKind==='reset'
@@ -65500,10 +65763,21 @@ function renderAccount(){
   }else{ /* account */
     title.textContent='ACCOUNT';
     const p=ACCT.profile||{}, u=ACCT.user||{};
+    let emailBlock;
+    if(u.email){
+      emailBlock='<div>EMAIL <span class="k">'+esc(u.email)+'</span> \u2014 password resets by email go here.</div>'+emailIn+
+        '<div>Enter a different address above to replace it.</div>';
+      btns=[{label:acctBusy?'WORKING\u2026':'UPDATE EMAIL',fn:acctDoSetEmail}];
+    }else{
+      emailBlock='<div>NO EMAIL ON FILE. Add one so a forgotten password can be reset by email '+
+        '(the recovery code stays as the other way back in).</div>'+emailIn;
+      btns=[{label:acctBusy?'WORKING\u2026':'ADD EMAIL',fn:acctDoSetEmail}];
+    }
     body.innerHTML='<div>\u269C <span class="k">'+esc(u.username||'')+'</span> \u00B7 ACCOUNT LV '+(p.level||1)+
       ' \u00B7 \u{1FA99} '+(p.gold||0)+' \u00B7 \u25C6 '+(p.shards||0)+'</div>'+
-      '<div>Your runs use your account stat block. Full details live in the Armoury.</div>'+err;
-    btns=[{label:'LOG OUT',fn:()=>{ acctLogout(); acctNav('login'); }}];
+      '<div>Your runs use your account stat block. Full details live in the Armoury.</div>'+
+      emailBlock+err+busy;
+    btns.push({label:'LOG OUT',fn:()=>{ acctLogout(); acctNav('login'); },ghost:true});
   }
   $('acctBody').innerHTML=body.innerHTML;
   fillBtns(bw,btns);
@@ -65604,7 +65878,7 @@ function renderHeroSelect(){
   /* the landing stays hidden behind the sheet while the picker is open */
   $('overlay').classList.remove('on');
   const owned=hselOwned(hselKind), cost=hselCost(hselKind);
-  const key=hselKind+'|'+hselMode+'|'+META.gold+'|'+META.rev+'|'+(owned?1:0);
+  const key=hselKind+'|'+hselMode+'|'+META.gold+'|'+META.rev+'|'+ACCT.rev+'|'+(owned?1:0);
   if(key===hselRev)return;
   hselRev=key;
   const cw=$('hselCards'); cw.innerHTML='';
@@ -65620,7 +65894,8 @@ function renderHeroSelect(){
     el.addEventListener('click',()=>pickHeroCard(k));
     cw.appendChild(el);
   }
-  $('hselGold').innerHTML='\u{1FA99} GOLD <span class="k">'+META.gold+'</span>';
+  $('hselGold').innerHTML='\u{1FA99} GOLD <span class="k">'+
+    ((serverProgression()&&ACCT.profile)?ACCT.profile.gold:META.gold)+'</span>';
   const bw=$('hselBtns'); bw.innerHTML='';
   const b=document.createElement('button');
   b.className='bigbtn';
@@ -65665,6 +65940,7 @@ function updateHints(){
 
 function startRun(){
   if(hselOpen)closeHeroSelect();   // the preview never leaks into a run
+  runBegin(newRunId(),'solo',safeHero(META.heroSkin));
   SIM=newSim(0x51A7E); SIM.phase='play';
   SIM.mods=runBlock();
   SIM.heroes[0].mods=Object.assign({},SIM.mods);
@@ -65697,6 +65973,9 @@ function syncOverlay(){
     if(ACCT.state!=='account'){
       if(ACCT.stale)btns.push({label:'RETRY ACCOUNT',fn:()=>{ acctBoot(); },ghost:true});
       btns.push({label:ACCT.state==='checking'?'ACCOUNT\u2026':'LOG IN / REGISTER',fn:()=>openAccount('login'),ghost:true});
+    }else{
+      /* Signed in: the account panel (email, session) stays reachable. */
+      btns.push({label:'ACCOUNT',fn:()=>openAccount('account'),ghost:true});
     }
     btns.push({label:'ARMOURY',fn:openArmoury,ghost:true});
     setOverlay(key,'','AETHERBLADE','',acctChipHTML(),null,btns,'');
@@ -65713,24 +65992,41 @@ function syncOverlay(){
       cards,null,'');
   }else if(s.phase==='clear'){
     if(!SETTLED.ch[s.chapter]){ SETTLED.ch[s.chapter]=true;
-      META.gold+=CFG.meta.clearBonus; META.cleared[s.chapter]=true;
-      if(s.score>(META.best[s.chapter]||0))META.best[s.chapter]=s.score;
-      if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); }
+      if(RUN)RUN.chapterScores[s.chapter]=s.score;
+      if(serverProgression()){
+        /* M3: the chapter checkpoint is credited by the SERVER; the
+           local save keeps only the records (cleared flag + bests). */
+        META.cleared[s.chapter]=true;
+        if(s.score>(META.best[s.chapter]||0))META.best[s.chapter]=s.score;
+        if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta();
+        runSubmit('chapter-'+s.chapter,s.chapter,false);
+      }else{
+        META.gold+=CFG.meta.clearBonus; META.cleared[s.chapter]=true;
+        if(s.score>(META.best[s.chapter]||0))META.best[s.chapter]=s.score;
+        if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); } }
     setOverlay(key,'CHAPTER '+s.chapter,'CHAPTER CLEARED',
       s.chapter<CHAPTER_COUNT?'NEXT: '+PALETTES[s.chapter].name:'THE ECLIPSE IS BROKEN',
       '<div style="text-align:center">Score '+s.score+' &nbsp;·&nbsp; Kills '+s.kills+' &nbsp;·&nbsp; HP '+Math.round(localHero(s).hp)+'</div>',
       null,null,'');
   }else if(s.phase==='dead'){
     if(!SETTLED.ended){ SETTLED.ended=true;
-      META.gold+=Math.floor(s.score/CFG.meta.scoreGoldDivisor);
-      if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); }
+      if(serverProgression()){
+        if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta();
+        runSubmit('death',Object.keys(SETTLED.ch).length,false);
+      }else{
+        META.gold+=Math.floor(s.score/CFG.meta.scoreGoldDivisor);
+        if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); } }
     setOverlay(key,'RUN ENDED','YOU FELL','CHAPTER '+s.chapter,
       '<div style="text-align:center">Score '+s.score+' &nbsp;·&nbsp; Kills '+s.kills+' &nbsp;·&nbsp; Level '+s.level+'</div>',
       null,(NET&&NET.active)?[{label:'END RUN',fn:()=>netTeardown(true)}]:[{label:'RETRY',fn:startRun}],'');
   }else if(s.phase==='victory'){
     if(!SETTLED.ended){ SETTLED.ended=true;
-      META.gold+=Math.floor(s.score/CFG.meta.scoreGoldDivisor)+CFG.meta.victoryBonus;
-      if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); }
+      if(serverProgression()){
+        if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta();
+        runSubmit('victory',CHAPTER_COUNT,true);
+      }else{
+        META.gold+=Math.floor(s.score/CFG.meta.scoreGoldDivisor)+CFG.meta.victoryBonus;
+        if(s.score>META.bestTotal)META.bestTotal=s.score; saveMeta(); } }
     setOverlay(key,'ALL '+CHAPTER_COUNT+' CHAPTERS CLEARED','VICTORY','AETHERBLADE',
       '<div style="text-align:center">Final score '+s.score+' &nbsp;·&nbsp; '+s.kills+' kills &nbsp;·&nbsp; Level '+s.level+'</div>',
       null,(NET&&NET.active)?[{label:'END RUN',fn:()=>netTeardown(true)}]:[{label:'PLAY AGAIN',fn:startRun}],CREDITS_HTML);
@@ -66100,6 +66396,7 @@ async function netAcceptStart(sess,m){
     sess.myIdx=netSlotIdx(sess,sess.mySlot);
     if(sess.myIdx<0){ sess.status='mismatch'; return; }
     sess.seed=m.seed>>>0;
+    sess.runId=(typeof m.runId==='string'&&m.runId)?m.runId:null;
     sess.pickerSlot=netPickerSlot(sess);
     sess.status='starting'; sess.startAt=performance.now()+1200;
   }finally{ sess.startPending=false; }
@@ -66112,10 +66409,11 @@ async function hostStartRun(){
   sess.players=slots.map(sl=>({slot:sl,skin:sess.lobby[sl].skin,snap:sess.lobby[sl].snap}));
   sess.myIdx=0;
   sess.seed=(((Date.now()^((performance.now()*1000)|0))>>>0)||0x51A7E);
+  sess.runId=newRunId();   // M3: the party's shared run id (host-generated)
   sess.pickerSlot=netPickerSlot(sess);
   const pdigest=await rosterDigest(sess.players);
   if(sess!==NET||sess.started)return;
-  sess.send({type:'start',seed:sess.seed,build:CFG.net.build,players:sess.players,pdigest});
+  sess.send({type:'start',seed:sess.seed,build:CFG.net.build,players:sess.players,pdigest,runId:sess.runId});
   sess.status='starting'; sess.startAt=performance.now()+1200;
 }
 function netOnSocketDown(sess){
@@ -66363,6 +66661,7 @@ function startCoopRun(seed){
   HERO_SKINS=sess.players.map(p=>p.skin);
   LOCAL_IDX=sess.myIdx;
   SETTLED={ch:{},ended:false};
+  runBegin(sess.runId,'coop',safeHero((sess.players[sess.myIdx]||{}).skin||'hero'));
   sess.step=0; sess.hashMine={}; sess.hashTheirs={};
   sess.removed={}; sess.removedApplied={}; sess.droppedSlots={};
   sess.pendingDrop=null; sess.execWait=null;
@@ -66782,7 +67081,9 @@ window.__GAME={
     status:n.status,nextSend:n.nextSend,recs:n.recs?n.recs.map(r=>Object.keys(r).map(Number).sort((a,b)=>a-b)):null,
     players:n.players?n.players.map(p=>({slot:p.slot,skin:p.skin,snap:p.snap||null,mods:netPlayerBlock(p)})):null}:null; },
   get account(){ return {state:ACCT.state,user:ACCT.user,profile:ACCT.profile,
-    block:Object.assign({},ACCT.block),notice:ACCT.notice,stale:ACCT.stale}; },
+    block:Object.assign({},ACCT.block),notice:ACCT.notice,stale:ACCT.stale,
+    scope:ACCT.scope,serverProgression:serverProgression(),runSaveFailed:ACCT.runSaveFailed,
+    run:RUN?{id:RUN.id,mode:RUN.mode,eliteKills:RUN.eliteKills,pending:RUN.pending.map(p=>p.stage)}:null}; },
   accountBoot(){ return acctBoot(); },
   accountLogout(){ return acctLogout(); },
   netCreate(code){ return coopCreate(code); },
