@@ -25,10 +25,10 @@ export const knightMount = {
     glow:  [0.930, 0.940, 0.980],   // pale griffin emblem on the tabard
     metal: [0.620, 0.650, 0.710],   // darker steel — chainmail, stirrups
   },
-  meshScale: 1.5,                   // custom builder works in world metres; root scaled x1.5 (boss size: x1.3 at AB-NET-7, raised to x1.5 at AB-NET-19 — Matt 2026-11-14: all bosses 1.5x except the dragon)
+  meshScale: 1.8,                   // custom builder works in world metres; root scaled x1.8 (boss size: x1.3 at AB-NET-7, x1.5 at AB-NET-19, then +20% lancer-only — Matt 2026-11-15: "iron lancer could be 20% larger")
   parts: [],                        // custom figures own no rig parts (schema)
   added: '2026-11-13',
-  notes: 'Mounted boss figure: horse ~3.1 m long, rider to ~3.3 m with plume (at the x1.5 boss scale, AB-NET-19). Gallop / lean / sword-raise are procedural in game.js. View-only: tint edits never move the digest.',
+  notes: 'Mounted boss figure: horse ~3.7 m long, rider to ~4.0 m with plume (at the x1.8 scale: the x1.5 boss rule of AB-NET-19 plus Matt\'s +20% lancer raise, 2026-11-15). Gallop / lean / sword-raise are procedural in game.js. View-only: tint edits never move the digest.',
 };
 
 export default knightMount;

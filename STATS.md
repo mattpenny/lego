@@ -33,12 +33,12 @@ Magic basics (every hero): the meter fills **1 per kill**, casting costs **20**,
 |---|---|---|---|---|---|---|---|
 | 1 | EMERALD DRAKE | 396 | 6 | 1.95 | ×1.3 | 1800 | `src/content/enemies/bosses/emerald-drake.js · cfg` |
 | 2 | GRAVE SOVEREIGN | 330 | 7.4 | 1.495 | ×2.475 | 1500 | `src/content/enemies/bosses/shared.js (BOSS_CFG) · cfg` |
-| 3 | THE IRON LANCER | 462 | 6.8 | 1.755 | ×1.5 | 2200 | `src/content/enemies/bosses/iron-lancer.js · cfg` |
+| 3 | THE IRON LANCER | 462 | 6.8 | 1.755 | ×1.8 | 2200 | `src/content/enemies/bosses/iron-lancer.js · cfg` |
 | 4 | THE SPIKED OGRE | 520 | 5.6 | 1.45 | ×1.55 | 2600 | `src/content/enemies/bosses/spiked-ogre.js · cfg` |
 | 5 | EMERALD DRAKE (PLACEHOLDER) | 580 | 6 | 1.95 | ×1.3 | 1800 | `src/content/enemies/bosses/caldera-drake.js · cfg` |
-| 6 | THE IRON LANCER (PLACEHOLDER) | 640 | 6.8 | 1.755 | ×1.5 | 2200 | `src/content/enemies/bosses/siege-lancer.js · cfg` |
+| 6 | THE IRON LANCER (PLACEHOLDER) | 640 | 6.8 | 1.755 | ×1.8 | 2200 | `src/content/enemies/bosses/siege-lancer.js · cfg` |
 
-Boss size: boss figures sit at **×1.5** their original size (radius is the sim body; the figure scale is the matching view size) — Matt's all-bosses-bigger call (AB-NET-19). Two exceptions: the Emerald Drake (chapters 1 and 5) keeps **×1.3** — Matt exempted the dragon — and chapter 4's Spiked Ogre sits at **×1.55**, Matt's bigger-boss call (AB-NET-17). Chapter 4 is Matt's own boss design and fields **TWO** ogres at once (`twinFigure` — the chapter clears only when both are dead; each carries the full HP and score above, so the solo fight totals 1,040 HP). Chapters 5-6 bosses remain PLACEHOLDERS (earlier bosses reappearing with late-game HP) pending Matt's own boss creations.
+Boss size: boss figures sit at **×1.5** their original size (radius is the sim body; the figure scale is the matching view size) — Matt's all-bosses-bigger call (AB-NET-19). Three exceptions: the Emerald Drake (chapters 1 and 5) keeps **×1.3** — Matt exempted the dragon — chapter 4's Spiked Ogre sits at **×1.55**, Matt's bigger-boss call (AB-NET-17), and the Iron Lancer (chapters 3 and 6) sits at **×1.8** — the ×1.5 rule plus Matt's extra 20% for the lancer (2026-11-15). Chapter 4 is Matt's own boss design and fields **TWO** ogres at once (`twinFigure` — the chapter clears only when both are dead; each carries the full HP and score above, so the solo fight totals 1,040 HP). Chapters 5-6 bosses remain PLACEHOLDERS (earlier bosses reappearing with late-game HP) pending Matt's own boss creations.
 
 ### Boss attacks — base → effective (damage multiplier applied once, one rounding)
 

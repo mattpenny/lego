@@ -3021,7 +3021,7 @@ function makeKnightMountView(id,b){
   const TN=TINTS['knight-mount'];
   const mat=CHARMAT({vertexColors:true});
   const root=new T.Group(); root.rotation.order='YXZ';
-  root.scale.setScalar(FIGURE_SCALES['knight-mount']||1);   // descriptor meshScale (x1.5 boss size, AB-NET-19)
+  root.scale.setScalar(FIGURE_SCALES['knight-mount']||1);   // descriptor meshScale (x1.8: x1.5 boss size AB-NET-19 + 20% lancer raise, Matt 2026-11-15)
   const bodyG=new T.Group(); root.add(bodyG);
   bodyG.add(new T.Mesh(dGeo(knightHorseParts(TN)),mat));
   const neckG=new T.Group(); neckG.position.set(0,1.52,0.78); bodyG.add(neckG);
