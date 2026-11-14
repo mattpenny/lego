@@ -1162,3 +1162,82 @@ or every player loses state: the localStorage keys
 hello payload `game:'aetherblade'`, the room-code namespacing, the
 repo/folder names, and code comments. `digest:check` unchanged
 (`42bfc451…`) proves no title string lives in hashed content.
+
+## 14. The level-up picker: downed players are skipped, and the sim auto-picks (AB-NET-16)
+
+Matt, 2026-11-14, real 2P game: the party reached LEVEL 2 with the
+HOST DOWN; the guest's screen said "The host is choosing for the
+party." and the run hung there forever.
+
+Root cause (rig `crane/ab-picker-lock.mjs` mode `repro`, pre-fix
+build; evidence `rig/ab-picker-lock-before.json`): the picker was
+the lowest-numbered non-REMOVED slot, with no regard for downed
+state, and three facts composed the lock — (1) the downed host was
+the sole eligible picker; (2) his own caption was the plain solo
+text "The arena is paused.", so nothing ever told him he could and
+must pick while spectating; (3) the living guest was hard-locked
+out — card clicks work on every client, but `netSample` stamps
+`upgrade:-1` on every non-picker frame, so her click was silently
+discarded. The downed host's tap DID mechanically land when the rig
+made it (the run resumed), so this was a role/communication lock,
+not a dead input path. No timeout existed anywhere in the chain.
+
+The fix (three parts, all deriving from the same sim state on every
+client):
+
+- `netPickerSlot(sess)` now skips players whose sim hero is DOWNED,
+  exactly as it already skipped disconnected (removed) slots. If
+  every remaining player is downed the run is ending anyway and it
+  falls back to the lowest remaining slot. The picker is derived
+  LIVE — refreshed in `netSample` (the stamp gate) and in
+  `syncOverlay` (the caption) — because downs happen inside sim
+  steps with no net event to mirror them on. A derivation caught
+  mid-transition can delay a pick a few ticks; frames are the
+  shared truth, so it can never desync one.
+- Captions are one rule for every party size (the 2P hardcode
+  "The host is choosing for the party." is gone): the picker reads
+  "You are choosing for the party.", everyone else reads
+  "P{n} is choosing for the party." naming the actual picker.
+- Safety net in the sim itself: `simStep`'s level-up branch counts
+  `s.pickWait` while no pick arrives, and at `RULES.pickTimeoutSteps`
+  = 1200 steps (≈20 game-seconds) applies the FIRST offered upgrade
+  (`applyUpgrade(s, 0)`). The count lives inside the shared state
+  machine, so the auto-pick lands on the same tick on every client.
+  Gated to `s.players > 1` — solo is exempt, a lone player may
+  think forever. `pickWait` is NOT hashed in `simDigest` (the
+  `choices`/`resume` precedent: a pure function of hashed history;
+  the applied upgrade itself IS hashed via `s.up`/hero state).
+
+Who picks now: host downed → lowest-numbered LIVING player (the
+guest in 2P); guest downed → the host, as before; a disconnected
+player's slot stays skipped by the older removal rule; the picker
+idle/AFK in any co-op run → the sim auto-picks after 1200 steps.
+
+Digests: NO scenario digest moved (combined stays `42bfc451…`) —
+solo scenarios are players===1 so the net never runs there, and the
+`coop1200` harness never sends a pick and cannot sit 1200 steps in
+the level-up state inside its 1200-step window. The baseline
+re-record moved only `build` (AB-NET-15 → AB-NET-16 — sim behaviour
+genuinely changes for co-op waits, so old/new builds must refuse to
+pair), `simContentSha256` (RULES carries the new constant) and
+`sourceSha256`.
+
+Proofs (`crane/ab-picker-lock.mjs` + `ab-picker-timeout-vm.mjs` +
+`ab-picker-solo.mjs`; evidence in `rig/ab-picker-lock-*.json`,
+`rig/ab-picker-timeout-vm.json`, `rig/ab-picker-solo.json`):
+(i) downed host → picker 1 on both pages, captions "P2 is
+choosing…" / "You are choosing…", the guest's real mouse click
+resumed both pages, checkpoints agree after resume, zero desync;
+(ii) nobody picks → the run exits the screen after 1184 observed
+steps (1200 bound minus poll lag), exactly one upgrade applied,
+checkpoints agree, zero desync — and the VM proof pins the bound
+exactly (levelup at wait-step 1199, auto-pick on step 1200, a real
+pick on the boundary step wins, solo never auto-picks in 2500
+steps); (iii) living host picks as before, captions "You are
+choosing…" / "P1 is choosing…"; (iv) `ab-4p-drops.mjs` still
+passes (host removal → pickerSlot 1 on the remaining pages);
+(v) solo screen + click path unchanged ("The arena is paused.");
+(vi) all gates green. Rig note: co-op guests are zero-block by
+design in the account era (`guestSnapshot`) — seeded META tracks
+do nothing in co-op; the rig fighters are Penny (`frostarcher`)
+kiters, the proven N=2 survivors.
