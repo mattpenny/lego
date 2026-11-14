@@ -3,7 +3,7 @@
 export const sorcerer = {
   id: 'sorcerer', kind: 'sorcerer', type: 'enemy', cls: 'ranged', figure: 'sorcerer',
   cfg: {
-    hp: 60, speed: 2.10, dmg: 10, radius: 0.50, score: 240,
+    hp: 66, speed: 2.10, dmg: 11, radius: 0.50, score: 240,
     minRange: 8.5, maxRange: 13.5, volley: 3.6, projSpeed: 7.5, projR: 0.52,
     splash: 1.5, tele: 0.95, recovery: 0.55,
   },

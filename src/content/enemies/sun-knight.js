@@ -3,7 +3,7 @@
 export const sunKnight = {
   id: 'sun-knight', kind: 'sun-knight', type: 'enemy', cls: 'melee', figure: 'sun-knight',
   cfg: {
-    hp: 88, speed: 2.65, dmg: 15, radius: 0.50, score: 190,
+    hp: 97, speed: 2.65, dmg: 17, radius: 0.50, score: 190,
     reach: 2.2, arcDeg: 100, tele: 0.52, recovery: 0.42, cd: 0.55,
   },
   cap: 1, wave: null, elite: false, events: [],

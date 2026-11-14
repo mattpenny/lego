@@ -3,7 +3,7 @@
 export const russetArcher = {
   id: 'russet-archer', kind: 'russet-archer', type: 'enemy', cls: 'ranged', figure: 'russet-archer',
   cfg: {
-    hp: 36, speed: 3.60, dmg: 9, radius: 0.40, score: 155,
+    hp: 40, speed: 3.60, dmg: 10, radius: 0.40, score: 155,
     minRange: 8.5, maxRange: 12.5, volley: 1.7, projSpeed: 13.5, projR: 0.3,
     tele: 0.44, recovery: 0.38,
   },

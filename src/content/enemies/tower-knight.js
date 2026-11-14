@@ -3,7 +3,7 @@
 export const towerKnight = {
   id: 'tower-knight', kind: 'tower-knight', type: 'enemy', cls: 'melee', figure: 'tower-knight',
   cfg: {
-    hp: 126, speed: 2.20, dmg: 20, radius: 0.60, score: 250,
+    hp: 139, speed: 2.20, dmg: 22, radius: 0.60, score: 250,
     reach: 2.3, arcDeg: 120, tele: 0.78, recovery: 0.55, cd: 0.70,
   },
   cap: 1, wave: null, elite: false, events: [],

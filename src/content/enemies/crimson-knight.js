@@ -3,7 +3,7 @@
 export const crimsonKnight = {
   id: 'crimson-knight', kind: 'crimson-knight', type: 'enemy', cls: 'melee', figure: 'crimson-knight',
   cfg: {
-    hp: 96, speed: 2.40, dmg: 17, radius: 0.54, score: 200,
+    hp: 106, speed: 2.40, dmg: 19, radius: 0.54, score: 200,
     reach: 2.3, arcDeg: 115, tele: 0.62, recovery: 0.48, cd: 0.62,
   },
   cap: 1, wave: null, elite: false, events: [],

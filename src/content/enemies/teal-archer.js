@@ -3,7 +3,7 @@
 export const tealArcher = {
   id: 'teal-archer', kind: 'teal-archer', type: 'enemy', cls: 'ranged', figure: 'teal-archer',
   cfg: {
-    hp: 42, speed: 3.35, dmg: 10, radius: 0.41, score: 165,
+    hp: 46, speed: 3.35, dmg: 11, radius: 0.41, score: 165,
     minRange: 8, maxRange: 12, volley: 2, projSpeed: 12.5, projR: 0.31,
     tele: 0.48, recovery: 0.40,
   },

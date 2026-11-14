@@ -9,7 +9,7 @@
    descriptor file under src/content/. See CONTENT-GUIDE.md section 6. */
 import {
   RULES, REGISTRY, SIM_CONTENT, contentSummary, assertRegistry,
-  HEROES, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC, HERO_ATTACK, HERO_SLASH_TINTS, HERO_STATS, heroName, safeHero,
+  HEROES, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC, HERO_ATTACK, HERO_AIM_ASSIST, HERO_SLASH_TINTS, HERO_STATS, heroName, safeHero,
   FIGURES, FIGURE_INK, TINTS, FIGURE_SCALES,
   ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL, FILL_POOLS, SCHEDULED_ELITES, OPENER_KIND,
   ENEMIES,
@@ -70,6 +70,19 @@ const T = { WebGLRenderer, Scene, Color, Fog, PerspectiveCamera, HemisphereLight
   BackSide, FrontSide, Points, PointsMaterial, MathUtils, ACESFilmicToneMapping };
 
 const FIXED = 1/60;
+/* STEP_HZ — steps per REAL second (Matt, 2026-11-14). The game runs
+   66 steps per wall-clock second while every step still simulates
+   FIXED (1/60) of game time, so play is 10% faster than real time
+   and combat timers (tick counts) are untouched. Two consumers:
+   PACE_DT — the wall seconds that buy one step in frame()'s solo
+   accumulator and in netFrame()'s session accumulator;
+   SCHED_DT — the schedule-seconds the wave clock (waveLeft /
+   spawnTimer) drains per step, so the chapter schedule keeps its
+   REAL-time marks: boss at step 180*66 = 11880, events at 90 s,
+   fill from-times in seconds. */
+const STEP_HZ = 66;
+const PACE_DT = 1/STEP_HZ;
+const SCHED_DT = 1/STEP_HZ;
 const TAU = Math.PI*2;
 const DEG = Math.PI/180;
 const ARENA_R = 40;          // movement boundary; rocky hills begin right here
@@ -255,7 +268,10 @@ function buildMapData(chapter){
   }
   for(let i=0;i<d.fence.length;i++){
     const f=d.fence[i];
-    colliders.push({seg:1,ax:f.ax,az:f.az,bx:f.bx,bz:f.bz,r:FENCE_RADIUS});
+    /* fence:1 marks a LOW fence run (AB-NET-15 part (f)): the boss
+       ignores these colliders outright — a fence must never trap it —
+       while heroes and ordinary enemies still collide with them. */
+    colliders.push({seg:1,fence:1,ax:f.ax,az:f.az,bx:f.bx,bz:f.bz,r:FENCE_RADIUS});
   }
   // (gravestones already got a collider from tryPlace, so they are not repeated here)
   for(let i=0;i<d.torch.length;i++){
@@ -413,7 +429,7 @@ function pushOut(e,cx,cz,rr){
   const dot=e.vx*nx+e.vz*nz;             // remove inward component => slide
   if(dot<0){ e.vx-=dot*nx; e.vz-=dot*nz; }
 }
-function moveWithCollision(s,e,dx,dz,radius){
+function moveWithCollision(s,e,dx,dz,radius,opts){
   e.x+=dx; e.z+=dz;
   const d=Math.sqrt(e.x*e.x+e.z*e.z);
   if(d>ARENA_R){ const k=ARENA_R/d; e.x*=k; e.z*=k; }   // visible hills start here
@@ -421,6 +437,10 @@ function moveWithCollision(s,e,dx,dz,radius){
   for(let pass=0;pass<2;pass++){
     for(let i=0;i<cs.length;i++){
       const c=cs[i];
+      /* AB-NET-15 (f)/(g): the boss skips fence colliders; a charging
+         drake (cfg.chargeThru) skips every collider. The arena clamp
+         above always applies. Heroes/enemies pass no opts. */
+      if(opts&&(opts.skipAll||(opts.skipFence&&c.fence)))continue;
       if(c.seg){                        // capsule: fence runs, castle walls
         const sx=c.bx-c.ax, sz=c.bz-c.az, L2=sx*sx+sz*sz;
         let t=L2>1e-9?((e.x-c.ax)*sx+(e.z-c.az)*sz)/L2:0;
@@ -431,6 +451,73 @@ function moveWithCollision(s,e,dx,dz,radius){
       }
     }
   }
+}
+
+/* AB-NET-15 (f) — anti-trap steering helpers. Radial steering plus
+   positional push-out has an equilibrium: a chaser aimed at a collider's
+   centre (or perpendicular to a fence run) is pushed back exactly as
+   fast as it advances and never slides anywhere, because its velocity
+   is re-aimed radially every step. The watchdog in updateEnemies /
+   updateBoss therefore measures PROGRESS: an entity that intends to
+   close (or flee) but neither closes nor actually moves for 40 steps
+   gets a tangential DETOUR toward the more open side; a closing
+   detour persists until the straight path to its target is clear
+   (a timed burst would expire back into the same equilibrium), while
+   a fleeing detour is a short 55-step slide.
+   All state lives on the entity (sim state); every input is sim state,
+   so lockstep peers compute identical detours. */
+function ptSegDist(px,pz,ax,az,bx,bz){
+  const sx=bx-ax, sz=bz-az, L2=sx*sx+sz*sz;
+  let t=L2>1e-9?((px-ax)*sx+(pz-az)*sz)/L2:0;
+  t=t<0?0:(t>1?1:t);
+  const ox=px-(ax+sx*t), oz=pz-(az+sz*t);
+  return Math.sqrt(ox*ox+oz*oz);
+}
+function segsCross(ax,az,bx,bz,cx,cz,dx,dz){
+  const d1=(dx-cx)*(az-cz)-(dz-cz)*(ax-cx), d2=(dx-cx)*(bz-cz)-(dz-cz)*(bx-cx);
+  const d3=(bx-ax)*(cz-az)-(bz-az)*(cx-ax), d4=(bx-ax)*(dz-az)-(bz-az)*(dx-ax);
+  return ((d1>0)!==(d2>0))&&((d3>0)!==(d4>0));
+}
+function segSegDist(ax,az,bx,bz,cx,cz,dx,dz){
+  if(segsCross(ax,az,bx,bz,cx,cz,dx,dz))return 0;
+  return Math.min(ptSegDist(ax,az,cx,cz,dx,dz),ptSegDist(bx,bz,cx,cz,dx,dz),
+                  ptSegDist(cx,cz,ax,az,bx,bz),ptSegDist(dx,dz,ax,az,bx,bz));
+}
+/* Is the straight line from (x0,z0) to (tx,tz) free of colliders for a
+   body of the given radius? skipFence mirrors the boss's fence rule. */
+function pathClear(s,x0,z0,tx,tz,radius,skipFence){
+  const cs=s.map.colliders;
+  for(let i=0;i<cs.length;i++){
+    const c=cs[i];
+    if(skipFence&&c.fence)continue;
+    if(c.seg){ if(segSegDist(x0,z0,tx,tz,c.ax,c.az,c.bx,c.bz)<c.r+radius)return false; }
+    else if(ptSegDist(c.x,c.z,x0,z0,tx,tz)<c.r+radius)return false;
+  }
+  return true;
+}
+/* Choose the detour side (+1/-1 around the target direction ux,uz):
+   probe a step to each side and prefer the larger collider clearance;
+   when the binding collider is a segment, prefer the side whose probe
+   is closer to a segment END (the gap is there). Parity of the entity
+   id breaks exact ties, deterministically. */
+function pickDetourSide(s,e,ux,uz,radius){
+  const tx=-uz, tz=ux, cs=s.map.colliders;
+  let bestS=(e.id%2)?1:-1, bestScore=-Infinity;
+  for(const S of [1,-1]){
+    const px=e.x+tx*S*(radius+1.0), pz=e.z+tz*S*(radius+1.0);
+    let clear=Infinity, endD=0;
+    for(let i=0;i<cs.length;i++){
+      const c=cs[i];
+      let dd, ed=0;
+      if(c.seg){ dd=ptSegDist(px,pz,c.ax,c.az,c.bx,c.bz)-c.r;
+        ed=Math.min(Math.hypot(px-c.ax,pz-c.az),Math.hypot(px-c.bx,pz-c.bz)); }
+      else dd=Math.hypot(px-c.x,pz-c.z)-c.r;
+      if(dd<clear){ clear=dd; endD=ed; }
+    }
+    const score=clear*1000-endD;
+    if(score>bestScore+1e-9){ bestScore=score; bestS=S; }
+  }
+  return bestS;
 }
 
 /* Shared death/downed resolution for every damage source. In co-op a
@@ -617,23 +704,40 @@ function doHeroHit(s,h,st){
    wind-up interrupt, same kill drops). AIM ASSIST, fixed at release:
    the nearest enemy/boss whose centre is within the descriptor's cone
    of the hero's facing (and within range + its radius) donates its
-   direction; otherwise the arrow flies along facing. */
+   direction; otherwise the arrow flies along facing. A hero with an
+   `aimAssist` block (HERO_AIM_ASSIST — today only Penny) selects in
+   the narrower coneDeg cone instead, and with lead on she aims at the
+   chosen target's INTERCEPT point: its position plus its current
+   velocity times the arrow's travel time (refined once). No tracking
+   after release — a target that changes direction still dodges her. */
 function fireArrow(s,h,st,atk){
   let fx=Math.sin(h.yaw), fz=Math.cos(h.yaw);
-  const cosAim=Math.cos((atk.aimDeg||25)*DEG);
+  const aa=HERO_AIM_ASSIST[h.heroId]||null;
+  const cosAim=Math.cos(((aa?aa.coneDeg:atk.aimDeg)||25)*DEG);
   let bd=Infinity;
-  const consider=(tx,tz,tr)=>{
+  const consider=(tx,tz,tr,vx,vz)=>{
     const dx=tx-h.x, dz=tz-h.z, d=Math.sqrt(dx*dx+dz*dz);
     if(d<1e-6 || d>atk.range+tr)return;
     if((dx*fx+dz*fz)/d<cosAim)return;
-    if(d<bd){ bd=d; fx=dx/d; fz=dz/d; }
+    if(d<bd){
+      bd=d;
+      let ax=dx, az=dz;
+      if(aa&&aa.lead&&(vx||vz)){
+        let t=d/atk.speed;
+        ax=dx+vx*t; az=dz+vz*t;
+        t=Math.sqrt(ax*ax+az*az)/atk.speed;
+        ax=dx+vx*t; az=dz+vz*t;
+      }
+      const ad=Math.sqrt(ax*ax+az*az);
+      if(ad>1e-6){ fx=ax/ad; fz=az/ad; } else { fx=dx/d; fz=dz/d; }
+    }
   };
   for(let i=0;i<s.enemies.length;i++){
     const e=s.enemies[i]; if(e.dead)continue;
-    consider(e.x,e.z,CFG.enemy[e.type].radius);
+    consider(e.x,e.z,CFG.enemy[e.type].radius,e.vx,e.vz);
   }
   const b=s.boss;
-  if(b&&b.hp>0)consider(b.x,b.z,bossCfgOf(s).radius);
+  if(b&&b.hp>0)consider(b.x,b.z,bossCfgOf(s).radius,b.vx,b.vz);
   s.arrows.push({id:s.nextId++, x:h.x, z:h.z,
     vx:fx*atk.speed, vz:fz*atk.speed,
     dmg:st.dmg, critP:st.crit, r:atk.r||0.25, dist:0, max:atk.range});
@@ -820,17 +924,50 @@ function updateEnemies(s,dt){
     let vx=0,vz=0;
     if(e.state==='chase'){
       e.yaw=Math.atan2(dx,dz);
+      let wantMode=0;
       if(cfg.minRange){                                   // archer / sorcerer / ranger
-        if(d<cfg.minRange){ vx=-dx/d*cfg.speed; vz=-dz/d*cfg.speed; }
-        else if(d>cfg.maxRange){ vx=dx/d*cfg.speed*0.85; vz=dz/d*cfg.speed*0.85; }
+        if(d<cfg.minRange){ vx=-dx/d*cfg.speed; vz=-dz/d*cfg.speed; wantMode=-1; }
+        else if(d>cfg.maxRange){ vx=dx/d*cfg.speed*0.85; vz=dz/d*cfg.speed*0.85; wantMode=1; }
         else { vx=-dz/d*cfg.speed*0.36; vz=dx/d*cfg.speed*0.36; }
         if(e.cd<=0 && d<=cfg.maxRange+1.5)startTelegraph(e,'cast');
       }else{                                              // melee, per-type reach
         const reach=cfg.reach||C.strikeRange;
         const stand=Math.max(1.45,reach-0.35);
-        if(d>stand){ vx=dx/d*cfg.speed; vz=dz/d*cfg.speed; }
+        if(d>stand){ vx=dx/d*cfg.speed; vz=dz/d*cfg.speed; wantMode=1; }
         if(d<=reach-0.1 && e.cd<=0)startTelegraph(e,'melee');
       }
+      /* (f) stuck watchdog + detour (see the helpers' header). Progress
+         is judged against LAST step's intent (e.wantMode) and LAST
+         step's distance (e.lastD); a step only counts as stuck when the
+         enemy also barely MOVED, so a kiting hero never arms it. A
+         CLOSING detour is not a fixed burst — expiring back into radial
+         steering would just re-wedge the enemy at the same equilibrium
+         point — it persists until the straight path to the hero is
+         clear or the enemy is close enough to commit, with a stall
+         flip if the detour itself wedges, and a 900-step hard cap. A
+         FLEEING detour stays a short 55-step slide. */
+      if(e.lastD>=0){
+        /* disp = movement during the last completed step: watchX/Z are
+           snapshotted HERE (pre-move) each chase step, so the next
+           step's watchdog sees exactly one step of travel. */
+        const disp=Math.sqrt((e.x-e.watchX)*(e.x-e.watchX)+(e.z-e.watchZ)*(e.z-e.watchZ));
+        const prog=(e.lastD-d)*(e.wantMode||0);
+        if(prog>0.03)e.stuckT=0;
+        else if(e.wantMode&&disp<cfg.speed*FIXED*0.35)e.stuckT++;
+        if(e.detourT>0&&e.stuckT>=40){ e.detourS=-e.detourS; e.stuckT=0; }
+      }
+      e.watchX=e.x; e.watchZ=e.z;
+      if(e.detourT>0)e.detourT--;
+      if(e.stuckT>=40&&e.detourT<=0){
+        e.detourT=(wantMode<0)?55:900; e.stuckT=0;
+        e.detourS=pickDetourSide(s,e,dx/d,dz/d,cfg.radius);
+      }
+      if(e.detourT>0){
+        const commit=cfg.minRange?cfg.maxRange+1.5:(cfg.reach||C.strikeRange)+0.6;
+        if(d<=commit||pathClear(s,e.x,e.z,h.x,h.z,cfg.radius,false))e.detourT=0;
+        else { vx=-dz/d*cfg.speed*e.detourS; vz=dx/d*cfg.speed*e.detourS; e.yaw=Math.atan2(vx,vz); }
+      }
+      e.wantMode=wantMode;
     }else if(e.state==='telegraph'){
       e.timer-=dt;                                  // yaw stays locked
       if(e.timer<=0){ e.state='strike'; e.timer=0; }
@@ -843,6 +980,10 @@ function updateEnemies(s,dt){
     }
     e.vx=vx; e.vz=vz;
     moveWithCollision(s,e,vx*dt,vz*dt,cfg.radius);
+    /* (f) watchdog bookkeeping for the next step (all states, so a
+       returning chaser starts from a fresh baseline). */
+    e.lastD=d;
+    if(e.state!=='chase')e.wantMode=0;
   }
   // compact dead bodies (views are driven by cosmetic events)
   if(s.enemies.some(e=>e.dead))s.enemies=s.enemies.filter(e=>!e.dead);
@@ -943,7 +1084,32 @@ function updateBoss(s,dt){
   const stopDist=B.radius+HERO_R+0.30;
   if(b.state==='approach'){
     b.yaw=Math.atan2(dx,dz);
-    if(d>stopDist){ const sp=(B.speed+boost)*(b.enraged?CFG.boss2.speedMul:1)*(b.furious?CFG.boss2.fury.speedMul:1); mvx=dx/d*sp; mvz=dz/d*sp; }
+    /* (f) stuck watchdog + detour, same rule as the enemies (and the
+       boss additionally ignores fence colliders outright — see the
+       moveWithCollision call below). While detouring the boss does not
+       start attacks: it slides along the blocker until the straight
+       path to the hero is clear (fences never block its path check —
+       it walks through them). */
+    if(b.lastD>=0){
+      const disp=Math.sqrt((b.x-b.watchX)*(b.x-b.watchX)+(b.z-b.watchZ)*(b.z-b.watchZ));
+      const prog=(b.lastD-d)*(b.wantMode||0);
+      if(prog>0.03)b.stuckT=0;
+      else if(b.wantMode&&disp<B.speed*FIXED*0.35)b.stuckT++;
+      if(b.detourT>0&&b.stuckT>=40){ b.detourS=-b.detourS; b.stuckT=0; }
+    }
+    b.watchX=b.x; b.watchZ=b.z;
+    if(b.detourT>0)b.detourT--;
+    if(b.stuckT>=40&&b.detourT<=0){
+      b.detourT=900; b.stuckT=0;
+      b.detourS=pickDetourSide(s,b,dx/d,dz/d,B.radius);
+    }
+    if(b.detourT>0&&pathClear(s,b.x,b.z,h.x,h.z,B.radius,true))b.detourT=0;
+    b.wantMode=d>stopDist?1:0;
+    const sp=(B.speed+boost)*(b.enraged?CFG.boss2.speedMul:1)*(b.furious?CFG.boss2.fury.speedMul:1);
+    if(b.detourT>0){
+      if(d>stopDist){ mvx=-dz/d*sp*b.detourS; mvz=dx/d*sp*b.detourS; b.yaw=Math.atan2(mvx,mvz); }
+    }else{
+    if(d>stopDist){ mvx=dx/d*sp; mvz=dz/d*sp; }
     if(B.breath && b.brCd<=0 && d>=B.breath.minRange && d<=B.breath.maxRange){
       /* Fire breath wins the mid-range slot when it is ready; the facing
          LOCKS here, at telegraph start, so a sidestep during the 0.8 s
@@ -959,6 +1125,7 @@ function updateBoss(s,dt){
       b.lockYaw=b.yaw; b.state='slamTele'; b.timer=B.slamTele/tempo;
       mvx=0;mvz=0;                     // freeze AT the wind-up start so the slam lands
       emit('bossTelegraph',{x:b.x,z:b.z,kind:'SLAM'});
+    }
     }
   }else if(b.state==='chargeTele'){
     b.timer-=dt;
@@ -1032,7 +1199,14 @@ function updateBoss(s,dt){
     b.timer-=dt; if(b.timer<=0)b.state='approach';
   }
   b.vx=mvx; b.vz=mvz;
-  moveWithCollision(s,b,mvx*dt,mvz*dt,B.radius);
+  /* (f): the boss ignores fence-kind colliders in every state.
+     (g): a charging drake (cfg.chargeThru) ignores ALL colliders —
+     the arena clamp inside moveWithCollision still applies. */
+  moveWithCollision(s,b,mvx*dt,mvz*dt,B.radius,
+    (b.state==='charge'&&B.chargeThru)?{skipAll:true}:{skipFence:true});
+  /* (f) watchdog bookkeeping for the next step. */
+  b.lastD=d;
+  if(b.state!=='approach')b.wantMode=0;
   if(s.bossFirstHitTick<0 && d<B.radius+HERO_R+0.8)s.bossFirstHitTick=s.tick;
 }
 
@@ -1152,7 +1326,8 @@ function makeEnemy(s,type,x,z,cd){
   const shp=Math.round(C.hp*s.hpScale);   // player-count HP scaling (spawn-time, one round)
   const e={id:s.nextId++,type,x,z,yaw:Math.atan2(anchorHero(s).x-x,anchorHero(s).z-z),
     lockYaw:0,hp:shp,maxHp:shp,state:'chase',timer:0,cd:cd||0.5,
-    slamCd:0,attackKind:'melee',vx:0,vz:0,hitFlash:0,cancelFlash:0,dead:false,frozen:0};
+    slamCd:0,attackKind:'melee',vx:0,vz:0,hitFlash:0,cancelFlash:0,dead:false,frozen:0,
+    stuckT:0,detourT:0,detourS:1,lastD:-1,wantMode:0,watchX:x,watchZ:z};
   s.enemies.push(e);return e;
 }
 function spawnBoss(s){
@@ -1183,6 +1358,7 @@ function spawnBoss(s){
   s.boss={id:s.nextId++,x,z,yaw:Math.atan2(ah.x-x,ah.z-z),lockYaw:0,
     hp:bhp,maxHp:bhp,state:'approach',timer:0,cd:2.2,slamCd:0,
     chargeVX:0,chargeVZ:0,chargeHit:false,pursuit:0,hitFlash:0,vx:0,vz:0,frozen:0,
+    stuckT:0,detourT:0,detourS:1,lastD:-1,wantMode:0,watchX:x,watchZ:z,
     brCd:BC.breath?BC.breath.firstCd:0,brTick:0};
   s.bossSpawned=true; s.bossSpawnTick=s.tick; s.phase='boss';
   emit('bossSpawn',{x,z,dist:Math.sqrt((x-ah.x)*(x-ah.x)+(z-ah.z)*(z-ah.z))});
@@ -1241,8 +1417,8 @@ function simStep(raw){
     if(inps[i].magic&&!s.heroes[i].downed)castMagic(s,s.heroes[i]);
 
   if(s.phase==='play'){
-    s.waveLeft-=FIXED;
-    s.spawnTimer-=FIXED;
+    s.waveLeft-=SCHED_DT;
+    s.spawnTimer-=SCHED_DT;
     if(s.spawnTimer<=0){
       const elapsed=CFG.waveSeconds-s.waveLeft;
       s.spawnTimer=Math.max(0.42,2.35-elapsed*0.0075);
@@ -3019,7 +3195,7 @@ function updateArrowFX(s){
    Each bolt is ONE mesh (crossed jagged ribbons, bright core + violet
    sheath, pre-generated geometry variants); the pool is invisible and
    costs no draw calls between casts. */
-const BOLT_POOL=12, BOLT_LIFE=0.24;
+const BOLT_POOL=16, BOLT_LIFE=1.0;
 let boltMeshes=[], boltState=[];
 function boltGeo(variant){
   const SEG=6, pos=[], col=[], idx=[];
@@ -3072,7 +3248,10 @@ function updateBolts(dt){
     if(sl.t>=BOLT_LIFE){ boltMeshes[i].visible=false; continue; }
     sl.t+=dt;
     const u=Math.min(1,sl.t/BOLT_LIFE);
-    boltMeshes[i].material.opacity=0.92*(u<0.16?u/0.16:Math.max(0,1-(u-0.16)/0.84));
+    /* ~1 s of presence (Matt, 2026-11-14): strike in fast, hold at
+       full strength, then fade across the last 40% — no hard cut. */
+    const env=u<0.08?u/0.08:(u>0.6?Math.pow(Math.max(0,1-(u-0.6)/0.4),0.7):1);
+    boltMeshes[i].material.opacity=0.92*env;
     boltMeshes[i].visible=sl.t<BOLT_LIFE;
   }
 }
@@ -3083,7 +3262,7 @@ function updateBolts(dt){
    signature kind) and pooled translucent ice shells that encase frozen
    figures for exactly as long as their sim frozen timer runs. The view
    only READS sim state here; it writes nothing back. */
-const RING_POOL=4, RING_LIFE=0.5;
+const RING_POOL=4, RING_LIFE=1.0, RING_EXPAND=0.5;
 let sigRingMeshes=[], sigRingState=[];
 function setupRings(){
   for(let i=0;i<RING_POOL;i++){
@@ -3107,10 +3286,13 @@ function updateRings(dt){
     const st=sigRingState[i];
     if(st.t>=RING_LIFE){ sigRingMeshes[i].visible=false; continue; }
     st.t+=dt;
-    const u=Math.min(1,st.t/RING_LIFE), ease=1-(1-u)*(1-u);
+    const u=Math.min(1,st.t/RING_LIFE);
+    /* Full expansion on the old 0.5 s schedule, then the ring HOLDS
+       its radius and fades across the last 40% of a ~1 s life. */
+    const ue=Math.min(1,st.t/RING_EXPAND), ease=1-(1-ue)*(1-ue);
     const r=Math.max(0.05,st.maxR*ease);
     sigRingMeshes[i].scale.set(r,r,r);
-    sigRingMeshes[i].material.opacity=0.85*(1-u);
+    sigRingMeshes[i].material.opacity=0.85*(u>0.6?Math.pow(Math.max(0,1-(u-0.6)/0.4),0.7):1);
     sigRingMeshes[i].visible=st.t<RING_LIFE;
   }
 }
@@ -3119,12 +3301,13 @@ function updateRings(dt){
    event (sig 'earth') starts the one-shot groundslam clip on the
    caster's view (syncViews reads v.slamT) and queues the impact here.
    SLAM_IMPACT_T later — the frame the hammer head lands — a dusty
-   shockwave ring expands toward the blast radius over QUAKE_LIFE with
-   a dust disc under it and dust bursts at the impact point in front of
-   him. Pure view state: the sim's blast, knockback and shake are
+   shockwave ring expands toward the blast radius over QUAKE_EXPAND
+   with a dust disc under it, then holds and fades out across the
+   rest of QUAKE_LIFE (~1 s total), with dust bursts at the impact
+   point in front of him. Pure view state: the sim's blast, knockback and shake are
    untouched, and every other hero's cast keeps the generic treatment
    in consumeEvents. */
-const QUAKE_POOL=3, QUAKE_LIFE=0.45, SLAM_IMPACT_T=0.34, QUAKE_SHAKE=0.5;
+const QUAKE_POOL=3, QUAKE_LIFE=1.0, QUAKE_EXPAND=0.45, SLAM_IMPACT_T=0.34, QUAKE_SHAKE=0.5;
 let quakeMeshes=[], quakeState=[], quakePending=[];
 function setupQuakes(){
   for(let i=0;i<QUAKE_POOL;i++){
@@ -3181,13 +3364,17 @@ function updateQuakes(dt){
     const st=quakeState[i], m=quakeMeshes[i];
     if(st.t>=QUAKE_LIFE){ m.ring.visible=false; m.disc.visible=false; continue; }
     st.t+=dt;
-    const u=Math.min(1,st.t/QUAKE_LIFE), ease=1-(1-u)*(1-u)*(1-u);
+    const u=Math.min(1,st.t/QUAKE_LIFE);
+    /* Expansion keeps the old 0.45 s punch; ring and disc then hold
+       and fade across the last 40% of a ~1 s life (Matt, 2026-11-14). */
+    const ue=Math.min(1,st.t/QUAKE_EXPAND), ease=1-(1-ue)*(1-ue)*(1-ue);
+    const fade=u>0.6?Math.pow(Math.max(0,1-(u-0.6)/0.4),0.7):1;
     const r=Math.max(0.05,st.maxR*ease);
     m.ring.scale.set(r,r,r);
-    m.ring.material.opacity=0.95*(1-u);
+    m.ring.material.opacity=0.95*fade;
     const dr=Math.max(0.05,st.maxR*0.5*ease);
     m.disc.scale.set(dr,dr,dr);
-    m.disc.material.opacity=0.38*(1-u);
+    m.disc.material.opacity=0.38*fade;
     m.ring.visible=st.t<QUAKE_LIFE; m.disc.visible=st.t<QUAKE_LIFE;
   }
 }
@@ -3284,7 +3471,7 @@ function consumeEvents(){
         else if(e.sig==='earth'){ dwarfEarthCast(e); }  /* ground slam + deferred quake (updateQuakes) */
         else { burst(e.x,1.2,e.z,[.77,.42,1],46,7.0); burst(e.x,0.5,e.z,[.9,.7,1],30,9.0); }
         const fl=$('flash'); fl.style.transition='none'; fl.style.opacity='0.5';
-        requestAnimationFrame(()=>{ fl.style.transition='opacity .45s'; fl.style.opacity='0'; });
+        requestAnimationFrame(()=>{ fl.style.transition='opacity .95s'; fl.style.opacity='0'; });
         Audio.level(); break; }
     }
   }
@@ -4843,7 +5030,7 @@ function netStepOnce(){
   }
   return true;
 }
-function netFrame(now){
+function netFrame(now,dt){
   const sess=NET; if(!sess)return;
   if(sess.desync||sess.partnerLeft||sess.removedSelf)return;   // frozen end states
   if(sess.startAt){
@@ -4852,15 +5039,23 @@ function netFrame(now){
   }
   if(!sess.active)return;
   netDropTick(now);
-  if(sess.dropped){ netReconnectTick(now); return; }
-  /* Interleaved sample/step: frames are produced by the real sampler and
-     consumed by the real sim; on a fast link the pair advances several
-     delay-windows per rAF, on phones it naturally runs at frame rate. */
-  for(let it=0;it<4;it++){
-    netSample();
-    let progressed=false, guard=0;
-    while(guard<64&&netStepOnce()){ progressed=true; guard++; }
-    if(!progressed)break;
+  if(sess.dropped){ sess.acc=0; netReconnectTick(now); return; }
+  /* Wall-clock pacing (2026-11-14): steps are BOUGHT with real time at
+     STEP_HZ per second, exactly like the solo accumulator in frame().
+     The old interleaved sample/step loop was gated only by input-frame
+     availability, and the gate fed itself — each peer's sampler refills
+     the delay runway, so one rAF advanced as many steps as the link
+     allowed (~178 steps/s measured at matched 60 Hz pages, >=5x on
+     Matt's phones over the real relay). Sampling still runs every
+     frame so the runway stays full; a step runs only when the clock
+     has paid for it; unpaid time is capped at 0.25 s so a stalled
+     frame catches up a bounded amount but the game can NEVER run
+     faster than the clock. */
+  sess.acc=Math.min(0.25,(sess.acc||0)+(dt||0));
+  netSample();
+  while(sess.acc>=PACE_DT){
+    if(!netStepOnce())break;
+    sess.acc-=PACE_DT;
   }
 }
 /* Per-slot grace bookkeeping for 3–4 player runs: when a dropped slot's
@@ -4963,7 +5158,7 @@ function netResync(sess,T){
   }
   for(let t=0;t<CFG.net.delay;t++)
     for(let i=0;i<players.length;i++)sess.recs[i][T+t]=netEmptyFrame(T+t);
-  sess.step=T; sess.nextSend=T+CFG.net.delay;
+  sess.step=T; sess.acc=0; sess.nextSend=T+CFG.net.delay;
   sess.hashMine={}; sess.hashTheirs={};
   sess.dropped=false; sess.droppedSlots={}; sess.pendingDrop=null;
   sess.lastStepAt=performance.now(); sess.status='playing';
@@ -4982,7 +5177,7 @@ function startCoopRun(seed){
   LOCAL_IDX=sess.myIdx;
   SETTLED={ch:{},ended:false};
   runBegin(sess.runId,'coop',safeHero((sess.players[sess.myIdx]||{}).skin||'hero'));
-  sess.step=0; sess.hashMine={}; sess.hashTheirs={};
+  sess.step=0; sess.acc=0; sess.hashMine={}; sess.hashTheirs={};
   sess.removed={}; sess.removedApplied={}; sess.droppedSlots={};
   sess.pendingDrop=null; sess.execWait=null;
   sess.pickerSlot=netPickerSlot(sess);
@@ -5315,8 +5510,8 @@ function frame(now){
   const dt=Math.min(0.1,(now-lastNow)/1000);lastNow=now;RTIME+=dt;
   acc+=dt;
   let steps=0;
-  if(NET&&(NET.started||NET.startAt)){ netFrame(now); acc=0; }
-  else{ while(acc>=FIXED&&steps<6){simStep(readInput());acc-=FIXED;steps++;} }
+  if(NET&&(NET.started||NET.startAt)){ netFrame(now,dt); acc=0; }
+  else{ while(acc>=PACE_DT&&steps<6){simStep(readInput());acc-=PACE_DT;steps++;} }
   consumeEvents();
   const s=SIM;
   if(s.chapter!==lastChapter){lastChapter=s.chapter;buildMapMeshes(s);}
@@ -5344,7 +5539,7 @@ window.__GAME={
   CFG, PALETTES, UPGRADES, CLIPS, BOSS_NAMES, SLASH_TIP,
   /* Read-only handles for QA / tooling: every content table is traceable at
      runtime, not just at build time. REGISTRY is deep-frozen by the schema. */
-  REGISTRY, SIM_CONTENT, contentSummary, HERO_ATTACK, HERO_STATS, HERO_SLASH_TINTS,
+  REGISTRY, SIM_CONTENT, contentSummary, HERO_ATTACK, HERO_AIM_ASSIST, HERO_STATS, HERO_SLASH_TINTS,
   get sim(){return SIM;},
   get input(){return {mx:LAST_IN.mx,my:LAST_IN.my,sx:LAST_IN.sx,sy:LAST_IN.sy,
     tiltX:UI.tiltX,tiltY:UI.tiltY,attack:UI.attack,stickActive:UI.stickActive};},

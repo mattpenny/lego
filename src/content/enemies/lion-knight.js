@@ -3,7 +3,7 @@
 export const lionKnight = {
   id: 'lion-knight', kind: 'lion-knight', type: 'enemy', cls: 'melee', figure: 'lion-knight',
   cfg: {
-    hp: 108, speed: 2.45, dmg: 18, radius: 0.55, score: 220,
+    hp: 119, speed: 2.45, dmg: 20, radius: 0.55, score: 220,
     reach: 2.4, arcDeg: 115, tele: 0.65, recovery: 0.50, cd: 0.64,
   },
   cap: 1, wave: null, elite: false, events: [],

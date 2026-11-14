@@ -3,7 +3,7 @@
 export const obsidianKnight = {
   id: 'obsidian-knight', kind: 'obsidian-knight', type: 'enemy', cls: 'melee', figure: 'obsidian-knight',
   cfg: {
-    hp: 118, speed: 2.35, dmg: 19, radius: 0.58, score: 235,
+    hp: 130, speed: 2.35, dmg: 21, radius: 0.58, score: 235,
     reach: 2.4, arcDeg: 120, tele: 0.72, recovery: 0.52, cd: 0.66,
   },
   cap: 1, wave: null, elite: false, events: [],

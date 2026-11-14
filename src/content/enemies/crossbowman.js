@@ -3,7 +3,7 @@
 export const crossbowman = {
   id: 'crossbowman', kind: 'crossbowman', type: 'enemy', cls: 'ranged', figure: 'crossbowman',
   cfg: {
-    hp: 48, speed: 2.80, dmg: 12, radius: 0.44, score: 175,
+    hp: 53, speed: 2.80, dmg: 13, radius: 0.44, score: 175,
     minRange: 7.5, maxRange: 11.5, volley: 2.6, projSpeed: 16.0, projR: 0.28,
     tele: 0.60, recovery: 0.45,
   },

@@ -16,6 +16,7 @@ export const calderaDrake = {
     hp: 580, spawnMin: 26, spawnMax: 30, speed: 6.0,
     chargeSpeed: 16.0, chargeTele: 0.7, chargeDur: 0.55,
     chargeCd: 3.0, chargeRange: 6.5, chargeDmg: 24,
+    chargeThru: true,   // AB-NET-15 (g): same drake charge rule as chapter 1
     slamTele: 0.55, slamRange: 2.645, slamDmg: 26, dmgMul: 1.1,
     radius: 1.95, score: 1800,
     breath: {

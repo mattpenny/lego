@@ -952,3 +952,129 @@ outside the sim.
 **Still open after M3.** Legacy-save import (the plan's M4) is not
 built. The M2 seams that remain: class skins (profile ∪ local) and
 local bests/cleared records for signed-in runs.
+
+## 11. Pacing, schedule, anti-trap steering, drake charge (AB-NET-15)
+
+**Pacing is not sim time.** The sim step is always 1/60 game-second
+(`FIXED`); combat timers are tick counts and never scale. Two separate
+clocks sit on top of it in `src/game.js`:
+
+- `STEP_HZ = 66` / `PACE_DT = 1/66` — wall-clock pacing. Both the solo
+  accumulator in `frame()` and the per-session accumulator in
+  `netFrame(now, dt)` buy one sim step per `PACE_DT` of elapsed wall
+  time, so solo and co-op both run at 66 steps per real second (the
+  game plays 10% faster than at 60). The net accumulator's debt is
+  capped at 0.25 s: a stalled frame catches up a bounded amount and
+  the game can NEVER run faster than the clock. (Pre-fix, `netFrame()`
+  stepped as fast as input frames arrived — and `netSample()` refills
+  the input runway itself — so co-op ran away to ~165–180 steps/s on
+  real phones. The digest harness steps the sim directly and cannot
+  see pacing; only an honest-clock rig can. Rig: `ab-pace2.mjs`,
+  evidence `rig/ab-pace-{before,after}.json`.)
+- `SCHED_DT = 1/66` — the chapter-schedule clock. `waveLeft` and
+  `spawnTimer` drain `SCHED_DT` per step, so every schedule threshold
+  (boss spawn, 90 s elite events, `map.fill` from-times and ramps,
+  spawn cadence) lands at the same REAL second as it did at 60 steps/s:
+  the boss spawns at step 11,880 ≈ 180.0 real seconds — chapters are
+  still 3:00 of real time. The boss countdown HUD formats `waveLeft`
+  (a seconds value), so it reads real seconds with no extra code.
+  The M3 client reports `durationSec = floor(tick/60)` (game-seconds):
+  a full chapter reports 198 s, above the API's 170 s floor — legit
+  chapters still pass.
+
+**Balance (same round).** Elite kinds (`ELITE_KINDS`) plus all 15
+heraldic kinds: HP and damage ×1.1 in their content definitions (one
+`Math.round` on HP; a kind in both sets would be buffed once — there
+is no overlap today). Earth Dwarf `speedMul` 0.9 → 0.81 (effective
+base speed 5.58 → 5.022 m/s). Bosses and base kinds untouched.
+
+**Penny aim assist.** `frostarcher` (Penny — NOT the melee `archer`
+class skin, which has no ranged attack) carries
+`aimAssist: { coneDeg: 20, lead: true }` on her hero descriptor.
+`HERO_AIM_ASSIST` is derived in `src/content/heroes/index.js` and
+rides `SIM_CONTENT`, so the assist is sim-side and lockstep-safe:
+`fireArrow()` aims at the intercept point (target velocity × arrow
+travel time, one refinement pass) for the enemy nearest her aim line
+inside the cone. Enable it on a future ranged hero by adding the same
+block — no code change. Damage, cadence, projectile speed and band
+are unchanged. Measured (rig `ab-arrow-lead.mjs`): crossing runners
+at band range 0% → 100% hits in the synthetic constant-velocity test;
+targets that reverse direction mid-flight now dodge cleanly (33% →
+0%); targets outside the cone are still never snapped to.
+
+**Magic FX lifetime (view-only).** Cast effects live ≈1 s: bolt pool
+life 1.0 s (strike-in 0.08, hold, fade over the last 40% with a 0.7
+power tail), signature rings expand on their old schedule (0.5 s)
+then hold and fade to 1.0 s, the Earthquake ring keeps its 0.45 s
+expansion then holds/fades to 1.0 s; the cast flash fades over
+0.95 s. Constants: `BOLT_LIFE`, `RING_LIFE`/`RING_EXPAND`,
+`QUAKE_LIFE`/`QUAKE_EXPAND`. Damage numbers, pickups and slash
+crescents are out of scope and unchanged. Digests must not move from
+FX work — `digest:check` is the guard.
+
+**Anti-trap steering (f).** Radial steering + positional push-out has
+an equilibrium: a chaser aimed at a collider's centre (or squarely at
+a fence run) is pushed back exactly as fast as it advances. Enemies
+and the boss therefore carry watchdog state in the sim (`stuckT`,
+`detourT`, `detourS`, `lastD`, `wantMode`, `watchX/Z` — set in
+`makeEnemy` / `spawnBoss`): an entity that intends to close (or flee)
+but makes no progress AND barely moves for 40 steps starts a
+tangential detour toward the more open side (`pickDetourSide`). A
+closing detour persists until the straight path to the target is
+clear (`pathClear`) or the enemy is close enough to commit — a timed
+burst would expire back into the same equilibrium; a fleeing detour
+is a 55-step slide; a detour that itself wedges flips side after 40
+stalled steps; hard cap 900 steps. Displacement is measured against
+the pre-move snapshot `watchX/Z` (snapshotting post-move at the tail
+always reads zero — that bug was caught by the fence rig, not by
+inspection). The BOSS additionally ignores fence-kind colliders
+outright: fence segment colliders carry `fence: 1` from
+`buildMapData`, and `moveWithCollision(s, e, dx, dz, radius, opts)`
+honours `opts.skipFence` / `opts.skipAll`; hero and enemy calls pass
+no opts, so hero fence collision is exactly as before. Proof (rig
+`ab-fence-trap.mjs`): staged fence line — melee enemies 6/6 trapped
+→ 0/6, all reach and attack; boss trapped (no hit in 3,600 steps) →
+crosses and hits at tick 89; full natural Ch.1 wave audit
+(`ab-ch1-audit-f.mjs`): 0 permanently stuck, alive cap 8 and per-kind
+caps hold. The known Ch.5 mesa pocket is resolved by this steering
+(drake reaches the hero across mesa 2; first hit tick 1,040, and the
+natural Ch.5 boss kill now completes) — no Ch.5 map data was changed.
+
+**Drake charge (g).** Both drake descriptors (chapter 1
+`emerald-drake`, chapter 5 `caldera-drake`) carry `chargeThru: true`:
+while in the `charge` state the drake's `moveWithCollision` call
+passes `{skipAll: true}` — it runs a straight line through fences,
+mesas and props; the arena clamp still applies. Everything else
+about the charge is unchanged (trigger beyond `chargeRange` 6.5 m —
+in practice any range where breath doesn't take the slot — 0.7 s
+telegraph, 16 m/s, 24 × 1.1 = 26 landed damage, mild homing).
+Proof (rig `ab-drake-charge.mjs`): across the Ch.5 mesa the charging
+drake previously stopped at the rim (closest centre distance exactly
+8.25 m = mesa radius + body radius) and only hit at tick 1,198 after
+walking around; now it passes through the mesa centre (0.12 m) and
+hits at tick 105 for exactly 26.
+
+**Digest attribution for the round** (baselines re-recorded once, via
+`content:baseline`, stamp AB-NET-14 → AB-NET-15; final combined
+`42bfc451…`): (a) pacing — no movement (structurally invisible to the
+harness; `fresh` unchanged throughout). (b) schedule stretch —
+`idle600`, `combat3600`, `combat3600_altSeed`, `coop1200` moved
+(`waveLeft`/`spawnTimer` are hashed). (c) balance — `combat3600`
+moved again; other scenarios unchanged. (d) aim assist — no scenario
+digest moved (no shipped scenario fields a ranged hero); the change
+is fingerprinted in the SIM_CONTENT hash. (f) steering —
+`combat3600` + `combat3600_altSeed` moved (in-window wedges detour);
+`idle600`/`coop1200` unchanged. (g) chargeThru — no scenario digest
+moved beyond (f); fingerprinted in SIM_CONTENT. (e) FX — none
+(view-only, verified by `digest:check` after the change).
+
+**Known rig debt.** `ab-2p-regression.mjs`'s `guestMagicCast`
+sub-criterion fails on AB-NET-14 as well as AB-NET-15 (double-Penny
+bot reaches only ~1–6 kills inside the rig's 6,000-step exit; the
+meter needs 20). Its checkpoint-agreement, desync and error criteria
+pass on both builds and both relay protocols — treat those as the
+regression signal until the rig's bot or exit rule is reworked.
+`ab-boss-escorts.mjs` takes its "before" census at hard-coded tick
+10,799, so on AB-NET-15 its `vanished` column counts kills/replacements
+during the extra ~1,080 steps before the 11,880 spawn; the
+`escortsAtSpawn` figure (8 on every run) is the persistence signal.

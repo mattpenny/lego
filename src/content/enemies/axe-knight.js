@@ -3,7 +3,7 @@
 export const axeKnight = {
   id: 'axe-knight', kind: 'axe-knight', type: 'enemy', cls: 'melee', figure: 'axe-knight',
   cfg: {
-    hp: 104, speed: 2.30, dmg: 19, radius: 0.56, score: 210,
+    hp: 114, speed: 2.30, dmg: 21, radius: 0.56, score: 210,
     reach: 2.5, arcDeg: 120, tele: 0.70, recovery: 0.52, cd: 0.68,
   },
   cap: 1, wave: null, elite: false, events: [],

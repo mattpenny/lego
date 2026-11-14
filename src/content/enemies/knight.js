@@ -3,7 +3,7 @@
 export const knight = {
   id: 'knight', kind: 'knight', type: 'enemy', cls: 'melee', figure: 'knight',
   cfg: {
-    hp: 168, speed: 2.60, dmg: 20, radius: 0.66, score: 320,
+    hp: 185, speed: 2.60, dmg: 22, radius: 0.66, score: 320,
     reach: 2.0, arcDeg: 120, tele: 0.95, recovery: 0.60, cd: 0.70,
     poise: true,
   },

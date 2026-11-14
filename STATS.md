@@ -21,8 +21,8 @@ Base hero (all heroes share these unless a descriptor overrides them): damage **
 | ARCHER | — | 200 G | Melee — range 3.2 m, arc 130° | 34 | 6.2 | 3.5 / 1 | Arcane Blast — 60 dmg, 14 m radius, 20 kills | — | `src/content/heroes/archer.js` |
 | SORCERER | — | 250 G | Melee — range 3.2 m, arc 130° | 34 | 6.2 | 3.5 / 1 | Arcane Blast — 60 dmg, 14 m radius, 20 kills | — | `src/content/heroes/sorcerer.js` |
 | KNIGHT | — | 300 G | Melee — range 3.2 m, arc 130° | 34 | 6.2 | 3.5 / 1 | Arcane Blast — 60 dmg, 14 m radius, 20 kills | — | `src/content/heroes/knight.js` |
-| Penny | ARCHER | 350 G | Arrow — range 14 m, speed 26 m/s | 27 (base 34 × 0.8) | 6.2 | 3.5 / 1 | Frost Nova — 60 dmg + freeze 1 s (boss 0.5 s) | Ranged arrows · lighter damage | `src/content/heroes/frostarcher.js` |
-| Matt | DWARF | 400 G | Melee — range 3.2 m, arc 130° | 43 (base 34 × 1.25) | 5.58 (× 0.9) | 2.8 / 1.3 (descriptor multipliers) | Earthquake — 60 dmg + knockback 6 m (boss 3 m) | Heavy hammer · slower, short roll | `src/content/heroes/dwarf.js` |
+| Penny | ARCHER | 350 G | Arrow — range 14 m, speed 26 m/s; aim assist — 20° cone + target lead (intercept) | 27 (base 34 × 0.8) | 6.2 | 3.5 / 1 | Frost Nova — 60 dmg + freeze 1 s (boss 0.5 s) | Ranged arrows · lighter damage | `src/content/heroes/frostarcher.js` |
+| Matt | DWARF | 400 G | Melee — range 3.2 m, arc 130° | 43 (base 34 × 1.25) | 5.022 (× 0.81) | 2.8 / 1.3 (descriptor multipliers) | Earthquake — 60 dmg + knockback 6 m (boss 3 m) | Heavy hammer · slower, short roll | `src/content/heroes/dwarf.js` |
 
 Magic basics (every hero): the meter fills **1 per kill**, casting costs **20**, the blast deals **60** damage in a **14 m** radius. Source: `src/content/rules.js · magic`. Per-hero multipliers live in each descriptor's `stats` block; signature effects in its `magic` block.
 
@@ -45,7 +45,7 @@ Boss size: all boss figures and sim radii are **×1.3** their original size (rad
 |---|---|---|---|---|---|---|
 | EMERALD DRAKE | Slam | 26 | ×1.1 | **29** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/emerald-drake.js · cfg.slamDmg / cfg.slamRange` |
 | EMERALD DRAKE | Slam (enraged) | 26 + 4 bonus | ×1.1 | **33** | bonus added BEFORE the multiplier | `cfg.slamDmg` + `bosses/shared.js · BOSS_PHASE2.slamBonus` |
-| EMERALD DRAKE | Charge | 24 | ×1.1 | **26** | trigger ≤ 6.5 m, speed 16 m/s, telegraph 0.7 s | `src/content/enemies/bosses/emerald-drake.js · cfg.chargeDmg / cfg.chargeRange` |
+| EMERALD DRAKE | Charge | 24 | ×1.1 | **26** | trigger ≤ 6.5 m, speed 16 m/s, telegraph 0.7 s; ignores ALL prop/theme colliders while charging (arena edge still applies) | `src/content/enemies/bosses/emerald-drake.js · cfg.chargeDmg / cfg.chargeRange` |
 | EMERALD DRAKE | Fire breath (per tick) | 9 | ×1.1 | **10** | cone 10.925 m, half-angle 25°, ticks every 0.2 s, telegraph 0.8 s | `src/content/enemies/bosses/emerald-drake.js · cfg.breath.tickDmg` |
 | EMERALD DRAKE | Fire breath (full exposure) | — | — | **60** (phase 1, 6 ticks) / **70** (phase 2, 7 ticks) | fires from 3.5–11.5 m, mouth offset (headDist) 3.38 m, breath cooldown 4 s (phase 2: 3 s) | `src/content/enemies/bosses/emerald-drake.js · cfg.breath` |
 | GRAVE SOVEREIGN | Slam | 22 | ×1.1 | **24** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/shared.js (BOSS_CFG) · cfg.slamDmg / cfg.slamRange` |
@@ -59,7 +59,7 @@ Boss size: all boss figures and sim radii are **×1.3** their original size (rad
 | GRAVE SOVEREIGN | Charge | 20 | ×1.1 | **22** | trigger ≤ 6.5 m, speed 16 m/s, telegraph 0.7 s | `src/content/enemies/bosses/frost-sovereign.js · cfg.chargeDmg / cfg.chargeRange` |
 | EMERALD DRAKE | Slam | 26 | ×1.1 | **29** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/caldera-drake.js · cfg.slamDmg / cfg.slamRange` |
 | EMERALD DRAKE | Slam (enraged) | 26 + 4 bonus | ×1.1 | **33** | bonus added BEFORE the multiplier | `cfg.slamDmg` + `bosses/shared.js · BOSS_PHASE2.slamBonus` |
-| EMERALD DRAKE | Charge | 24 | ×1.1 | **26** | trigger ≤ 6.5 m, speed 16 m/s, telegraph 0.7 s | `src/content/enemies/bosses/caldera-drake.js · cfg.chargeDmg / cfg.chargeRange` |
+| EMERALD DRAKE | Charge | 24 | ×1.1 | **26** | trigger ≤ 6.5 m, speed 16 m/s, telegraph 0.7 s; ignores ALL prop/theme colliders while charging (arena edge still applies) | `src/content/enemies/bosses/caldera-drake.js · cfg.chargeDmg / cfg.chargeRange` |
 | EMERALD DRAKE | Fire breath (per tick) | 9 | ×1.1 | **10** | cone 10.925 m, half-angle 25°, ticks every 0.2 s, telegraph 0.8 s | `src/content/enemies/bosses/caldera-drake.js · cfg.breath.tickDmg` |
 | EMERALD DRAKE | Fire breath (full exposure) | — | — | **60** (phase 1, 6 ticks) / **70** (phase 2, 7 ticks) | fires from 3.5–11.5 m, mouth offset (headDist) 3.38 m, breath cooldown 4 s (phase 2: 3 s) | `src/content/enemies/bosses/caldera-drake.js · cfg.breath` |
 | THE IRON LANCER | Slam | 24 | ×1.1 | **26** | reach 2.645 m (centre distance), telegraph 0.55 s | `src/content/enemies/bosses/siege-lancer.js · cfg.slamDmg / cfg.slamRange` |
@@ -85,23 +85,23 @@ Shared melee defaults: telegraph 0.55 s, strike range 1.8 m, arc 120°, recovery
 | RANGER | 38 | 13 | 3.25 | 0.42 | 160 | Ranged — band 7–11 m, volley every 2.3 s, projectile 10.5 m/s | `src/content/enemies/ranger.js · cfg` |
 | SOLDIER | 52 | 14 | 2.15 | 0.46 | 110 | Melee — reach 2.2 m, arc 110°, telegraph 0.5 s, recovery 0.42 s, cooldown 0.55 s | `src/content/enemies/soldier.js · cfg` |
 | ARCHER | 34 | 8 | 3.55 | 0.4 | 150 | Ranged — band 9–13 m, volley every 1.5 s, projectile 14 m/s, telegraph 0.42 s | `src/content/enemies/archer.js · cfg` |
-| SORCERER | 60 | 10 | 2.1 | 0.5 | 240 | Ranged — band 8.5–13.5 m, volley every 3.6 s, projectile 7.5 m/s, splash 1.5 m, telegraph 0.95 s | `src/content/enemies/sorcerer.js · cfg` |
-| KNIGHT | 168 | 20 | 2.6 | 0.66 | 320 | Melee — reach 2 m, arc 120°, telegraph 0.95 s, recovery 0.6 s, cooldown 0.7 s, poise (windup uninterruptible) | `src/content/enemies/knight.js · cfg` |
-| RAVEN-KNIGHT | 78 | 15 | 2.55 | 0.5 | 170 | Melee — reach 2.25 m, arc 105°, telegraph 0.55 s, recovery 0.44 s, cooldown 0.58 s | `src/content/enemies/raven-knight.js · cfg` |
-| EAGLE-KNIGHT | 84 | 16 | 2.5 | 0.52 | 180 | Melee — reach 2.3 m, arc 110°, telegraph 0.58 s, recovery 0.45 s, cooldown 0.6 s | `src/content/enemies/eagle-knight.js · cfg` |
-| CRIMSON-KNIGHT | 96 | 17 | 2.4 | 0.54 | 200 | Melee — reach 2.3 m, arc 115°, telegraph 0.62 s, recovery 0.48 s, cooldown 0.62 s | `src/content/enemies/crimson-knight.js · cfg` |
-| AXE-KNIGHT | 104 | 19 | 2.3 | 0.56 | 210 | Melee — reach 2.5 m, arc 120°, telegraph 0.7 s, recovery 0.52 s, cooldown 0.68 s | `src/content/enemies/axe-knight.js · cfg` |
-| SUN-KNIGHT | 88 | 15 | 2.65 | 0.5 | 190 | Melee — reach 2.2 m, arc 100°, telegraph 0.52 s, recovery 0.42 s, cooldown 0.55 s | `src/content/enemies/sun-knight.js · cfg` |
-| AZURE-KNIGHT | 90 | 16 | 2.55 | 0.52 | 195 | Melee — reach 2.35 m, arc 110°, telegraph 0.58 s, recovery 0.45 s, cooldown 0.6 s | `src/content/enemies/azure-knight.js · cfg` |
-| OBSIDIAN-KNIGHT | 118 | 19 | 2.35 | 0.58 | 235 | Melee — reach 2.4 m, arc 120°, telegraph 0.72 s, recovery 0.52 s, cooldown 0.66 s | `src/content/enemies/obsidian-knight.js · cfg` |
-| UNICORN-KNIGHT | 92 | 15 | 2.8 | 0.5 | 200 | Melee — reach 2.2 m, arc 100°, telegraph 0.5 s, recovery 0.42 s, cooldown 0.55 s | `src/content/enemies/unicorn-knight.js · cfg` |
-| LION-KNIGHT | 108 | 18 | 2.45 | 0.55 | 220 | Melee — reach 2.4 m, arc 115°, telegraph 0.65 s, recovery 0.5 s, cooldown 0.64 s | `src/content/enemies/lion-knight.js · cfg` |
-| KRAKEN-KNIGHT | 100 | 17 | 2.5 | 0.54 | 215 | Melee — reach 2.35 m, arc 112°, telegraph 0.62 s, recovery 0.48 s, cooldown 0.62 s | `src/content/enemies/kraken-knight.js · cfg` |
-| TOWER-KNIGHT | 126 | 20 | 2.2 | 0.6 | 250 | Melee — reach 2.3 m, arc 120°, telegraph 0.78 s, recovery 0.55 s, cooldown 0.7 s | `src/content/enemies/tower-knight.js · cfg` |
-| DRAGON-KNIGHT | 138 | 21 | 2.3 | 0.6 | 270 | Melee — reach 2.5 m, arc 120°, telegraph 0.8 s, recovery 0.56 s, cooldown 0.72 s, poise (windup uninterruptible) | `src/content/enemies/dragon-knight.js · cfg` |
-| CROSSBOWMAN | 48 | 12 | 2.8 | 0.44 | 175 | Ranged — band 7.5–11.5 m, volley every 2.6 s, projectile 16 m/s, telegraph 0.6 s | `src/content/enemies/crossbowman.js · cfg` |
-| RUSSET-ARCHER | 36 | 9 | 3.6 | 0.4 | 155 | Ranged — band 8.5–12.5 m, volley every 1.7 s, projectile 13.5 m/s, telegraph 0.44 s | `src/content/enemies/russet-archer.js · cfg` |
-| TEAL-ARCHER | 42 | 10 | 3.35 | 0.41 | 165 | Ranged — band 8–12 m, volley every 2 s, projectile 12.5 m/s, telegraph 0.48 s | `src/content/enemies/teal-archer.js · cfg` |
+| SORCERER | 66 | 11 | 2.1 | 0.5 | 240 | Ranged — band 8.5–13.5 m, volley every 3.6 s, projectile 7.5 m/s, splash 1.5 m, telegraph 0.95 s | `src/content/enemies/sorcerer.js · cfg` |
+| KNIGHT | 185 | 22 | 2.6 | 0.66 | 320 | Melee — reach 2 m, arc 120°, telegraph 0.95 s, recovery 0.6 s, cooldown 0.7 s, poise (windup uninterruptible) | `src/content/enemies/knight.js · cfg` |
+| RAVEN-KNIGHT | 86 | 17 | 2.55 | 0.5 | 170 | Melee — reach 2.25 m, arc 105°, telegraph 0.55 s, recovery 0.44 s, cooldown 0.58 s | `src/content/enemies/raven-knight.js · cfg` |
+| EAGLE-KNIGHT | 92 | 18 | 2.5 | 0.52 | 180 | Melee — reach 2.3 m, arc 110°, telegraph 0.58 s, recovery 0.45 s, cooldown 0.6 s | `src/content/enemies/eagle-knight.js · cfg` |
+| CRIMSON-KNIGHT | 106 | 19 | 2.4 | 0.54 | 200 | Melee — reach 2.3 m, arc 115°, telegraph 0.62 s, recovery 0.48 s, cooldown 0.62 s | `src/content/enemies/crimson-knight.js · cfg` |
+| AXE-KNIGHT | 114 | 21 | 2.3 | 0.56 | 210 | Melee — reach 2.5 m, arc 120°, telegraph 0.7 s, recovery 0.52 s, cooldown 0.68 s | `src/content/enemies/axe-knight.js · cfg` |
+| SUN-KNIGHT | 97 | 17 | 2.65 | 0.5 | 190 | Melee — reach 2.2 m, arc 100°, telegraph 0.52 s, recovery 0.42 s, cooldown 0.55 s | `src/content/enemies/sun-knight.js · cfg` |
+| AZURE-KNIGHT | 99 | 18 | 2.55 | 0.52 | 195 | Melee — reach 2.35 m, arc 110°, telegraph 0.58 s, recovery 0.45 s, cooldown 0.6 s | `src/content/enemies/azure-knight.js · cfg` |
+| OBSIDIAN-KNIGHT | 130 | 21 | 2.35 | 0.58 | 235 | Melee — reach 2.4 m, arc 120°, telegraph 0.72 s, recovery 0.52 s, cooldown 0.66 s | `src/content/enemies/obsidian-knight.js · cfg` |
+| UNICORN-KNIGHT | 101 | 17 | 2.8 | 0.5 | 200 | Melee — reach 2.2 m, arc 100°, telegraph 0.5 s, recovery 0.42 s, cooldown 0.55 s | `src/content/enemies/unicorn-knight.js · cfg` |
+| LION-KNIGHT | 119 | 20 | 2.45 | 0.55 | 220 | Melee — reach 2.4 m, arc 115°, telegraph 0.65 s, recovery 0.5 s, cooldown 0.64 s | `src/content/enemies/lion-knight.js · cfg` |
+| KRAKEN-KNIGHT | 110 | 19 | 2.5 | 0.54 | 215 | Melee — reach 2.35 m, arc 112°, telegraph 0.62 s, recovery 0.48 s, cooldown 0.62 s | `src/content/enemies/kraken-knight.js · cfg` |
+| TOWER-KNIGHT | 139 | 22 | 2.2 | 0.6 | 250 | Melee — reach 2.3 m, arc 120°, telegraph 0.78 s, recovery 0.55 s, cooldown 0.7 s | `src/content/enemies/tower-knight.js · cfg` |
+| DRAGON-KNIGHT | 152 | 23 | 2.3 | 0.6 | 270 | Melee — reach 2.5 m, arc 120°, telegraph 0.8 s, recovery 0.56 s, cooldown 0.72 s, poise (windup uninterruptible) | `src/content/enemies/dragon-knight.js · cfg` |
+| CROSSBOWMAN | 53 | 13 | 2.8 | 0.44 | 175 | Ranged — band 7.5–11.5 m, volley every 2.6 s, projectile 16 m/s, telegraph 0.6 s | `src/content/enemies/crossbowman.js · cfg` |
+| RUSSET-ARCHER | 40 | 10 | 3.6 | 0.4 | 155 | Ranged — band 8.5–12.5 m, volley every 1.7 s, projectile 13.5 m/s, telegraph 0.44 s | `src/content/enemies/russet-archer.js · cfg` |
+| TEAL-ARCHER | 46 | 11 | 3.35 | 0.41 | 165 | Ranged — band 8–12 m, volley every 2 s, projectile 12.5 m/s, telegraph 0.48 s | `src/content/enemies/teal-archer.js · cfg` |
 
 ## Items & pickups
 

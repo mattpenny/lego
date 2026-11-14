@@ -3,7 +3,7 @@
 export const eagleKnight = {
   id: 'eagle-knight', kind: 'eagle-knight', type: 'enemy', cls: 'melee', figure: 'eagle-knight',
   cfg: {
-    hp: 84, speed: 2.50, dmg: 16, radius: 0.52, score: 180,
+    hp: 92, speed: 2.50, dmg: 18, radius: 0.52, score: 180,
     reach: 2.3, arcDeg: 110, tele: 0.58, recovery: 0.45, cd: 0.60,
   },
   cap: 2, wave: null, elite: false, events: [],

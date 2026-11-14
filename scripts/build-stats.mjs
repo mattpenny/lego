@@ -14,7 +14,7 @@ import { readdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  HEROES, HERO_IDS, HERO_MAGIC, HERO_ATTACK, HERO_STATS, RULES,
+  HEROES, HERO_IDS, HERO_MAGIC, HERO_ATTACK, HERO_AIM_ASSIST, HERO_STATS, RULES,
   BOSSES, BOSS_CFG_BY_CHAPTER, BOSS_PHASE2, ENEMY_CFG, ENEMIES,
   ITEMS, ITEM_DROPS, GEM_XP, GEM_SCORE, UPGRADE_LIST, FIGURE_SCALES,
   MAPS, FILL_POOL, FILL_POOLS,
@@ -64,8 +64,9 @@ for (const id of HERO_IDS) {
   const dmg = Math.round(HB.dmg * (st.dmgMul || 1));
   const spd = HB.runSpeed * (st.speedMul || 1);
   const rd = HB.rollDist * (st.rollDistMul || 1), rc = HB.rollCd * (st.rollCdMul || 1);
+  const aa = HERO_AIM_ASSIST[id];
   const atkTxt = atk
-    ? `Arrow — range ${fmt(atk.range)} m, speed ${fmt(atk.speed)} m/s`
+    ? `Arrow — range ${fmt(atk.range)} m, speed ${fmt(atk.speed)} m/s${aa ? `; aim assist — ${fmt(aa.coneDeg)}° cone${aa.lead ? ' + target lead (intercept)' : ''}` : ''}`
     : `Melee — range ${fmt(HB.range)} m, arc ${HB.arcDeg}°`;
   const m = HERO_MAGIC[id];
   const magTxt = !m ? `Arcane Blast — ${MG.dmg} dmg, ${fmt(MG.radius)} m radius, ${MG.cost} kills`
@@ -102,7 +103,7 @@ for (const ch of BOSS_CHAPTERS) {
   const P = BOSS_PHASE2;
   L.push(`| ${d.displayName} | Slam | ${b.slamDmg} | ${mul(b)} | **${landed(b.slamDmg, b)}** | reach ${fmt(b.slamRange)} m (centre distance), telegraph ${fmt(b.slamTele)} s | \`${f} · cfg.slamDmg / cfg.slamRange\` |`);
   L.push(`| ${d.displayName} | Slam (enraged) | ${b.slamDmg} + ${P.slamBonus} bonus | ${mul(b)} | **${landed(b.slamDmg + P.slamBonus, b)}** | bonus added BEFORE the multiplier | \`cfg.slamDmg\` + \`bosses/shared.js · BOSS_PHASE2.slamBonus\` |`);
-  L.push(`| ${d.displayName} | Charge | ${b.chargeDmg} | ${mul(b)} | **${landed(b.chargeDmg, b)}** | trigger ≤ ${fmt(b.chargeRange)} m, speed ${fmt(b.chargeSpeed)} m/s, telegraph ${fmt(b.chargeTele)} s | \`${f} · cfg.chargeDmg / cfg.chargeRange\` |`);
+  L.push(`| ${d.displayName} | Charge | ${b.chargeDmg} | ${mul(b)} | **${landed(b.chargeDmg, b)}** | trigger ≤ ${fmt(b.chargeRange)} m, speed ${fmt(b.chargeSpeed)} m/s, telegraph ${fmt(b.chargeTele)} s${b.chargeThru ? '; ignores ALL prop/theme colliders while charging (arena edge still applies)' : ''} | \`${f} · cfg.chargeDmg / cfg.chargeRange\` |`);
   if (b.breath) {
     const br = b.breath, t = landed(br.tickDmg, b);
     /* Ticks per breath = how many tick events the sim's accumulator

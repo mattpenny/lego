@@ -3,7 +3,7 @@
 export const krakenKnight = {
   id: 'kraken-knight', kind: 'kraken-knight', type: 'enemy', cls: 'melee', figure: 'kraken-knight',
   cfg: {
-    hp: 100, speed: 2.50, dmg: 17, radius: 0.54, score: 215,
+    hp: 110, speed: 2.50, dmg: 19, radius: 0.54, score: 215,
     reach: 2.35, arcDeg: 112, tele: 0.62, recovery: 0.48, cd: 0.62,
   },
   cap: 1, wave: null, elite: false, events: [],

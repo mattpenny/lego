@@ -48,6 +48,17 @@ export const HERO_ATTACK = deepFreeze(Object.fromEntries(
   Object.values(HEROES).filter((h) => h.attack).map((h) => [h.id, h.attack]),
 ));
 
+/** Aim assist for ranged heroes, keyed by hero id — only heroes WITH
+    an `aimAssist` block are listed. fireArrow() reads it through this
+    table via the hero's heroId: target selection narrows to coneDeg
+    and, with lead on, the shot is aimed at the target's intercept
+    point (its current velocity x the arrow's travel time) instead of
+    its position at release. Simulation input — hashed into
+    SIM_CONTENT. Today only Penny (frostarcher) carries one. */
+export const HERO_AIM_ASSIST = deepFreeze(Object.fromEntries(
+  Object.values(HEROES).filter((h) => h.aimAssist).map((h) => [h.id, h.aimAssist]),
+));
+
 /** Balance multipliers, keyed by hero id — only heroes WITH a `stats`
     block are listed; every other skin plays at x1.0. heroStats() reads
     it through this table via the hero's heroId and applies each

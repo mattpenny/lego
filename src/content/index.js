@@ -20,7 +20,7 @@ import { deepFreeze, assertRegistry, validateRegistry, describeRegistry } from '
 import { RULES } from './rules.js';
 import {
   HEROES, HERO_IDS, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC,
-  HERO_ATTACK, HERO_SLASH_TINTS, HERO_STATS,
+  HERO_ATTACK, HERO_AIM_ASSIST, HERO_SLASH_TINTS, HERO_STATS,
   DEFAULT_HERO, hasHero, safeHero, heroName,
 } from './heroes/index.js';
 import {
@@ -82,7 +82,7 @@ export const FILL_POOLS = deepFreeze(Object.fromEntries(
 export const SIM_CONTENT = deepFreeze({
   rules: RULES,
   heroCosts: HERO_COSTS, slashTips: HERO_SLASH_TIPS, heroMagic: HERO_MAGIC,
-  heroAttack: HERO_ATTACK, heroStats: HERO_STATS,
+  heroAttack: HERO_ATTACK, heroAimAssist: HERO_AIM_ASSIST, heroStats: HERO_STATS,
   enemies: ENEMY_CFG, caps: ENEMY_CAPS, wave: WAVE_RULES, fillPool: FILL_POOL,
   fillPools: FILL_POOLS,
   scheduledElites: SCHEDULED_ELITES, openerKind: OPENER_KIND,
@@ -100,7 +100,7 @@ export {
   deepFreeze, assertRegistry, validateRegistry, describeRegistry,
   RULES,
   HEROES, HERO_IDS, HERO_COSTS, HERO_SLASH_TIPS, HERO_MAGIC,
-  HERO_ATTACK, HERO_SLASH_TINTS, HERO_STATS,
+  HERO_ATTACK, HERO_AIM_ASSIST, HERO_SLASH_TINTS, HERO_STATS,
   DEFAULT_HERO, hasHero, safeHero, heroName,
   FIGURES, FIGURE_IDS, FIGURE_INK, TINTS, FIGURE_SCALES,
   ENEMIES, ENEMY_KINDS, ENEMY_CFG, ENEMY_CAPS, WAVE_RULES, FILL_POOL,

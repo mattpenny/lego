@@ -163,6 +163,25 @@ function checkHero(d, key, errors, warnings) {
       if (!isNum(a.r) || a.r < 0) errors.push(`${w}: attack.r (arrow radius) must be >= 0`);
     }
   }
+  /* Optional AIM ASSIST — a modifier on the ranged attack, same
+     pattern again: descriptor block -> HERO_AIM_ASSIST -> SIM_CONTENT.
+     Only meaningful on a hero WITH an attack block: selection narrows
+     to coneDeg and, with lead on, the shot is aimed at the target's
+     intercept point (current velocity x travel time). A hero WITHOUT
+     one keeps the plain attack.aimDeg snap, bit-identical. */
+  if (d.aimAssist !== undefined) {
+    const aa = d.aimAssist;
+    if (d.attack === undefined)
+      errors.push(`${w}: aimAssist requires an attack block`);
+    else if (!isObj(aa))
+      errors.push(`${w}: aimAssist must be an object`);
+    else {
+      if (!isNum(aa.coneDeg) || aa.coneDeg <= 0 || aa.coneDeg > 180)
+        errors.push(`${w}: aimAssist.coneDeg must be in (0,180]`);
+      if (aa.lead !== undefined && typeof aa.lead !== 'boolean')
+        errors.push(`${w}: aimAssist.lead must be a boolean`);
+    }
+  }
   /* Optional slash-crescent tint — VIEW ONLY (never in SIM_CONTENT).
      {core, rim} RGB triples fed to crescentGeo() for this hero's swings. */
   if (d.slashTint !== undefined) {

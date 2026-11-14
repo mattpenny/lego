@@ -16,6 +16,11 @@ export const emeraldDrake = {
     hp: 396, spawnMin: 26, spawnMax: 30, speed: 6.0,
     chargeSpeed: 16.0, chargeTele: 0.7, chargeDur: 0.55,
     chargeCd: 3.0, chargeRange: 6.5, chargeDmg: 24,
+    /* AB-NET-15 (g): while CHARGING the drake ignores every prop/theme
+       collider (fences, mesas, trees — straight line through); the
+       arena boundary still applies. Matt asked for a long-distance
+       charge that nothing blocks. */
+    chargeThru: true,
     slamTele: 0.55, slamRange: 2.645, slamDmg: 26, dmgMul: 1.1,
     radius: 1.95, score: 1800,
     /* Fire breath: mid-range cone attack. Facing LOCKS at telegraph
@@ -42,6 +47,7 @@ export const emeraldDrake = {
     'Close (< slam range): telegraphed stomp, same as the warlord slam.',
     'Mid range (3.5-11.5 m) with breath ready: 0.8 s locked-facing telegraph, then a 10.925 m / 50-degree fire cone, 10 dmg per 0.2 s tick (tickDmg 9 x dmgMul 1.1; 60 full exposure; 70 in phase 2).',
     'Far or breath on cooldown: telegraphed charge, as the warlord.',
+    'Charge (AB-NET-15 (g)): while charging, the drake ignores ALL prop/theme colliders — fences, mesas, trees — and runs a straight line through them; only the arena boundary still stops it. Trigger, 0.7 s telegraph, 16 m/s speed and 26 landed damage unchanged.',
     'Phase 2: summons 2 soldiers at <=50% HP; breath lasts 1.5 s and cools down faster; enrage at <=30% HP.',
     'FURY at <=15% HP (<=59.4 of 396): approach speed x1.15 again (6.0 -> 6.9 enraged -> 7.935 furious) and attack tempo x1.15 — telegraphs/cooldowns starting in fury are divided by 1.15 (breath cd 4.0 -> 3.478 s); breath ticks/duration unchanged.',
     'Size x1.3 (2026-11-13): sim radius 1.5 -> 1.95, breath mouth offset headDist 2.6 -> 3.38, figure meshScale 1.3.',
